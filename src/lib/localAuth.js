@@ -1,35 +1,106 @@
-// Autenticação 100% local (sem servidor): usuários e sessões ficam no
-// navegador (localStorage). O código de confirmação (OTP) do cadastro é
-// GERADO de verdade (6 dígitos, expira em 10 min, 5 tentativas) e enviado
-// por e-mail real quando o EmailJS está configurado em src/lib/emailSender.js.
-// Sem configuração, o código aparece na própria tela de verificação
-// (modo demonstração) para o fluxo nunca ficar bloqueado.
+// Autenticação. O código de confirmação (OTP) do cadastro é GERADO de
+// verdade (6 dígitos, expira em 10 min, 5 tentativas) e enviado por e-mail
+// real quando o Web3Forms está configurado em src/lib/emailSender.js; se o
+// envio falhar, o código aparece na própria tela de verificação (modo
+// demonstração) para o fluxo nunca ficar bloqueado.
+//
+// USUÁRIOS: guardados na NUVEM (Supabase, entidade "AuthUser" na tabela
+// `records`) para valer em qualquer máquina; se a nuvem não estiver
+// configurada, caem no localStorage deste navegador. A sessão continua
+// sendo por dispositivo (é preciso logar uma vez em cada máquina).
 //
 // ACESSO AO SISTEMA: toda conta usa a MESMA senha fixa (SYSTEM_PASSWORD).
-// Login exige e-mail já cadastrado + essa senha.
 
 import { sendVerificationCode } from '@/lib/emailSender';
+import {
+  isCloudConfigured,
+  fetchEntityRows,
+  upsertRows,
+} from '@/lib/cloudDb';
 
 export const SYSTEM_PASSWORD = 'Faby2335@';
 
 const USERS_KEY = 'gr_local_users';
 const SESSION_KEY = 'gr_local_session';
 const PENDING_KEY = 'gr_local_pending_registration';
+const USERS_ENTITY = 'AuthUser';
+const USERS_MIGRATION_FLAG = 'gr_cloud_users_migrated_v1';
 
 const OTP_TTL_MS = 10 * 60 * 1000; // código expira em 10 minutos
 const OTP_MAX_ATTEMPTS = 5; // bloqueia após 5 códigos errados
 const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]{2,}$/;
 
-function readUsers() {
+// ---------------------------------------------------------------------------
+// Armazenamento dos usuários (nuvem quando configurada, senão local)
+// ---------------------------------------------------------------------------
+function readUsersLocal() {
   try {
     return JSON.parse(localStorage.getItem(USERS_KEY)) || [];
   } catch {
     return [];
   }
 }
-function writeUsers(list) {
+function writeUsersLocal(list) {
   localStorage.setItem(USERS_KEY, JSON.stringify(list));
 }
+
+function toUserRow(user) {
+  return {
+    entity: USERS_ENTITY,
+    id: user.id,
+    data: user,
+    created_date: user.created_date || new Date().toISOString(),
+    updated_date: new Date().toISOString(),
+  };
+}
+
+// Migração única dos usuários locais para a nuvem (ids iguais → upsert não
+// duplica). Rode uma vez por navegador; erro não marca a flag (tenta de novo).
+async function migrateLocalUsersIfPending() {
+  if (!isCloudConfigured()) return;
+  if (localStorage.getItem(USERS_MIGRATION_FLAG)) return;
+  const localUsers = readUsersLocal();
+  if (localUsers.length) {
+    await upsertRows(localUsers.map(toUserRow));
+  }
+  localStorage.setItem(USERS_MIGRATION_FLAG, String(Date.now()));
+}
+
+async function listUsers() {
+  if (isCloudConfigured()) {
+    try {
+      await migrateLocalUsersIfPending();
+      return await fetchEntityRows(USERS_ENTITY);
+    } catch (err) {
+      console.error('[auth] Falha ao ler usuários da nuvem:', err);
+      throw new Error(
+        'Não foi possível acessar o banco de nuvem. Confirme que a tabela foi criada no Supabase (SQL da documentação).'
+      );
+    }
+  }
+  return readUsersLocal();
+}
+
+async function saveUser(user) {
+  if (isCloudConfigured()) {
+    await upsertRows([toUserRow(user)]);
+    // Mantém espelho local para a flag de migração nunca re-subir dados velhos.
+    const mirror = readUsersLocal().filter((u) => u.id !== user.id);
+    mirror.push(user);
+    writeUsersLocal(mirror);
+    return user;
+  }
+  const list = readUsersLocal();
+  const idx = list.findIndex((u) => u.id === user.id);
+  if (idx >= 0) list[idx] = user;
+  else list.push(user);
+  writeUsersLocal(list);
+  return user;
+}
+
+// ---------------------------------------------------------------------------
+// Utilitários
+// ---------------------------------------------------------------------------
 function readSession() {
   try {
     return JSON.parse(localStorage.getItem(SESSION_KEY)) || null;
@@ -55,10 +126,6 @@ function generateOtp() {
   crypto.getRandomValues(bytes);
   // Garante sempre 6 dígitos (ex.: 000123).
   return String(bytes[0] % 1000000).padStart(6, '0');
-}
-function findByEmail(email) {
-  const target = String(email || '').trim().toLowerCase();
-  return readUsers().find((u) => u.email.toLowerCase() === target);
 }
 function normalizeEmail(email) {
   return String(email || '').trim().toLowerCase();
@@ -105,7 +172,8 @@ export const localAuth = {
   async me() {
     const session = readSession();
     if (!session) throw authError('Não autenticado.', 401);
-    const user = readUsers().find((u) => u.id === session.userId);
+    const users = await listUsers();
+    const user = users.find((u) => u.id === session.userId);
     if (!user) throw authError('Não autenticado.', 401);
     const { password, ...safe } = user;
     return safe;
@@ -116,7 +184,8 @@ export const localAuth = {
     if (!EMAIL_REGEX.test(normalized)) {
       throw new Error('Informe um e-mail válido.');
     }
-    const user = findByEmail(normalized);
+    const users = await listUsers();
+    const user = users.find((u) => u.email?.toLowerCase() === normalized);
     if (!user) {
       throw new Error('E-mail não cadastrado. Faça o cadastro primeiro.');
     }
@@ -125,8 +194,7 @@ export const localAuth = {
     }
     // Migração: qualquer conta antiga passa a usar a senha fixa do sistema.
     if (user.password !== SYSTEM_PASSWORD) {
-      user.password = SYSTEM_PASSWORD;
-      writeUsers(readUsers().map((u) => (u.id === user.id ? user : u)));
+      await saveUser({ ...user, password: SYSTEM_PASSWORD });
     }
     localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
     return { access_token: `local-${user.id}` };
@@ -147,7 +215,7 @@ export const localAuth = {
 
   /**
    * Inicia o cadastro: valida os dados, gera o código de 6 dígitos e
-   * tenta enviá-lo por e-mail. Retorna { delivered, code }.
+   * tenta enviá-lo por e-mail. Retorna { delivered, code, warning }.
    */
   async register({ email, password }) {
     const normalized = normalizeEmail(email);
@@ -160,10 +228,11 @@ export const localAuth = {
     if (password !== SYSTEM_PASSWORD) {
       throw new Error(`A senha de acesso do sistema é "${SYSTEM_PASSWORD}".`);
     }
-    if (findByEmail(normalized)) {
+    const users = await listUsers();
+    if (users.some((u) => u.email?.toLowerCase() === normalized)) {
       throw new Error('Já existe uma conta com este e-mail. Faça o login.');
     }
-    const isFirstUser = readUsers().length === 0;
+    const isFirstUser = users.length === 0;
     const pending = {
       email: normalized,
       password: SYSTEM_PASSWORD,
@@ -173,15 +242,7 @@ export const localAuth = {
       created_at: Date.now(),
     };
     writePending(pending);
-    try {
-      return await issueOtp(pending);
-    } catch (err) {
-      // Falhou o envio real de e-mail: mantém o cadastro pendente e
-      // informa o erro para a tela mostrar (o fluxo não é perdido).
-      throw new Error(
-        `${err.message} Verifique a configuração do envio de e-mail (src/lib/emailSender.js).`
-      );
-    }
+    return issueOtp(pending);
   },
 
   /** Gera um NOVO código e reenvia para o e-mail do cadastro pendente. */
@@ -190,7 +251,8 @@ export const localAuth = {
     if (!pending || pending.email !== normalizeEmail(email)) {
       throw new Error('Cadastro não encontrado. Faça o cadastro novamente.');
     }
-    if (findByEmail(pending.email)) {
+    const users = await listUsers();
+    if (users.some((u) => u.email?.toLowerCase() === pending.email)) {
       throw new Error('Este e-mail já está cadastrado. Faça o login.');
     }
     return issueOtp(pending);
@@ -223,22 +285,18 @@ export const localAuth = {
       throw new Error(`Código incorreto. ${restantes} tentativa(s) restante(s).`);
     }
 
-    const id = uid();
-    const now = new Date().toISOString();
     const user = {
-      id,
+      id: uid(),
       email: pending.email,
       password: SYSTEM_PASSWORD,
       full_name: pending.full_name,
       role: pending.role,
-      created_date: now,
+      created_date: new Date().toISOString(),
     };
-    const users = readUsers();
-    users.push(user);
-    writeUsers(users);
+    await saveUser(user);
     localStorage.removeItem(PENDING_KEY);
-    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: id }));
-    return { access_token: `local-${id}` };
+    localStorage.setItem(SESSION_KEY, JSON.stringify({ userId: user.id }));
+    return { access_token: `local-${user.id}` };
   },
 
   setToken() {
@@ -246,7 +304,7 @@ export const localAuth = {
   },
 
   async resetPasswordRequest() {
-    // Sem servidor de e-mail próprio além do EmailJS do cadastro:
+    // Sem servidor de e-mail próprio além do Web3Forms do cadastro:
     // apenas confirma o pedido (a tela sempre mostra sucesso).
     return { ok: true };
   },

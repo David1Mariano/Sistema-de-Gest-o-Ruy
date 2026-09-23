@@ -15,4 +15,15 @@ export default defineConfig({
       '@': path.resolve(__dirname, './src'),
     },
   },
+  server: {
+    // Escuta em todas as interfaces para aceitar acesso de outras
+    // máquinas da rede local (http://<IP-deste-PC>:5173/).
+    host: true,
+    port: 5173,
+    strictPort: true,
+  },
+  preview: {
+    host: true,
+    port: 4173,
+  },
 });

@@ -87,11 +87,11 @@ function stripMeta(row) {
   return rest;
 }
 
-function matchesQuery(row, query) {
+export function matchesQuery(row, query) {
   return Object.entries(query || {}).every(([k, v]) => row[k] === v);
 }
 
-function sortRows(rows, sort) {
+export function sortRows(rows, sort) {
   const field = sort ? (sort.startsWith('-') ? sort.slice(1) : sort) : 'created_date';
   const desc = sort ? sort.startsWith('-') : true;
   return [...rows].sort((a, b) => {

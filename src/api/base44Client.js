@@ -4,7 +4,12 @@
 // página precisasse ser reescrita — só a implementação por trás mudou:
 // agora tudo roda localmente no navegador (IndexedDB + localStorage),
 // sem servidor externo.
-import { createEntityClient, uploadFileLocal } from '@/lib/localDb';
+import { createEntityClient as createLocalEntityClient, uploadFileLocal } from '@/lib/localDb';
+import {
+  createEntityClient as createCloudEntityClient,
+  isCloudConfigured,
+  migrateLocalDataIfPending,
+} from '@/lib/cloudDb';
 import { localAuth } from '@/lib/localAuth';
 
 // Mesmas entidades que existiam no projeto Base44 (base44/entities/*.jsonc).
@@ -51,8 +56,15 @@ const ENTITY_NAMES = [
   'Warning',
 ];
 
+// Com o Supabase configurado, os dados vão para a NUVEM (compartilhados
+// entre máquinas); sem configuração, continua no IndexedDB local.
+const makeEntityClient = isCloudConfigured() ? createCloudEntityClient : createLocalEntityClient;
+
 const entities = {};
-for (const name of ENTITY_NAMES) entities[name] = createEntityClient(name);
+for (const name of ENTITY_NAMES) entities[name] = makeEntityClient(name);
+
+// Sobe para a nuvem, uma única vez por navegador, o que já existia local.
+migrateLocalDataIfPending();
 
 export const base44 = {
   entities,
