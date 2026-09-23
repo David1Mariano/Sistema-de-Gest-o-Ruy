@@ -8,6 +8,7 @@ import { toast } from '@/components/ui/use-toast';
 import TechnicalSheetDialog from '@/components/producao/TechnicalSheetDialog';
 import ProductionOrderDialog from '@/components/producao/ProductionOrderDialog';
 import DailyProductionDialog from '@/components/producao/DailyProductionDialog';
+import ProductionConsumptionDialog from '@/components/producao/ProductionConsumptionDialog';
 import TechnicalSheetsTable from '@/components/producao/TechnicalSheetsTable';
 import ProductionOrdersTable from '@/components/producao/ProductionOrdersTable';
 import DailyProductionTable from '@/components/producao/DailyProductionTable';
@@ -35,6 +36,8 @@ export default function Producao() {
   const [tab, setTab] = useState('fichas');
   const [dialog, setDialog] = useState(null); // 'ficha' | 'ordem' | 'diario' | null
   const [editing, setEditing] = useState(null);
+  // FASE 2A: registro exibido na conferência de consumo (somente leitura).
+  const [reviewRecord, setReviewRecord] = useState(null);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState('');
   const [partialError, setPartialError] = useState('');
@@ -108,6 +111,8 @@ export default function Producao() {
   const edit = (type, record) => { setEditing(record); setDialog(type); };
   const close = () => { setDialog(null); setEditing(null); };
   const changeTab = (value) => { setTab(value); close(); };
+  const reviewConsumption = (record) => setReviewRecord(record);
+  const closeReview = () => setReviewRecord(null);
 
   const remove = async (record) => {
     const ok = window.confirm(
@@ -176,6 +181,7 @@ export default function Producao() {
                 products={data.products}
                 onEdit={(x) => edit('diario', x)}
                 onDelete={remove}
+                onReviewConsumption={reviewConsumption}
               />
             </TabsContent>
           </Tabs>
@@ -204,6 +210,15 @@ export default function Producao() {
         products={data.products}
         orders={data.orders}
         onSaved={() => load({ silent: true })}
+        onReviewConsumption={reviewConsumption}
+      />
+      <ProductionConsumptionDialog
+        open={Boolean(reviewRecord)}
+        onClose={closeReview}
+        record={reviewRecord}
+        products={data.products}
+        ingredients={data.ingredients}
+        inventoryItems={data.inventory}
       />
     </div>
   );

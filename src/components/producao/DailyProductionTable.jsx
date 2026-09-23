@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Pencil, Trash2, PackageCheck, AlertTriangle, Layers, ClipboardList, X } from 'lucide-react';
+import { Pencil, Trash2, PackageCheck, AlertTriangle, Layers, ClipboardList, X, ClipboardCheck } from 'lucide-react';
 
 const inputCls = 'h-9 w-full rounded-md border bg-background px-3 text-sm';
 
@@ -23,7 +23,7 @@ const lossOf = (r) =>
     ? r.losses.reduce((s, l) => s + num(l.quantity), 0)
     : num(r.loss_quantity);
 
-export default function DailyProductionTable({ records, products, onEdit, onDelete }) {
+export default function DailyProductionTable({ records, products, onEdit, onDelete, onReviewConsumption }) {
   const [date, setDate] = useState('');
   const [productId, setProductId] = useState('');
   const [responsible, setResponsible] = useState('');
@@ -183,6 +183,14 @@ export default function DailyProductionTable({ records, products, onEdit, onDele
                       <div className="flex items-center gap-1">
                         <Button size="icon" variant="ghost" title="Editar" onClick={() => onEdit(r)}>
                           <Pencil className="w-4 h-4" />
+                        </Button>
+                        <Button
+                          size="icon"
+                          variant="ghost"
+                          title="Conferir consumo"
+                          onClick={() => onReviewConsumption?.(r)}
+                        >
+                          <ClipboardCheck className="w-4 h-4" />
                         </Button>
                         <Button
                           size="icon"

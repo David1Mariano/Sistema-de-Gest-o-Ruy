@@ -50,7 +50,7 @@ const newLoss = (date, responsible) => ({
 const sumLosses = (losses) =>
   (losses || []).reduce((s, l) => s + (Number(l.quantity) > 0 ? Number(l.quantity) : 0), 0);
 
-export default function DailyProductionDialog({ open, onClose, record, products, orders, onSaved }) {
+export default function DailyProductionDialog({ open, onClose, record, products, orders, onSaved, onReviewConsumption }) {
   const [form, setForm] = useState(blank);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
@@ -146,11 +146,12 @@ export default function DailyProductionDialog({ open, onClose, record, products,
 
     setSaving(true);
     // 1) Registro diário (se falhar aqui, nada foi salvo → erro no diálogo).
+    let savedRecord = null;
     try {
       if (record) {
-        await base44.entities.DailyProduction.update(record.id, payload);
+        savedRecord = await base44.entities.DailyProduction.update(record.id, payload);
       } else {
-        await base44.entities.DailyProduction.create(payload);
+        savedRecord = await base44.entities.DailyProduction.create(payload);
       }
     } catch (e) {
       setError(e?.message || 'Não foi possível salvar. Tente novamente.');
@@ -185,8 +186,14 @@ export default function DailyProductionDialog({ open, onClose, record, products,
         variant: 'destructive',
       });
     } else {
-      toast({ title: 'Produção registrada com sucesso.' });
+      toast({
+        title: 'Produção registrada com sucesso.',
+        description: 'Use a ação "Conferir consumo" na linha do registro para ver os insumos previstos.',
+      });
     }
+    // FASE 2A: abre a conferência de consumo do registro recém-salvo.
+    // Não altera nada; apenas exibe o cálculo da ficha técnica.
+    if (savedRecord) onReviewConsumption?.(savedRecord);
   };
 
   return (
