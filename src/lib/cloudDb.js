@@ -198,7 +198,16 @@ export function createEntityClient(entity) {
       return out;
     },
 
-    async deleteMany(ids = []) {
+    async deleteMany(target = []) {
+      // Compatível com as duas formas históricas:
+      //  - deleteMany([id1, id2])       → apaga por lista de ids
+      //  - deleteMany({ campo: valor }) → apaga todos que casam com o filtro
+      const ids = Array.isArray(target)
+        ? target
+        : (await fetchEntityRows(entity))
+            .filter((r) => matchesQuery(r, target))
+            .map((r) => r.id);
+      if (!ids.length) return { deleted: 0 };
       for (const id of ids) {
         await deleteRow(entity, id);
       }

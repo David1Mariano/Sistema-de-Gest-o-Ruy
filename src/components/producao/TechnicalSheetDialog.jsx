@@ -6,14 +6,165 @@ import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { Plus, Trash2 } from 'lucide-react';
 
-const blank={name:'',category:'',yield_quantity:1,yield_unit:'un',preparation_time_minutes:0,instructions:'',status:'ativo'};
-export default function TechnicalSheetDialog({open,onClose,product,inventory,ingredients,onSaved}){
- const [form,setForm]=useState(blank),[lines,setLines]=useState([]),[saving,setSaving]=useState(false),[error,setError]=useState('');
- useEffect(()=>{if(open){setForm(product?{...blank,...product}:blank);setLines(product?ingredients.filter(x=>x.product_id===product.id):[]);setError('')}},[open,product,ingredients]);
- const set=(key,value)=>setForm(x=>({...x,[key]:value}));
- const add=()=>setLines(x=>[...x,{inventory_item_id:'',quantity:1}]);
- const change=(i,key,value)=>setLines(x=>x.map((line,n)=>n===i?{...line,[key]:value}:line));
- const save=async()=>{if(!form.name||!lines.length||lines.some(x=>!x.inventory_item_id||Number(x.quantity)<=0)){setError('Preencha o produto e ao menos um insumo válido.');return}setSaving(true);setError('');try{const prepared=lines.map(line=>{const item=inventory.find(x=>x.id===line.inventory_item_id);return {...line,inventory_item_name:item.name,unit:item.unit,unit_cost:Number(item.average_cost||0),total_cost:Number(line.quantity)*Number(item.average_cost||0)}});const total=prepared.reduce((s,x)=>s+x.total_cost,0);const payload={...form,yield_quantity:Number(form.yield_quantity),preparation_time_minutes:Number(form.preparation_time_minutes||0),total_cost:total,unit_cost:total/Number(form.yield_quantity||1)};const saved=product?await base44.entities.ProductionProduct.update(product.id,payload):await base44.entities.ProductionProduct.create(payload);if(product)await base44.entities.RecipeIngredient.deleteMany({product_id:product.id});await base44.entities.RecipeIngredient.bulkCreate(prepared.map(x=>({...x,product_id:saved.id||product.id,product_name:form.name})));onClose();await onSaved()}catch(e){setError(e.message||'Não foi possível salvar.')}finally{setSaving(false)}};
- return <Dialog open={open} onOpenChange={v=>!v&&onClose()}><DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{product?'Editar ficha técnica':'Nova ficha técnica'}</DialogTitle></DialogHeader><div className="grid sm:grid-cols-2 gap-3"><Field label="Produto *"><Input value={form.name} onChange={e=>set('name',e.target.value)}/></Field><Field label="Categoria"><Input value={form.category} onChange={e=>set('category',e.target.value)}/></Field><Field label="Rendimento *"><Input type="number" min="0.01" step="0.01" value={form.yield_quantity} onChange={e=>set('yield_quantity',e.target.value)}/></Field><Field label="Unidade do rendimento"><Input value={form.yield_unit} onChange={e=>set('yield_unit',e.target.value)}/></Field><Field label="Tempo de preparo (min)"><Input type="number" value={form.preparation_time_minutes} onChange={e=>set('preparation_time_minutes',e.target.value)}/></Field></div><Field label="Modo de preparo"><textarea className="min-h-24 w-full rounded-md border bg-background p-3 text-sm" value={form.instructions} onChange={e=>set('instructions',e.target.value)}/></Field><div className="space-y-2"><div className="flex items-center justify-between"><Label>Insumos do estoque *</Label><Button size="sm" variant="outline" onClick={add}><Plus/>Adicionar</Button></div>{lines.map((line,i)=><div key={i} className="grid grid-cols-[1fr_110px_36px] gap-2"><select className="h-9 rounded-md border bg-background px-3 text-sm" value={line.inventory_item_id} onChange={e=>change(i,'inventory_item_id',e.target.value)}><option value="">Selecione o insumo</option>{inventory.filter(x=>x.status==='ativo').map(x=><option key={x.id} value={x.id}>{x.name} ({x.unit})</option>)}</select><Input type="number" min="0.001" step="0.001" value={line.quantity} onChange={e=>change(i,'quantity',e.target.value)}/><Button size="icon" variant="ghost" onClick={()=>setLines(x=>x.filter((_,n)=>n!==i))}><Trash2/></Button></div>)}</div>{error&&<p className="text-sm text-destructive">{error}</p>}<DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving}>{saving?'Salvando...':'Salvar ficha'}</Button></DialogFooter></DialogContent></Dialog>;
+const blank = {
+  name: '',
+  category: '',
+  yield_quantity: 1,
+  yield_unit: 'un',
+  preparation_time_minutes: 0,
+  instructions: '',
+  status: 'ativo',
+};
+
+export default function TechnicalSheetDialog({ open, onClose, product, inventory, ingredients, onSaved }) {
+  const [form, setForm] = useState(blank);
+  const [lines, setLines] = useState([]);
+  const [saving, setSaving] = useState(false);
+  const [error, setError] = useState('');
+
+  useEffect(() => {
+    if (!open) return;
+    setForm(product ? { ...blank, ...product } : blank);
+    setLines(product ? ingredients.filter((x) => x.product_id === product.id) : []);
+    setError('');
+  }, [open, product, ingredients]);
+
+  const set = (key, value) => setForm((x) => ({ ...x, [key]: value }));
+  const add = () => setLines((x) => [...x, { inventory_item_id: '', quantity: 1 }]);
+  const change = (i, key, value) =>
+    setLines((x) => x.map((line, n) => (n === i ? { ...line, [key]: value } : line)));
+
+  const save = async () => {
+    if (saving) return; // impede duplo clique
+    if (!form.name || !lines.length || lines.some((x) => !x.inventory_item_id || Number(x.quantity) <= 0)) {
+      setError('Preencha o produto e ao menos um insumo válido.');
+      return;
+    }
+    setSaving(true);
+    setError('');
+    try {
+      const prepared = lines.map((line) => {
+        const item = inventory.find((x) => x.id === line.inventory_item_id);
+        return {
+          ...line,
+          inventory_item_name: item.name,
+          unit: item.unit,
+          unit_cost: Number(item.average_cost || 0),
+          total_cost: Number(line.quantity) * Number(item.average_cost || 0),
+        };
+      });
+      const total = prepared.reduce((s, x) => s + x.total_cost, 0);
+      const payload = {
+        ...form,
+        yield_quantity: Number(form.yield_quantity),
+        preparation_time_minutes: Number(form.preparation_time_minutes || 0),
+        total_cost: total,
+        unit_cost: total / Number(form.yield_quantity || 1),
+      };
+      const saved = product
+        ? await base44.entities.ProductionProduct.update(product.id, payload)
+        : await base44.entities.ProductionProduct.create(payload);
+      // deleteMany aceita filtro (e lista de ids) nas duas camadas (local/nuvem).
+      await base44.entities.RecipeIngredient.deleteMany({ product_id: product?.id || saved.id });
+      await base44.entities.RecipeIngredient.bulkCreate(
+        prepared.map((x) => ({ ...x, product_id: saved.id || product.id, product_name: form.name }))
+      );
+      onClose();
+      await onSaved?.();
+    } catch (e) {
+      setError(e?.message || 'Não foi possível salvar.');
+    } finally {
+      setSaving(false);
+    }
+  };
+
+  return (
+    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+      <DialogContent className="max-w-3xl max-h-[90vh] overflow-y-auto">
+        <DialogHeader>
+          <DialogTitle>{product ? 'Editar ficha técnica' : 'Nova ficha técnica'}</DialogTitle>
+        </DialogHeader>
+        <div className="grid sm:grid-cols-2 gap-3">
+          <Field label="Produto *">
+            <Input value={form.name} onChange={(e) => set('name', e.target.value)} />
+          </Field>
+          <Field label="Categoria">
+            <Input value={form.category} onChange={(e) => set('category', e.target.value)} />
+          </Field>
+          <Field label="Rendimento *">
+            <Input
+              type="number"
+              min="0.01"
+              step="0.01"
+              value={form.yield_quantity}
+              onChange={(e) => set('yield_quantity', e.target.value)}
+            />
+          </Field>
+          <Field label="Unidade do rendimento">
+            <Input value={form.yield_unit} onChange={(e) => set('yield_unit', e.target.value)} />
+          </Field>
+          <Field label="Tempo de preparo (min)">
+            <Input
+              type="number"
+              value={form.preparation_time_minutes}
+              onChange={(e) => set('preparation_time_minutes', e.target.value)}
+            />
+          </Field>
+        </div>
+        <Field label="Modo de preparo">
+          <textarea
+            className="min-h-24 w-full rounded-md border bg-background p-3 text-sm"
+            value={form.instructions}
+            onChange={(e) => set('instructions', e.target.value)}
+          />
+        </Field>
+        <div className="space-y-2">
+          <div className="flex items-center justify-between">
+            <Label>Insumos do estoque *</Label>
+            <Button size="sm" variant="outline" onClick={add}>
+              <Plus /> Adicionar
+            </Button>
+          </div>
+          {lines.map((line, i) => (
+            <div key={i} className="grid grid-cols-[1fr_110px_36px] gap-2">
+              <select
+                className="h-9 rounded-md border bg-background px-3 text-sm"
+                value={line.inventory_item_id}
+                onChange={(e) => change(i, 'inventory_item_id', e.target.value)}
+              >
+                <option value="">Selecione o insumo</option>
+                {inventory.filter((x) => x.status !== 'inativo').map((x) => (
+                  <option key={x.id} value={x.id}>{x.name} ({x.unit})</option>
+                ))}
+              </select>
+              <Input
+                type="number"
+                min="0.001"
+                step="0.001"
+                value={line.quantity}
+                onChange={(e) => change(i, 'quantity', e.target.value)}
+              />
+              <Button size="icon" variant="ghost" onClick={() => setLines((x) => x.filter((_, n) => n !== i))}>
+                <Trash2 />
+              </Button>
+            </div>
+          ))}
+        </div>
+        {error && <p className="text-sm text-destructive">{error}</p>}
+        <DialogFooter>
+          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button onClick={save} disabled={saving}>{saving ? 'Salvando...' : 'Salvar ficha'}</Button>
+        </DialogFooter>
+      </DialogContent>
+    </Dialog>
+  );
 }
-function Field({label,children}){return <div className="space-y-1"><Label className="text-xs">{label}</Label>{children}</div>}
+
+function Field({ label, children }) {
+  return (
+    <div className="space-y-1">
+      <Label className="text-xs">{label}</Label>
+      {children}
+    </div>
+  );
+}
