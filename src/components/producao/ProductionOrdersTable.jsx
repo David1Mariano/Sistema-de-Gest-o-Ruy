@@ -1,0 +1,6 @@
+import { Button } from '@/components/ui/button';
+import { Pencil } from 'lucide-react';
+const fmt=v=>v?String(v).slice(0,10).split('-').reverse().join('/'):'—';
+export default function ProductionOrdersTable({orders,onEdit}){
+ return <div className="rounded-xl border bg-card overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted text-muted-foreground"><tr>{['Data','Produto','Planejado','Produzido','Prioridade','Status','Responsável','Ação'].map(x=><th key={x} className="px-4 py-3 text-left font-medium">{x}</th>)}</tr></thead><tbody className="divide-y">{orders.length?orders.map(o=><tr key={o.id}><td className="px-4 py-3">{fmt(o.date)}</td><td className="px-4 py-3 font-medium">{o.product_name}</td><td className="px-4 py-3">{o.planned_quantity} {o.unit}</td><td className="px-4 py-3">{o.produced_quantity||0} {o.unit}</td><td className="px-4 py-3 capitalize">{o.priority}</td><td className="px-4 py-3 capitalize">{String(o.status).replace('_',' ')}</td><td className="px-4 py-3">{o.responsible||'—'}</td><td className="px-4 py-3"><Button size="icon" variant="ghost" onClick={()=>onEdit(o)}><Pencil/></Button></td></tr>):<tr><td colSpan="8" className="p-10 text-center text-muted-foreground">Nenhuma ordem cadastrada.</td></tr>}</tbody></table></div></div>;
+}

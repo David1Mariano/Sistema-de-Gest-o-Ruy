@@ -1,0 +1,6 @@
+import { Button } from '@/components/ui/button';
+import { Pencil } from 'lucide-react';
+const brl=v=>Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
+export default function TechnicalSheetsTable({products,ingredients,onEdit}){
+ return <div className="rounded-xl border bg-card overflow-hidden"><div className="overflow-x-auto"><table className="w-full min-w-[760px] text-sm"><thead className="bg-muted text-muted-foreground"><tr>{['Produto','Categoria','Rendimento','Insumos','Custo total','Custo unitário','Ação'].map(x=><th key={x} className="px-4 py-3 text-left font-medium">{x}</th>)}</tr></thead><tbody className="divide-y">{products.length?products.map(p=><tr key={p.id}><td className="px-4 py-3 font-medium">{p.name}</td><td className="px-4 py-3">{p.category||'—'}</td><td className="px-4 py-3">{p.yield_quantity} {p.yield_unit}</td><td className="px-4 py-3">{ingredients.filter(x=>x.product_id===p.id).length}</td><td className="px-4 py-3">{brl(p.total_cost)}</td><td className="px-4 py-3">{brl(p.unit_cost)}</td><td className="px-4 py-3"><Button size="icon" variant="ghost" onClick={()=>onEdit(p)}><Pencil/></Button></td></tr>):<tr><td colSpan="7" className="p-10 text-center text-muted-foreground">Nenhuma ficha técnica cadastrada.</td></tr>}</tbody></table></div></div>;
+}
