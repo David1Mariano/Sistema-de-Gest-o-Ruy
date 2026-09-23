@@ -1,8 +1,8 @@
 import { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { todayISO, addDays, minutesToTime } from '@/lib/timeUtils';
-import { computeMetrics, deriveStatus, isIncomplete } from '@/lib/pontoUtils';
-import { FileBarChart, Download, Landmark } from 'lucide-react';
+import { computeMetrics, isIncomplete } from '@/lib/pontoUtils';
+import { Download, Landmark } from 'lucide-react';
 import { Link } from 'react-router-dom';
 import { useUserRole } from '@/lib/useUserRole';
 

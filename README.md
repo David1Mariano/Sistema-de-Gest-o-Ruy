@@ -1,77 +1,96 @@
-# Base44 Project
+# Sistema de Gestão Ruy
 
-Use this repository to run and edit the app locally, then publish changes back through Base44.
+Sistema de gestão desenvolvido para o **Ruy Caldo de Cana**, com o objetivo de centralizar, organizar e facilitar os processos administrativos e operacionais do negócio.
 
-Any change pushed to the repo will also be reflected in the Base44 Builder.
+## 📋 Sobre o projeto
 
-## Prerequisites
+O **Sistema de Gestão Ruy** está sendo desenvolvido para oferecer uma solução própria de gerenciamento, permitindo centralizar informações e facilitar o acompanhamento das atividades do estabelecimento.
 
-1. Clone the repository using the project's Git URL.
-2. Navigate to the project directory.
-3. Install dependencies: `npm install`.
-4. Install the Base44 CLI: `npm install -g base44@latest`.
+O projeto busca reduzir processos manuais, melhorar a organização das informações e proporcionar uma gestão mais eficiente e integrada.
 
-See the [Base44 CLI docs](https://docs.base44.com/developers/references/cli/get-started/overview) if you want to run Base44 commands directly.
+## 🚀 Objetivos
 
-## Run Locally
+* Centralizar as informações do negócio
+* Gerenciar produtos e categorias
+* Controlar estoque
+* Organizar a produção
+* Acompanhar vendas e pedidos
+* Gerenciar funcionários
+* Facilitar processos administrativos
+* Automatizar tarefas operacionais
+* Melhorar a visualização das informações da empresa
 
-Run the full local development environment from the project root:
+## 💻 Desenvolvimento local
+
+### Pré-requisitos
+
+Antes de começar, certifique-se de ter instalado:
+
+* [Node.js](https://nodejs.org/)
+* [Git](https://git-scm.com/)
+* Visual Studio Code ou outro editor de código de sua preferência
+
+### Instalação
+
+Clone o repositório:
 
 ```bash
-base44 dev
+git clone https://github.com/David1Mariano/Sistema-de-Gest-o-Ruy.git
 ```
 
-`base44 dev` starts the local Base44 development backend and, when this app is configured for it, also starts the frontend dev server for you. Use the frontend URL printed by the command.
+Entre na pasta do projeto:
 
-For example, when the Base44 project config includes a `serveCommand`, `base44 dev` can launch the frontend too:
-
-```json5
-{
-  "site": {
-    "serveCommand": "npm run dev"
-  }
-}
+```bash
+cd Sistema-de-Gest-o-Ruy
 ```
 
-In a Base44 project this lives in `base44/config.jsonc`.
+Instale as dependências:
 
-## Run Only The Frontend
+```bash
+npm install
+```
 
-If you only want to work on the frontend against the hosted Base44 backend, run:
+### Executando o projeto
+
+Para iniciar o ambiente de desenvolvimento:
 
 ```bash
 npm run dev
 ```
 
-Open the local URL printed by Vite.
+Após iniciar, o terminal exibirá o endereço local para acessar o sistema.
 
-## Use The Hosted Backend
+## 📁 Estrutura do projeto
 
-For frontend-only development, create or update `.env.local` in the project root:
+A estrutura do projeto pode ser organizada de acordo com os módulos e funcionalidades do sistema.
+
+À medida que o desenvolvimento avançar, esta seção será atualizada com a descrição das principais pastas e componentes.
+
+## 🔐 Segurança
+
+Informações sensíveis, como senhas, chaves de API, tokens e credenciais, **não devem ser armazenadas diretamente no código ou enviadas para o GitHub**.
+
+Utilize arquivos de ambiente, como `.env.local`, quando necessário, e mantenha esses arquivos fora do controle de versão por meio do `.gitignore`.
+
+## 🔄 Controle de versões
+
+O projeto utiliza **Git** para controle de versão e **GitHub** para armazenamento e gerenciamento do código-fonte.
+
+Para registrar alterações:
 
 ```bash
-VITE_BASE44_APP_ID=your_app_id
-VITE_BASE44_APP_BASE_URL=https://your-app.base44.app
+git add .
+git commit -m "Descrição da alteração"
+git push
 ```
 
-`VITE_BASE44_APP_ID` identifies the Base44 app.
+## 📌 Status do projeto
 
-`VITE_BASE44_APP_BASE_URL` tells the Base44 Vite plugin where to send local `/api` requests. Point it at your deployed Base44 app URL when you want the local frontend to use the hosted backend.
+🚧 **Em desenvolvimento**
 
-When you use `base44 dev`, the command injects the local Base44 values for you, so `.env.local` is mainly needed for frontend-only workflows.
+Novas funcionalidades e melhorias serão adicionadas continuamente ao sistema.
 
-## Publish Your Changes
+## 👨‍💻 Projeto
 
-After pushing your changes to git, open the Base44 dashboard and publish the app:
-
-```bash
-base44 dashboard open
-```
-
-## Docs & Support
-
-Documentation: [https://docs.base44.com/Integrations/Using-GitHub](https://docs.base44.com/Integrations/Using-GitHub)
-
-Base44 CLI command reference: [https://docs.base44.com/developers/references/cli/commands/introduction](https://docs.base44.com/developers/references/cli/commands/introduction)
-
-Support: [https://app.base44.com/support](https://app.base44.com/support)
+**Sistema de Gestão Ruy**
+Desenvolvido para o **Ruy Caldo de Cana**.

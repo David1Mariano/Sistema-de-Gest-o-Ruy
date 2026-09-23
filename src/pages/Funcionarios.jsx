@@ -9,7 +9,7 @@ import EmployeeForm from '@/components/rh/EmployeeForm';
 import { SangriaDialog } from '@/components/financeiro/SangriaPanel';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
-import { EMPLOYEE_STATUS, HIRE_TYPE_LABELS, tenure } from '@/lib/rhUtils';
+import { EMPLOYEE_STATUS, tenure } from '@/lib/rhUtils';
 
 const SANGRIA_ALLOWED = ['fabielle', 'patrick', 'luiz carlos neto', 'jocinei', 'gracielle', 'adriano', 'kamila'];
 const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');

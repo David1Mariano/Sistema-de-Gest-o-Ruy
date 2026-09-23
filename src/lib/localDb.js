@@ -187,7 +187,7 @@ export function createEntityClient(entity) {
         for (const data of items) {
           const id = data?.id || uid();
           const rec = { ...data, id, created_date: data?.created_date || now, updated_date: now };
-          // eslint-disable-next-line no-await-in-loop
+           
           await reqp(store.put({ ...rec, _key: `${entity}::${id}`, _entity: entity }));
           out.push(rec);
         }
@@ -200,7 +200,7 @@ export function createEntityClient(entity) {
     async deleteMany(ids = []) {
       await withStore('readwrite', async (store) => {
         for (const id of ids) {
-          // eslint-disable-next-line no-await-in-loop
+           
           await reqp(store.delete(`${entity}::${id}`));
         }
       });

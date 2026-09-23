@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { addDays, weekdayOf, formatBR, MONTH_LABELS } from '@/lib/timeUtils';
+import { MONTH_LABELS } from '@/lib/timeUtils';
 import { ChevronLeft, ChevronRight } from 'lucide-react';
 
 export default function EscalaMensal({ schedules }) {

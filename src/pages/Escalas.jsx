@@ -4,7 +4,7 @@ import { todayISO, startOfWeek, addDays, formatBR, weekdayOf, WEEKDAY_LABELS } f
 import { useAllSchedules, generateWeekFromStandard } from '@/lib/escalaData';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { Button } from '@/components/ui/button';
-import { Plus, Copy, CalendarDays, ChevronLeft, ChevronRight } from 'lucide-react';
+import { Plus, Copy, ChevronLeft, ChevronRight } from 'lucide-react';
 import EscalaDiaria from '@/components/escala/EscalaDiaria';
 import EscalaSemanal from '@/components/escala/EscalaSemanal';
 import EscalaMensal from '@/components/escala/EscalaMensal';

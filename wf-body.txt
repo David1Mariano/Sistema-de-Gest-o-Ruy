@@ -1,0 +1,1 @@
+{"success":true,"data":{"subject":"Teste API - Sistema de Gestao Ruy","from_name":"Teste","message":"Teste de envio - codigo 123456"},"message":"Form submitted successfully!"}

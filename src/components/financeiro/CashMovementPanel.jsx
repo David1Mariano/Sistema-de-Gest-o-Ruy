@@ -9,7 +9,7 @@ import { AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, 
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { logAudit } from '@/lib/pontoUtils';
-import { cashMoney, cashToday, channelLabels, movementTotals, sourceLabels } from '@/lib/cashMovementUtils';
+import { cashMoney, channelLabels, movementTotals, sourceLabels } from '@/lib/cashMovementUtils';
 import CashMovementKpis from './CashMovementKpis';
 import CashMovementLedger from './CashMovementLedger';
 import CashMovementForm from './CashMovementForm';

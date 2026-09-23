@@ -1,7 +1,7 @@
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
-import { todayISO, startOfWeek, endOfWeek, formatBR } from '@/lib/timeUtils';
+import { todayISO, formatBR } from '@/lib/timeUtils';
 import { EMPLOYEE_STATUS, rangeFor, inRange, brl } from '@/lib/rhUtils';
 import StatCard from '@/components/shared/StatCard';
 import { Button } from '@/components/ui/button';
