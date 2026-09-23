@@ -1,4 +1,0 @@
-﻿CURL_HTTP 200
-{"success":true,"data":{"subject":"Teste API - Sistema de Gestao Ruy","from_name":"Teste","message":"Teste de envio - codigo 123456"},"message":"Form submitted successfully!"}
-LINT exit=0
-BUILD exit=0
