@@ -7,6 +7,9 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Wallet, Receipt, Users, Bike, Package, AlertTriangle, Plus, Upload, Paperclip, Search, Settings2, BadgeDollarSign, CalendarClock, CheckCircle2, Pencil } from 'lucide-react';
+import { toast } from '@/components/ui/use-toast';
+import { logAudit } from '@/lib/pontoUtils';
+import { roundMoney } from '@/lib/numberUtils';
 import FechamentoCaixaPanel from '@/components/financeiro/FechamentoCaixaPanel';
 import SangriaPanel from '@/components/financeiro/SangriaPanel';
 import CashMovementPanel from '@/components/financeiro/CashMovementPanel';
@@ -44,12 +47,18 @@ export default function Financeiro() {
   const [data, setData] = useState({ expenses:[], payments:[], employees:[], vales:[], consumptions:[], categories:[], centers:[], payables:[], accounts:[], recurrings:[], closes:[], fechamentosCaixa:[], sangrias:[], cashMovements:[] });
   const [batchOpen, setBatchOpen] = useState(false);
   const [consumptionOpen, setConsumptionOpen] = useState(false);
+  const [expenseEditing, setExpenseEditing] = useState(null);
+  const [showCancelled, setShowCancelled] = useState(false);
+  const [loadError, setLoadError] = useState('');
 
   const load = async () => {
     setLoading(true);
+    // A carga de gastos é obrigatória: se falhar, o usuário precisa saber
+    // (antes o .catch(()=>[]) transformava falha de banco em "Nenhum gasto").
+    setLoadError('');
     try {
-      const [expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements] = await Promise.all([
-        base44.entities.FinancialExpense.list('-date', 1000).catch(() => []),
+      const expenses = await base44.entities.FinancialExpense.list('-date', 1000);
+      const [payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements] = await Promise.all([
         base44.entities.EmployeePayment.list('-payment_date', 1000).catch(() => []),
         base44.entities.Employee.list('name', 500).catch(() => []),
         base44.entities.Vale.list('-date', 1000).catch(() => []),
@@ -65,16 +74,48 @@ export default function Financeiro() {
         isAdmin ? base44.entities.CashMovement.list('-date', 1500).catch(() => []) : Promise.resolve([]),
       ]);
       setData({ expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements });
+    } catch (e) {
+      setLoadError(e?.message || 'Não foi possível carregar os gastos.');
+      toast({ title: 'Falha ao carregar o financeiro', description: e?.message || 'Verifique a conexão.', variant: 'destructive' });
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [isAdmin]);
   useEffect(() => {
     if (!isAdmin) return undefined;
-    const unsubscribe = base44.entities.CashMovement.subscribe(() => load());
-    return unsubscribe;
+    // Reflete lançamentos feitos em outra aba/máquina sem exigir F5.
+    const uns = ['CashMovement', 'FinancialExpense'].map((n) => base44.entities[n]?.subscribe?.(() => load()));
+    return () => uns.forEach((u) => { try { u?.(); } catch { /* noop */ } });
   }, [isAdmin]);
 
   const periodExpenses = useMemo(() => data.expenses.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.expenses,start,end]);
+  // Cancelados saem dos totais, mas continuam consultáveis (rastreabilidade).
+  const allPeriodExpenses = useMemo(() => data.expenses.filter(x => x.date >= start && x.date <= end), [data.expenses,start,end]);
+  const expenseFiltered = useMemo(() => {
+    const base = showCancelled ? allPeriodExpenses : periodExpenses;
+    const q = search.trim().toLowerCase();
+    if (!q) return base;
+    return base.filter(x => `${x.description||''} ${x.category_name||''} ${x.beneficiary_name||''}`.toLowerCase().includes(q));
+  }, [allPeriodExpenses, periodExpenses, search, showCancelled]);
+
+  // Cancelar é lógico (nunca DELETE): o lançamento continua no banco para
+  // auditoria, apenas sai das somas — o mesmo padrão já usado em vales e
+  // contas a pagar.
+  const cancelExpense = async (expense) => {
+    if (!expense?.id) return;
+    if (!window.confirm(`Cancelar o gasto "${expense.description}" de ${brl(expense.amount)}?\n\nO lançamento será mantido no histórico e deixará de contar nos totais.`)) return;
+    try {
+      await base44.entities.FinancialExpense.update(expense.id, {
+        status: 'cancelado',
+        cancelled_at: new Date().toISOString(),
+        cancelled_by: currentUserName(),
+      });
+      await logAudit({ entity_type: 'FinancialExpense', entity_id: expense.id, action: 'exclusao_logica', field: 'status', old_value: expense.status, new_value: 'cancelado', reason: 'Cancelado pelo usuário', responsible_user: currentUserName() });
+      toast({ title: 'Gasto cancelado.' });
+      await load();
+    } catch (e) {
+      toast({ title: 'Não foi possível cancelar', description: e?.message || 'Tente novamente.', variant: 'destructive' });
+    }
+  };
   const periodPayments = useMemo(() => data.payments.filter(x => x.status !== 'cancelado' && (x.payment_date || x.work_date || x.reference_start || '') >= start && (x.payment_date || x.work_date || x.reference_start || '') <= end), [data.payments,start,end]);
   const periodVales = useMemo(() => data.vales.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.vales,start,end]);
   const periodConsumptions = useMemo(() => data.consumptions.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.consumptions,start,end]);
@@ -99,7 +140,6 @@ export default function Financeiro() {
     return { paid, personnel, advances, inputs, motoboy, pending, noProof };
   }, [periodExpenses, periodPayments]);
 
-  const expenseFiltered = useMemo(() => periodExpenses.filter(x => `${x.description||''} ${x.category_name||''} ${x.beneficiary_name||''}`.toLowerCase().includes(search.toLowerCase())), [periodExpenses,search]);
   const paymentFiltered = useMemo(() => periodPayments.filter(x => `${x.employee_name||''} ${PAYMENT_LABELS[x.payment_type]||''}`.toLowerCase().includes(search.toLowerCase())), [periodPayments,search]);
 
   return <div className="space-y-5">
@@ -126,12 +166,28 @@ export default function Financeiro() {
       </div>
     </>}
 
+    {loadError&&<div className="rounded-xl border border-red-200 bg-red-50 p-4 text-sm text-red-800"><p className="font-semibold">Falha ao acessar o banco</p><p className="mt-1">{loadError}</p><Button size="sm" variant="outline" className="mt-2" onClick={()=>load()}>Tentar novamente</Button></div>}
+
+    <div className="flex flex-wrap items-end gap-3 rounded-xl border bg-white p-3">
+      <div className="space-y-1">
+        <label className="text-xs text-slate-500">Data inicial</label>
+        <Input type="date" value={start} onChange={e=>setStart(e.target.value)} className="h-9 w-44" />
+      </div>
+      <div className="space-y-1">
+        <label className="text-xs text-slate-500">Data final</label>
+        <Input type="date" value={end} onChange={e=>setEnd(e.target.value)} className="h-9 w-44" />
+      </div>
+      <Button size="sm" variant="outline" onClick={()=>{setStart(monthStart());setEnd(today())}}>Este mês</Button>
+      <Button size="sm" variant="outline" onClick={()=>{setStart(`${today().slice(0,7)}-01`);setEnd(`${today().slice(0,7)}-${new Date(Number(today().slice(0,4)),Number(today().slice(5,7)),0).getDate()}`)}}>Mês atual completo</Button>
+      {start>end&&<span className="text-sm text-rose-600">A data inicial é posterior à final.</span>}
+    </div>
+
     <div className="flex gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</div>
 
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <><SearchBox value={search} setValue={setSearch}/><ExpenseTable rows={expenseFiltered} loading={loading}/></>}
+    {tab==='gastos' && <><SearchBox value={search} setValue={setSearch}/><label className="flex items-center gap-2 text-sm text-slate-600"><input type="checkbox" checked={showCancelled} onChange={e=>setShowCancelled(e.target.checked)}/>Mostrar gastos cancelados</label><ExpenseTable rows={expenseFiltered} loading={loading} onEdit={x=>{setExpenseEditing(x);setExpenseOpen(true)}} onCancel={cancelExpense}/></>}
     {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={loading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={loading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
@@ -140,7 +196,7 @@ export default function Financeiro() {
     {tab==='caixasdelivery' && isAdmin && <CashMovementPanel records={data.cashMovements} accounts={data.accounts} onSaved={load}/>} 
     {tab==='cadastros' && <Settings data={data} onSaved={load}/>} 
 
-    <ExpenseDialog open={expenseOpen} onClose={()=>setExpenseOpen(false)} onSaved={load} data={data}/>
+    <ExpenseDialog open={expenseOpen} onClose={()=>{setExpenseOpen(false);setExpenseEditing(null)}} onSaved={load} data={data} editing={expenseEditing}/>
     <PaymentDialog open={paymentOpen} onClose={()=>{setPaymentOpen(false);setPaymentEditing(null)}} onSaved={load} data={data} editing={paymentEditing}/>
     <BatchPaymentDialog open={batchOpen} onClose={()=>setBatchOpen(false)} onSaved={load} data={data}/>
     <ConsumptionDialog open={consumptionOpen} onClose={()=>setConsumptionOpen(false)} onSaved={load} data={data}/>
@@ -157,7 +213,7 @@ function Overview({expenses}) {
   return <div className="grid lg:grid-cols-2 gap-4"><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-3">Gastos por categoria</h3>{rows.length?rows.map(([k,v])=><div key={k} className="flex justify-between py-2 border-b text-sm"><span>{k}</span><strong>{brl(v)}</strong></div>):<p className="text-sm text-slate-400">Sem lançamentos no período.</p>}</div><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-2">Como usar</h3><div className="text-sm text-slate-600 space-y-2"><p>• Gastos comuns entram em <b>Novo gasto</b>.</p><p>• Salários, diárias, extras e acertos entram em <b>Pagamento</b>.</p><p>• Vales já cadastrados no RH são lançados pela aba <b>Vales</b>, evitando duplicidade.</p><p>• Todo pagamento pode receber comprovante e nota/documento fiscal.</p></div></div></div>
 }
 
-function ExpenseTable({rows,loading}) { return <div className="rounded-xl border bg-white overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Data','Descrição','Categoria','Centro de custo','Favorecido','Valor','Pagamento','Comprovante','Status'].map(h=><th key={h} className="text-left px-4 py-3 font-medium">{h}</th>)}</tr></thead><tbody className="divide-y">{loading?<tr><td colSpan={9} className="p-10 text-center text-slate-400">Carregando...</td></tr>:rows.length?rows.map(x=><tr key={x.id}><td className="px-4 py-3">{fmt(x.date)}</td><td className="px-4 py-3 font-medium">{x.description}</td><td className="px-4 py-3">{x.category_name||CLASS_LABELS[x.classification]||'—'}</td><td className="px-4 py-3">{x.cost_center_name||'—'}</td><td className="px-4 py-3">{x.beneficiary_name||'—'}</td><td className="px-4 py-3 font-semibold">{brl(x.amount)}</td><td className="px-4 py-3">{METHOD_LABELS[x.payment_method]||x.payment_method||'—'}</td><td className="px-4 py-3">{x.proof_url?<a className="text-emerald-700 underline" href={x.proof_url} target="_blank" rel="noreferrer">Abrir</a>:<span className="text-amber-600">Pendente</span>}</td><td className="px-4 py-3 capitalize">{x.status}</td></tr>):<tr><td colSpan={9} className="p-10 text-center text-slate-400">Nenhum gasto encontrado.</td></tr>}</tbody></table></div></div> }
+function ExpenseTable({rows,loading,onEdit,onCancel}) { return <div className="rounded-xl border bg-white overflow-hidden"><div className="overflow-x-auto"><table className="w-full text-sm min-w-[980px]"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Data','Descrição','Categoria','Centro de custo','Favorecido','Valor','Pagamento','Comprovante','Status','Ação'].map(h=><th key={h} className="text-left px-4 py-3 font-medium">{h}</th>)}</tr></thead><tbody className="divide-y">{loading?<tr><td colSpan={10} className="p-10 text-center text-slate-400">Carregando...</td></tr>:rows.length?rows.map(x=><tr key={x.id} className={x.status==='cancelado'?'opacity-50':''}><td className="px-4 py-3">{fmt(x.date)}</td><td className="px-4 py-3 font-medium">{x.description}</td><td className="px-4 py-3">{x.category_name||CLASS_LABELS[x.classification]||'—'}</td><td className="px-4 py-3">{x.cost_center_name||'—'}</td><td className="px-4 py-3">{x.beneficiary_name||'—'}</td><td className="px-4 py-3 font-semibold">{brl(x.amount)}</td><td className="px-4 py-3">{METHOD_LABELS[x.payment_method]||x.payment_method||'—'}</td><td className="px-4 py-3">{x.proof_url?<a className="text-emerald-700 underline" href={x.proof_url} target="_blank" rel="noreferrer">Abrir</a>:<span className="text-amber-600">Pendente</span>}</td><td className="px-4 py-3 capitalize">{x.status}</td><td className="px-4 py-3">{x.status!=='cancelado'&&<div className="flex items-center gap-1"><Button size="sm" variant="outline" onClick={()=>onEdit?.(x)}>Editar</Button><Button size="sm" variant="ghost" className="text-rose-600" onClick={()=>onCancel?.(x)}>Cancelar</Button></div>}</td></tr>):<tr><td colSpan={10} className="p-10 text-center text-slate-400">Nenhum gasto encontrado.</td></tr>}</tbody></table></div></div> }
 
 function EmployeePaymentSummary({rows,loading}) {
   return <div className="rounded-xl border bg-white overflow-hidden"><div className="p-4 border-b"><h3 className="font-semibold">Resumo por colaborador</h3><p className="text-xs text-slate-500">Pagamentos, vales e consumos do período selecionado. Apenas vales pendentes e consumos registrados entram em “A descontar”.</p></div><div className="overflow-x-auto"><table className="w-full text-sm min-w-[900px]"><thead className="bg-slate-50 text-xs uppercase text-slate-500"><tr>{['Colaborador','Setor/Função','Pagamentos','Vales','Consumos','A descontar','Saldo após descontos'].map(h=><th key={h} className="text-left px-4 py-3 font-medium">{h}</th>)}</tr></thead><tbody className="divide-y">{loading?<tr><td colSpan={7} className="p-10 text-center text-slate-400">Carregando...</td></tr>:rows.length?rows.map(x=><tr key={x.employee.id}><td className="px-4 py-3 font-medium">{x.employee.name}</td><td className="px-4 py-3 text-slate-600">{[x.employee.sector,x.employee.function].filter(Boolean).join(' · ')||'—'}</td><td className="px-4 py-3"><strong>{brl(x.paymentsTotal)}</strong><div className="text-xs text-slate-400">{x.payments.length} registro(s)</div></td><td className="px-4 py-3">{brl(x.vales.reduce((s,v)=>s+Number(v.amount||0),0))}<div className="text-xs text-amber-600">Pendente: {brl(x.pendingVales)}</div></td><td className="px-4 py-3">{brl(x.consumptions.reduce((s,c)=>s+Number(c.amount||0),0))}<div className="text-xs text-amber-600">A cobrar: {brl(x.pendingConsumptions)}</div></td><td className="px-4 py-3 font-semibold text-rose-700">{brl(x.pendingDiscounts)}</td><td className={`px-4 py-3 font-semibold ${x.paymentsTotal-x.pendingDiscounts<0?'text-rose-700':'text-emerald-700'}`}>{brl(x.paymentsTotal-x.pendingDiscounts)}</td></tr>):<tr><td colSpan={7} className="p-10 text-center text-slate-400">Nenhum pagamento, vale ou consumo encontrado no período.</td></tr>}</tbody></table></div></div>
@@ -167,30 +223,61 @@ function PaymentTable({rows,loading,onEdit}) { return <div className="rounded-xl
 
 function ValeFinanceTable({rows,onLaunch}) { const list=rows.filter(x=>x.status!=='cancelado'); return <div className="rounded-xl border bg-white overflow-hidden"><div className="p-4 border-b"><h3 className="font-semibold">Vales do RH</h3><p className="text-xs text-slate-500">O vale continua controlado no RH; aqui registramos a saída financeira e o comprovante.</p></div><div className="overflow-x-auto"><table className="w-full text-sm"><thead className="bg-slate-50"><tr><th className="text-left px-4 py-3">Data</th><th className="text-left px-4 py-3">Colaborador</th><th className="text-left px-4 py-3">Valor</th><th className="text-left px-4 py-3">Financeiro</th><th className="text-right px-4 py-3">Ação</th></tr></thead><tbody className="divide-y">{list.length?list.map(v=><tr key={v.id}><td className="px-4 py-3">{fmt(v.date)}</td><td className="px-4 py-3 font-medium">{v.employee_name}</td><td className="px-4 py-3">{brl(v.amount)}</td><td className="px-4 py-3">{v.financial_expense_id?<span className="text-emerald-700">Lançado ✓</span>:<span className="text-amber-600">Não lançado</span>}</td><td className="px-4 py-3 text-right">{!v.financial_expense_id&&<Button size="sm" variant="outline" onClick={()=>onLaunch(v)}>Lançar saída</Button>}</td></tr>):<tr><td colSpan={5} className="p-8 text-center text-slate-400">Nenhum vale cadastrado.</td></tr>}</tbody></table></div></div> }
 
-function ExpenseDialog({open,onClose,onSaved,data}) {
+function ExpenseDialog({open,onClose,onSaved,data,editing}) {
   const empty={date:today(),paid_date:today(),description:'',classification:'despesa_operacional',category_id:'',cost_center_id:'',beneficiary_type:'outro',beneficiary_name:'',employee_id:'',amount:'',payment_method:'pix',account:'',document_number:'',proof_url:'',invoice_url:'',status:'pago',observation:''};
-  const [f,setF]=useState(empty); const [saving,setSaving]=useState(false); const [up,setUp]=useState(''); const proof=useRef(); const invoice=useRef();
-  useEffect(()=>{if(open)setF(empty)},[open]); const set=(k,v)=>setF(x=>({...x,[k]:v}));
-  const upload=async(file,key)=>{if(!file)return;setUp(key);try{const {file_url}=await base44.integrations.Core.UploadFile({file});set(key,file_url)}finally{setUp('')}};
+  const isEdit=Boolean(editing&&editing.id);
+  const [f,setF]=useState(empty); const [saving,setSaving]=useState(false); const [up,setUp]=useState(''); const [error,setError]=useState(''); const proof=useRef(); const invoice=useRef();
+  useEffect(()=>{
+    if(!open)return;
+    setError('');
+    if(isEdit)setF({...empty,...editing,amount:Number(editing.amount||0)||'',paid_date:editing.paid_date||editing.date||today()});
+    else setF(empty);
+  },[open,editing,isEdit]);
+  const set=(k,v)=>setF(x=>({...x,[k]:v}));
+  const upload=async(file,key)=>{if(!file)return;setUp(key);try{const {file_url}=await base44.integrations.Core.UploadFile({file});set(key,file_url)}catch(e){setError(e?.message||'Falha ao anexar o arquivo.')}finally{setUp('')}};
+  // Valores monetários são numéricos no estado e no banco; a vírgula só
+  // existe na tela (CurrencyInput). "25,50" -> 25.5, nunca 2550 nem 25.
+  const amount=Number(f.amount);
+  const validate=()=>{
+    if(!f.description?.trim())return 'Informe a descrição do gasto.';
+    if(f.amount===''||f.amount===null||f.amount===undefined)return 'Informe o valor do gasto.';
+    if(!Number.isFinite(amount))return 'Valor inválido.';
+    if(amount<=0)return 'O valor precisa ser maior que zero.';
+    if(f.date&&!/^\d{4}-\d{2}-\d{2}$/.test(f.date))return 'Data inválida.';
+    if(f.beneficiary_type==='colaborador'&&!f.employee_id)return 'Selecione o colaborador.';
+    return '';
+  };
   const save=async()=>{
-    if(!f.description||!Number(f.amount))return;
-    if(f.beneficiary_type==='colaborador'&&!f.employee_id)return;
-    setSaving(true);
+    if(saving)return;
+    const problem=validate();if(problem){setError(problem);return;}
+    setSaving(true);setError('');
     try{
       const cat=data.categories.find(x=>x.id===f.category_id), center=data.centers.find(x=>x.id===f.cost_center_id);
       const emp=f.beneficiary_type==='colaborador'?data.employees.find(x=>x.id===f.employee_id):null;
       const paidDate=f.status==='pago'?(f.paid_date||f.date):'';
-      const expense=await base44.entities.FinancialExpense.create({...f,amount:Number(f.amount),category_name:cat?.name||'',cost_center_name:center?.name||'',beneficiary_id:emp?.id||'',beneficiary_name:emp?emp.name:f.beneficiary_name,origin_type:'manual',responsible_user:currentUserName(),paid_date:paidDate});
-      // Quando o gasto é de um colaborador, também lança um pagamento vinculado a ele, para aparecer na ficha da pessoa.
-      if(emp){
-        const payType=f.classification==='adiantamento_colaborador'?'adiantamento':'outros';
-        const pay=await base44.entities.EmployeePayment.create({employee_id:emp.id,employee_name:emp.name,sector:emp.sector||'',function:emp.function||'',payment_type:payType,reference_start:f.date,reference_end:f.date,work_date:f.date,days_quantity:1,daily_rate:0,gross_amount:Number(f.amount),discount_amount:0,net_amount:Number(f.amount),payment_date:paidDate||f.date,payment_method:f.payment_method,status:f.status,proof_url:f.proof_url,observation:f.observation,responsible_user:currentUserName()});
-        await base44.entities.EmployeePayment.update(pay.id,{financial_expense_id:expense.id});
+      const payload={...f,description:f.description.trim(),amount:roundMoney(amount),category_name:cat?.name||'',cost_center_name:center?.name||'',beneficiary_id:emp?.id||'',beneficiary_name:emp?emp.name:f.beneficiary_name,paid_date:paidDate};
+      if(isEdit){
+        // Editar não recria o lançamento: o mesmo FinancialExpense é atualizado,
+        // então o Financeiro continua contando o gasto uma única vez.
+        await base44.entities.FinancialExpense.update(editing.id,{...payload,updated_by:currentUserName()});
+        await logAudit({entity_type:'FinancialExpense',entity_id:editing.id,action:'alteracao',field:'amount',old_value:editing.amount,new_value:payload.amount,responsible_user:currentUserName()});
+        toast({title:'Gasto atualizado.'});
+      }else{
+        const expense=await base44.entities.FinancialExpense.create({...payload,origin_type:'manual',responsible_user:currentUserName()});
+        await logAudit({entity_type:'FinancialExpense',entity_id:expense.id,action:'criacao',new_value:`${payload.description} · R$ ${payload.amount}`,responsible_user:currentUserName()});
+        // Quando o gasto é de um colaborador, também lança um pagamento vinculado a ele, para aparecer na ficha da pessoa.
+        if(emp){
+          const payType=f.classification==='adiantamento_colaborador'?'adiantamento':'outros';
+          const pay=await base44.entities.EmployeePayment.create({employee_id:emp.id,employee_name:emp.name,sector:emp.sector||'',function:emp.function||'',payment_type:payType,reference_start:f.date,reference_end:f.date,work_date:f.date,days_quantity:1,daily_rate:0,gross_amount:payload.amount,discount_amount:0,net_amount:payload.amount,payment_date:paidDate||f.date,payment_method:f.payment_method,status:f.status,proof_url:f.proof_url,observation:f.observation,responsible_user:currentUserName()});
+          await base44.entities.EmployeePayment.update(pay.id,{financial_expense_id:expense.id});
+        }
+        toast({title:'Gasto salvo.',description:`R$ ${brl(payload.amount)}`});
       }
       onClose();await onSaved();
-    }finally{setSaving(false)}
+    }catch(e){setError(e?.message||'Não foi possível salvar o gasto.');}
+    finally{setSaving(false)}
   };
-  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>Novo gasto</DialogTitle></DialogHeader><div className="grid sm:grid-cols-2 gap-3"><Field l="Data"><Input type="date" value={f.date} onChange={e=>set('date',e.target.value)}/></Field><Field l="Status"><Select v={f.status} on={v=>set('status',v)} opts={[['pago','Pago'],['pendente','Pendente']]}/></Field><div className="sm:col-span-2"><Field l="Descrição"><Input value={f.description} onChange={e=>set('description',e.target.value)} placeholder="Ex.: Compra de queijo, gás, manutenção..."/></Field></div><Field l="Classificação"><Select v={f.classification} on={v=>set('classification',v)} opts={Object.entries(CLASS_LABELS)}/></Field><Field l="Categoria"><select className={inputCls} value={f.category_id} onChange={e=>set('category_id',e.target.value)}><option value="">Selecione...</option>{data.categories.filter(x=>x.status==='ativo').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field l="Centro de custo"><select className={inputCls} value={f.cost_center_id} onChange={e=>set('cost_center_id',e.target.value)}><option value="">Selecione...</option>{data.centers.filter(x=>x.status==='ativo').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field l="Tipo de favorecido"><Select v={f.beneficiary_type} on={v=>{set('beneficiary_type',v);set('employee_id','');set('beneficiary_name','')}} opts={[['fornecedor','Fornecedor'],['colaborador','Colaborador'],['outro','Outro']]}/></Field>{f.beneficiary_type==='colaborador'?<Field l="Colaborador"><select className={inputCls} value={f.employee_id} onChange={e=>{const emp=data.employees.find(x=>x.id===e.target.value);set('employee_id',e.target.value);set('beneficiary_name',emp?.name||'')}}><option value="">Selecione...</option>{data.employees.filter(x=>x.status!=='inativo').map(x=><option key={x.id} value={x.id}>{x.name} {x.function?`· ${x.function}`:''}</option>)}</select></Field>:<Field l="Favorecido"><Input value={f.beneficiary_name} onChange={e=>set('beneficiary_name',e.target.value)} placeholder="Fornecedor, pessoa, estabelecimento..."/></Field>}<Field l="Valor"><Input type="number" value={f.amount} onChange={e=>set('amount',e.target.value)}/></Field><Field l="Forma de pagamento"><Select v={f.payment_method} on={v=>set('payment_method',v)} opts={Object.entries(METHOD_LABELS)}/></Field><Field l="Conta/Caixa de origem"><Input value={f.account} onChange={e=>set('account',e.target.value)} placeholder="Ex.: Itaú, Caixa loja, Mercado Pago"/></Field>{f.status==='pago'&&<Field l="Data do pagamento"><Input type="date" value={f.paid_date} onChange={e=>set('paid_date',e.target.value)}/></Field>}<Field l="Nº NF/Documento"><Input value={f.document_number} onChange={e=>set('document_number',e.target.value)}/></Field><div className="sm:col-span-2"><Field l="Observação"><Textarea rows={2} value={f.observation} onChange={e=>set('observation',e.target.value)}/></Field></div><UploadField label="Comprovante" value={f.proof_url} busy={up==='proof_url'} refEl={proof} onFile={file=>upload(file,'proof_url')}/><UploadField label="Nota/Documento fiscal" value={f.invoice_url} busy={up==='invoice_url'} refEl={invoice} onFile={file=>upload(file,'invoice_url')}/></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving||!f.description||!Number(f.amount)||(f.beneficiary_type==='colaborador'&&!f.employee_id)}>{saving?'Salvando...':'Salvar gasto'}</Button></DialogFooter></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{isEdit?'Editar gasto':'Novo gasto'}</DialogTitle></DialogHeader><div className="grid sm:grid-cols-2 gap-3"><Field l="Data"><Input type="date" value={f.date} onChange={e=>set('date',e.target.value)}/></Field><Field l="Status"><Select v={f.status} on={v=>set('status',v)} opts={[['pago','Pago'],['pendente','Pendente']]}/></Field><div className="sm:col-span-2"><Field l="Descrição"><Input value={f.description} onChange={e=>set('description',e.target.value)} placeholder="Ex.: Compra de queijo, gás, manutenção..."/></Field></div><Field l="Classificação"><Select v={f.classification} on={v=>set('classification',v)} opts={Object.entries(CLASS_LABELS)}/></Field><Field l="Categoria"><select className={inputCls} value={f.category_id} onChange={e=>set('category_id',e.target.value)}><option value="">Selecione...</option>{data.categories.filter(x=>x.status==='ativo').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field l="Centro de custo"><select className={inputCls} value={f.cost_center_id} onChange={e=>set('cost_center_id',e.target.value)}><option value="">Selecione...</option>{data.centers.filter(x=>x.status==='ativo').map(x=><option key={x.id} value={x.id}>{x.name}</option>)}</select></Field><Field l="Tipo de favorecido"><Select v={f.beneficiary_type} on={v=>{set('beneficiary_type',v);set('employee_id','');set('beneficiary_name','')}} opts={[['fornecedor','Fornecedor'],['colaborador','Colaborador'],['outro','Outro']]}/></Field>{f.beneficiary_type==='colaborador'?<Field l="Colaborador"><select className={inputCls} value={f.employee_id} onChange={e=>{const emp=data.employees.find(x=>x.id===e.target.value);set('employee_id',e.target.value);set('beneficiary_name',emp?.name||'')}}><option value="">Selecione...</option>{data.employees.filter(x=>x.status!=='inativo').map(x=><option key={x.id} value={x.id}>{x.name} {x.function?`· ${x.function}`:''}</option>)}</select></Field>:<Field l="Favorecido"><Input value={f.beneficiary_name} onChange={e=>set('beneficiary_name',e.target.value)} placeholder="Fornecedor, pessoa, estabelecimento..."/></Field>}<Field l="Valor *"><CurrencyInput value={f.amount} onChange={v=>set('amount',v)}/></Field><Field l="Forma de pagamento"><Select v={f.payment_method} on={v=>set('payment_method',v)} opts={Object.entries(METHOD_LABELS)}/></Field><Field l="Conta/Caixa de origem"><Input value={f.account} onChange={e=>set('account',e.target.value)} placeholder="Ex.: Itaú, Caixa loja, Mercado Pago"/></Field>{f.status==='pago'&&<Field l="Data do pagamento"><Input type="date" value={f.paid_date} onChange={e=>set('paid_date',e.target.value)}/></Field>}<Field l="Nº NF/Documento"><Input value={f.document_number} onChange={e=>set('document_number',e.target.value)}/></Field><div className="sm:col-span-2"><Field l="Observação"><Textarea rows={2} value={f.observation} onChange={e=>set('observation',e.target.value)}/></Field></div><UploadField label="Comprovante" value={f.proof_url} busy={up==='proof_url'} refEl={proof} onFile={file=>upload(file,'proof_url')}/><UploadField label="Nota/Documento fiscal" value={f.invoice_url} busy={up==='invoice_url'} refEl={invoice} onFile={file=>upload(file,'invoice_url')}/></div>{error&&<div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}<DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving||!!validate()}>{saving?'Salvando...':isEdit?'Salvar alterações':'Salvar gasto'}</Button></DialogFooter></DialogContent></Dialog>
 }
 
 function PaymentDialog({open,onClose,onSaved,data,editing}) {

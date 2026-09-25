@@ -34,9 +34,17 @@ const tableSource = readFileSync(
   'utf8'
 );
 
+// Teste estático: a Fase 2A não pode introduzir escrita de estoque, mesmo
+// que futura baixa seja implementada sem revisão cuidadosa.
+//
+// A conferência LER `current_stock` para mostrar o saldo atual — isso é
+// permitido. O proibido é GRAVAR (atribuição `current_stock:`) ou chamar
+// qualquer entidade/método de escrita. Antes, o padrão `/current_stock/`
+// acusava a leitura e o check falhava mesmo com a Fase 2A correta.
 const dialogHasWriteAccess =
   /entities\.(StockMovement|InventoryItem)/.test(dialogSource) ||
-  /current_stock/.test(dialogSource) ||
+  /current_stock\s*:/.test(dialogSource) ||
+  /\btransact\s*\(/.test(dialogSource) ||
   /\.(create|update|delete|bulkCreate|deleteMany)\s*\(/.test(dialogSource) ||
   /fetch\s*\(/.test(dialogSource);
 

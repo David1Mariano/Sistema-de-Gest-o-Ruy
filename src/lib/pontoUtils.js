@@ -96,7 +96,9 @@ export async function logAudit({ entity_type, entity_id, action, field, old_valu
       responsible_user: responsible_user || '',
     });
   } catch (e) {
-    // auditoria não deve quebrar o fluxo principal
+    // A auditoria nunca deve derrubar o fluxo principal, mas a falha precisa
+    // ficar visível no console: silenciar esconderia erro de persistência.
+    console.error(`[auditoria] Falha ao registrar ${action} em ${entity_type}:`, e);
   }
 }
 

@@ -7,6 +7,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Plus, ShoppingCart, Truck, PackageCheck, FileText, Upload, Trash2, Building2 } from 'lucide-react';
+import { MOVEMENT_TYPES, registerMovement } from '@/lib/stockService';
 
 const today = () => new Date().toISOString().slice(0,10);
 const brl = v => Number(v||0).toLocaleString('pt-BR',{style:'currency',currency:'BRL'});
@@ -95,9 +96,38 @@ function PurchaseDialog({open,onClose,data,onSaved}){
 }
 
 function ReceiveDialog({purchase,open,onClose,data,onSaved}){
-  const [saving,setSaving]=useState(false);if(!purchase)return null;const items=data.purchaseItems.filter(x=>x.purchase_id===purchase.id&&x.status!=='cancelado');
-  const receive=async()=>{if(purchase.stock_posted)return;setSaving(true);try{for(const pi of items){const inv=data.inventory.find(x=>x.id===pi.inventory_item_id);if(!inv)continue;const oldQty=Number(inv.current_stock||0),qty=Number(pi.quantity||0),oldCost=Number(inv.average_cost||0),unitCost=Number(pi.unit_cost||0);const newQty=oldQty+qty;const avg=newQty>0?((oldQty*oldCost)+(qty*unitCost))/newQty:unitCost;await base44.entities.InventoryItem.update(inv.id,{current_stock:newQty,last_cost:unitCost,average_cost:avg});const mov=await base44.entities.StockMovement.create({date:today(),inventory_item_id:inv.id,item_name:inv.name,movement_type:'entrada_compra',quantity:qty,unit:inv.unit,unit_cost:unitCost,total_cost:qty*unitCost,purchase_id:purchase.id,purchase_item_id:pi.id,balance_after:newQty,responsible_user:currentUserName(),observation:`Recebimento da compra ${purchase.document_number||purchase.id}`});await base44.entities.PurchaseItem.update(pi.id,{received_quantity:qty,status:'recebido',observation:`Entrada registrada ${mov.id}`})}await base44.entities.Purchase.update(purchase.id,{status:'recebida',stock_posted:true,received_date:today(),responsible_user:currentUserName()});onClose();await onSaved()}finally{setSaving(false)}};
-  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Confirmar recebimento</DialogTitle></DialogHeader><div className="space-y-3"><div className="rounded-lg bg-slate-50 p-3"><p className="font-medium">{purchase.supplier_name}</p><p className="text-sm text-slate-500">{items.length} item(ns) · {brl(purchase.total_amount)}</p></div><div className="divide-y rounded-lg border px-3">{items.map(x=><div key={x.id} className="flex justify-between py-2 text-sm"><span>{x.item_name}</span><span>{x.quantity} {x.unit}</span></div>)}</div><p className="text-xs text-slate-500">Ao confirmar, os itens serão adicionados ao estoque e cada entrada ficará registrada no histórico. Esta ação é protegida contra lançamento em duplicidade.</p></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={receive} disabled={saving||purchase.stock_posted}>{saving?'Recebendo...':'Confirmar entrada no estoque'}</Button></DialogFooter></DialogContent></Dialog>
+  const [saving,setSaving]=useState(false);const [error,setError]=useState('');const items=data.purchaseItems.filter(x=>x.purchase_id===purchase?.id&&x.status!=='cancelado');
+  useEffect(()=>{if(open)setError('')},[open,purchase]);
+  if(!purchase)return null;
+  const receive=async()=>{
+    if(saving||purchase.stock_posted)return;
+    setSaving(true);setError('');
+    // Guarda de idempotência no próprio banco: a compra só recebe uma vez.
+    // Um duplo clique (ou duas abas) não pode dobrar a entrada.
+    const fresh=await base44.entities.Purchase.get(purchase.id);
+    if(fresh.stock_posted){setError('Esta compra já teve a entrada registrada.');setSaving(false);await onSaved();return;}
+    try{
+      for(const pi of items){
+        const inv=data.inventory.find(x=>x.id===pi.inventory_item_id);if(!inv)continue;
+        // registerMovement é a fonte única: saldo atômico + histórico, e o
+        // clientToken impede baixa duplicada se o processo repetir.
+        const {movement:mov}=await registerMovement({
+          item:inv,type:MOVEMENT_TYPES.ENTRADA_COMPRA,quantity:Number(pi.quantity||0),
+          date:today(),unit:inv.unit,unitCost:Number(pi.unit_cost||0),
+          originType:'compra',originId:purchase.id,reference:purchase.document_number||'',
+          purchaseId:purchase.id,purchaseItemId:pi.id,
+          observation:`Recebimento da compra ${purchase.document_number||purchase.id}`,
+          responsibleUser:currentUserName(),clientToken:`compra:${purchase.id}:${pi.id}`,
+          allowNegative:true,
+        });
+        await base44.entities.PurchaseItem.update(pi.id,{received_quantity:Number(pi.quantity||0),status:'recebido',observation:`Entrada registrada ${mov.id}`});
+      }
+      await base44.entities.Purchase.update(purchase.id,{status:'recebida',stock_posted:true,received_date:today(),responsible_user:currentUserName()});
+      onClose();await onSaved();
+    }catch(e){setError(e?.message||'Não foi possível registrar o recebimento.');}
+    finally{setSaving(false)}
+  };
+  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-xl"><DialogHeader><DialogTitle>Confirmar recebimento</DialogTitle></DialogHeader><div className="space-y-3"><div className="rounded-lg bg-slate-50 p-3"><p className="font-medium">{purchase.supplier_name}</p><p className="text-sm text-slate-500">{items.length} item(ns) · {brl(purchase.total_amount)}</p></div><div className="divide-y rounded-lg border px-3">{items.map(x=><div key={x.id} className="flex justify-between py-2 text-sm"><span>{x.item_name}</span><span>{x.quantity} {x.unit}</span></div>)}</div><p className="text-xs text-slate-500">Ao confirmar, os itens serão adicionados ao estoque e cada entrada ficará registrada no histórico. Esta ação é protegida contra lançamento em duplicidade.</p>{error&&<div className="rounded-lg border border-red-200 bg-red-50 p-3 text-sm text-red-800">{error}</div>}</div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={receive} disabled={saving||purchase.stock_posted}>{saving?'Recebendo...':'Confirmar entrada no estoque'}</Button></DialogFooter></DialogContent></Dialog>
 }
 
 function Field({l,children}){return <div className="space-y-1"><Label className="text-xs">{l}</Label>{children}</div>}

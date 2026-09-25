@@ -107,6 +107,58 @@ export async function deleteRow(entity, id) {
   return { id };
 }
 
+/**
+ * Compare-and-swap: só grava se a linha ainda estiver na versão lida.
+ * Se outra máquina gravou no meio, volta 0 linhas e o chamador decide repetir
+ * com o valor novo (é o que evita a perda de atualização).
+ */
+export async function casPatchRow(entity, id, expectedUpdatedDate, rec) {
+  const versioned = expectedUpdatedDate ? `&updated_date=eq.${enc(expectedUpdatedDate)}` : '';
+  const rows = await rest(`records?entity=eq.${enc(entity)}&id=eq.${enc(id)}${versioned}`, {
+    method: 'PATCH',
+    prefer: 'return=representation',
+    body: toRow(entity, rec),
+  });
+  return rows && rows.length ? rows[0].data : null;
+}
+
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms));
+
+/**
+ * Lê, calcula e grava o registro SEM perder atualização.
+ *
+ * Sem isto, duas saídas simultâneas partindo do mesmo saldo gravavam
+ * `saldo - 2` e `saldo - 3` em paralelo e o banco ficava com um dos dois
+ * (perdendo a outra). Aqui cada gravação é condicionada à versão lida; se
+ * houve conflito, o cálculo é refeito com o saldo mais recente.
+ */
+export async function transactRow(entity, id, mutate, { retries = 6 } = {}) {
+  let conflict = false;
+  for (let attempt = 0; attempt <= retries; attempt += 1) {
+    const row = await fetchRow(entity, id);
+    if (!row) throw new Error(`${entity} "${id}" não encontrado.`);
+    const patch = await mutate(row.data);
+    if (patch === null || patch === undefined) return row.data;
+    const next = {
+      ...row.data,
+      ...patch,
+      id,
+      created_date: row.data?.created_date || row.created_date || new Date().toISOString(),
+      updated_date: new Date().toISOString(),
+    };
+    const applied = await casPatchRow(entity, id, row.updated_date, next);
+    if (applied) return applied;
+    conflict = true;
+    await sleep(20 * (attempt + 1));
+  }
+  if (conflict) {
+    throw new Error(
+      `Não foi possível gravar ${entity} "${id}": o registro mudou durante ${retries + 1} tentativas. Tente de novo.`
+    );
+  }
+  return null;
+}
+
 // ---------------------------------------------------------------------------
 // subscribe: notifica quando algo muda nesta entidade (nesta aba) + um
 // "polling" global que dispara a refetch periódica para refletir mudanças
@@ -185,6 +237,13 @@ export function createEntityClient(entity) {
       await deleteRow(entity, id);
       notify(entity);
       return { id };
+    },
+
+    // Lê, calcula e grava sem perder atualização (ver transactRow).
+    async transact(id, mutate, options) {
+      const saved = await transactRow(entity, id, mutate, options);
+      notify(entity);
+      return saved;
     },
 
     async bulkCreate(items = []) {
