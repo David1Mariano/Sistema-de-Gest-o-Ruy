@@ -7,6 +7,8 @@ const specs = Object.freeze({
   criarRascunhoPedido: [], adicionarItem: ['draftId', 'productId', 'quantity'],
   removerItem: ['draftId', 'itemId'], consultarPedido: ['orderId'], transferirParaHumano: [],
 });
+// Nomes permitidos para o provedor de IA; nenhuma ferramenta fora daqui é executável.
+export const TOOL_NAMES = Object.freeze(Object.keys(specs));
 function scope(context) {
   if (!context?.verified || !context.subjectId || !context.merchantId || !context.provider) throw Error('UNVERIFIED_CONVERSATION_SCOPE');
 }

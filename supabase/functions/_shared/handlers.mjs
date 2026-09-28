@@ -1,6 +1,7 @@
 import { DeliveryError, publicFailure, requiredString, FOOD99_BLOCKED } from './delivery-domain.mjs';
 import { repository } from './repository.mjs';
 import { providerAdapter } from './delivery-providers.mjs';
+import { CONTACT_ACTIONS, contactAction } from './delivery-contacts.mjs';
 
 export async function readBody(request, max = 65536) {
   if (Number(request.headers.get('content-length')) > max) throw new DeliveryError('BODY_TOO_LARGE', 413);
@@ -54,9 +55,10 @@ export function managementHandler(env, deps = {}) {
       const body = parse(await readBody(request));
       if (!body || typeof body !== 'object' || Array.isArray(body)) throw new DeliveryError('INVALID_BODY');
       action = body.action;
-      const read = ['status', 'orders'].includes(body.action);
+      const read = ['status', 'orders', 'contact_scopes', 'customers', 'conversations', 'messages'].includes(body.action);
       const worker = !origin && body.action === 'sync' && equalSecret(request.headers.get('x-delivery-worker-secret'), env.DELIVERY_WORKER_SECRET);
       const actor = worker ? null : await authorize(request, env, !read, deps.fetcher);
+      if (CONTACT_ACTIONS.includes(body.action)) return respond(await contactAction(body, actor, repo));
       if (body.action === 'status') return respond({ integrations: await repo.status(), merchants: await repo.allMerchants(),
         ifoodConfigured: Boolean(env.IFOOD_CLIENT_ID && env.IFOOD_CLIENT_SECRET && env.DELIVERY_ENCRYPTION_KEY),
         pollingEnabled: env.IFOOD_POLLING_ENABLED === 'true', food99Blocker: FOOD99_BLOCKED });

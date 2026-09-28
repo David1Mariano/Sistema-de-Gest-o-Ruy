@@ -26,6 +26,15 @@ export async function closeDeliverySession() {
   await auth.auth.signOut({ scope: 'local' });
 }
 const messages = {
+  CONTACT_ACCESS_DENIED: 'Você não tem acesso a este canal/loja ou à alteração do atendimento.',
+  CONVERSATION_CHANGED: 'A conversa mudou. Atualize a leitura antes de assumir ou devolver o atendimento.',
+  CONVERSATION_NOT_FOUND: 'Conversa não encontrada neste canal/loja.',
+  INVALID_HANDOFF_VERSION: 'Versão do atendimento inválida para esta operação. Atualize a leitura da conversa.',
+  MESSAGE_NOT_FOUND: 'Mensagem de origem do atendimento não encontrada nesta conversa.',
+  MESSAGE_ID_CONFLICT: 'Mensagem já registrada com conteúdo diferente. Requer conferência manual.',
+  CUSTOMER_SCOPE_MISMATCH: 'Esta conversa pertence a outro cliente neste canal/loja.',
+  UNKNOWN_PROVIDER: 'Canal não reconhecido para atendimento.',
+  INVALID_IDENTIFIER: 'Identificador inválido para esta operação de atendimento.',
   IFOOD_NOT_CONFIGURED: 'iFood aguarda configuração segura e homologação no servidor.',
   FOOD99_NOT_AVAILABLE: 'AGUARDANDO HOMOLOGAÇÃO/CREDENCIAIS 99FOOD',
   DELIVERY_ACCESS_DENIED: 'Sua conta não está autorizada para esta operação de delivery.',

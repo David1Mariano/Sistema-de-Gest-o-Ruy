@@ -127,8 +127,9 @@ delivery-assistant.mjs contém AIProvider (não configurado), ConversationServic
 ToolRegistry. Não importa SDK/modelo, não contém chave e não está em Edge pública.
 AIProvider.plan recebe mensagem não confiável e lista de capacidades, retorna
 plano restrito. ConversationService só grava rascunho; não envia resposta.
-Não existe implementação de ferramenta de negócio ou repositório de conversas
-de produção. O store em memória existe somente nos testes.
+O store em memória continua existindo apenas nos testes; a persistência desta rodada
+está descrita em "Atendimento persistido". Não existe ferramenta de negócio com escrita
+(checkout, pedido final, Financeiro ou estoque).
 
 Ferramentas permitidas: consultarCardapio, consultarHorario, consultarProduto,
 criarRascunhoPedido, adicionarItem, removerItem, consultarPedido, transferirParaHumano.
@@ -154,10 +155,50 @@ modo e versão sob lock e cancelar itens anteriores. O adaptador de envio deve
 implementar lease/idempotência e definir corrida de envio já iniciado; não há
 garantia de cancelamento de mensagem entregue. Hoje nenhuma mensagem é enviada.
 
+## Atendimento persistido (migration preparada, não aplicada)
+
+Fecha a infraestrutura de atendimento: clientes, conversas, mensagens e handoff humano.
+A migration 202609290001_delivery_conversations.sql está versionada apenas para revisão:
+nada foi aplicado no Supabase, nenhuma policy foi criada e não houve deploy. Os testes
+executam a migration real em PostgreSQL na memória (PGlite).
+
+Identidade: delivery_customers é única por (provider, merchant_id, external_id). Nome e
+telefone nunca identificam nem associam pessoas; são dados informados pelo provedor,
+preenchidos apenas quando ausentes e nunca sobrescritos. delivery_conversations é única
+por (provider, merchant_id, external_id), referencia o cliente no mesmo escopo e nasce em
+modo humano. delivery_messages pertence à conversa e deduplica por (conversation_id,
+direction, external_id): o mesmo ID externo em outra loja ou provedor não colide.
+
+Conversa: modo explícito ai|human, responsável atual e version monotônica. Mensagem
+aceita ou rascunho persistido incrementam a versão. occurred_at é o horário do provedor e
+received_at o do recebimento; mensagem atrasada entra na história pelo horário do
+provedor, não sobrescreve modo/responsável e invalida rascunho pendente (falha segura).
+
+Handoff: delivery_set_handoff exige operador com can_manage no escopo da loja, audita uma
+linha por transição de versão (sem corpo de mensagem) e é idempotente na repetição.
+Assumir invalida rascunhos ainda não entregues e mantém o modo humano até um operador
+autorizado devolver o atendimento à IA.
+
+Resposta atrasada da IA: delivery_save_ai_draft grava o rascunho somente após revalidar
+modo e versão sob lock. Se o humano assumiu durante a inferência, a versão mudou, o
+rascunho é descartado e nenhuma mensagem outbound é criada. Não existe operação de envio:
+o rascunho fica registrado como draft e nunca é entregue.
+
+Ferramentas: ToolRegistry permanece allowlist server-side; o serviço persistente executa
+apenas ferramenta registrada com escopo verificado. transferirParaHumano é somente
+solicitação (quem altera o modo é o operador autorizado) e SQL, RH, Financeiro, estoque,
+usuários ou administração não são ferramentas disponíveis.
+
+Autorização: leitura de clientes/conversas/mensagens passa por sessão verificada e escopo
+da loja no servidor; assumir/devolver exige perfil administrativo e can_manage. Nenhuma
+tabela de atendimento concede policy ou grant a anon/authenticated.
+
 ## Segurança e privacidade
 
 Tokens iFood cifrados e server-side, controles de acesso/RLS existentes intactos.
-Sem persistência de clientes/conversas ou exposição nova de telefone/endereço.
+Persistência de clientes/conversas está versionada, mas não aplicada: nome/telefone só
+existem quando o provedor informa e só são retornados a operador autorizado da loja,
+nunca ao frontend anônimo, à IA ou a outra loja.
 Planejar autorização por loja, acesso mínimo, trilha auditável por metadados,
 verificação de webhooks por contrato, prevenção de replay, deduplicação e limites.
 Antes de coletar dados pessoais, definir finalidade/base legal, aviso, retenção,
@@ -176,10 +217,12 @@ Referência: [orientação ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias
    autorização/webhook/envio e requisitos comerciais antes de implementar.
 5. Escolher provedor IA, política de dados/custos e revisão de ferramentas; chave
    somente no servidor. Implementar grounding, validação e avaliação antes de envio.
-6. Projetar/aprovar migrations restritas de clientes, conversas, rascunhos, catálogo
-   e outbox, autorização multiloja, auditoria e retenção. Nenhuma aplicada agora.
-7. Implementar repositório transacional de conversas e testes de concorrência/queda;
-   depois ligar ferramentas e handoff. Validar todas as escritas em sandbox.
+6. Revisar e autorizar a migration de atendimento (clientes, conversas, mensagens,
+   rascunhos e auditoria de handoff) e definir quem popula delivery_operator_scopes em
+   homologação. Nada foi aplicado; catálogo e outbox seguem apenas projetados.
+7. Após a revisão: aplicar em ambiente aprovado, ligar a ingestão de mensagens à fila
+   verificada, construir a outbox transacional com lease/idempotência e expor a tela de
+   atendimento. Validar todas as escritas em sandbox antes de produção.
 8. Implementar canal próprio/checkout, pagamentos, KDS e conciliação separadamente.
 9. Somente após testes e autorização específica: merge, deploy e publicação.
 
@@ -187,5 +230,8 @@ Referência: [orientação ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias
 
 test:delivery inclui contratos, filtros, métricas, PII ausente, isolamento, adapters
 bloqueados, ferramentas proibidas, handoff em voo e replay, além dos testes iFood.
+delivery-contacts.test.mjs cobre clientes, conversas, mensagens, deduplicação, eventos
+fora de ordem, isolamento por loja, handoff idempotente, descarte de resposta atrasada da
+IA, autorização de operador e RLS/grants com a migration real em PGlite.
 Sem credenciais reais, sem SQL remoto ou mensagens. Regressões locais existentes
 continuam necessárias. Nenhuma mudança em Financeiro.jsx, Auth, estoque ou produção.
