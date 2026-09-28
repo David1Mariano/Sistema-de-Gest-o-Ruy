@@ -10,6 +10,7 @@ import { SangriaDialog } from '@/components/financeiro/SangriaPanel';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { EMPLOYEE_STATUS, tenure } from '@/lib/rhUtils';
+import { activeSectorOptions } from '@/lib/sectorUtils';
 
 const SANGRIA_ALLOWED = ['fabielle', 'patrick', 'luiz carlos neto', 'jocinei', 'gracielle', 'adriano', 'kamila'];
 const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -44,6 +45,8 @@ export default function Funcionarios() {
   useEffect(() => { load(); }, []);
 
   const functions = useMemo(() => [...new Set(employees.map((e) => e.function).filter(Boolean))], [employees]);
+  // Opções de setor do filtro: mesmas regras do cadastro (só Sector ativo).
+  const opcoesSetorFiltro = useMemo(() => activeSectorOptions(sectors), [sectors]);
 
   const filtered = useMemo(() => employees.filter((e) => {
     const q = search.toLowerCase();
@@ -86,8 +89,11 @@ export default function Funcionarios() {
         </div>
         <select value={sectorFilter} onChange={(e) => setSectorFilter(e.target.value)} className={selectCls}>
           <option value="">Todos os setores</option>
-          {sectors.filter((s) => s.status === 'ativo').map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-          {employees.filter((e) => e.sector && !sectors.some((s) => s.name === e.sector)).map((e) => <option key={e.sector} value={e.sector}>{e.sector}</option>)}
+          {/* Só setores ATIVOS da entity Sector. Antes esta lista somava também
+              os `Employee.sector` sem registro correspondente — era a segunda
+              fonte de "setores fantasmas". Filtrar por valor legado não é mais
+              possível, de propósito: assim ninguém reatribui a um setor inexistente. */}
+          {opcoesSetorFiltro.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
         </select>
         <select value={functionFilter} onChange={(e) => setFunctionFilter(e.target.value)} className={selectCls}>
           <option value="">Todas as funções</option>
