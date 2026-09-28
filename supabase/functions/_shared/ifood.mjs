@@ -25,7 +25,7 @@ export function ifoodProvider(env, repo, http = providerRequest, now = () => Dat
     return stored.accessToken;
   }
   async function authorized(path, init = {}) {
-    const execute = async force => http(`${IFOOD_BASE}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${await token(force)}` } });
+    const execute = async force => http(`${IFOOD_BASE}${path}`, { ...init, headers: { ...init.headers, Authorization: `Bearer ${await token(force)}` } }, path.startsWith('/order/v1.0/orders/') ? { attempts: 1 } : undefined);
     try { return await execute(false); }
     catch (error) { if (error.code !== 'PROVIDER_UNAUTHORIZED') throw error; return execute(true); }
   }
@@ -47,7 +47,7 @@ export function ifoodProvider(env, repo, http = providerRequest, now = () => Dat
     async begin() {
       config();
       const response = await http(`${IFOOD_BASE}/authentication/v1.0/oauth/userCode`, { method: 'POST', headers: { 'Content-Type': 'application/x-www-form-urlencoded' }, body: new URLSearchParams({ clientId: env.IFOOD_CLIENT_ID }) });
-      if (!response?.authorizationCodeVerifier || !response.userCode || !Number.isFinite(Number(response.expiresIn))) throw new DeliveryError('INVALID_AUTHORIZATION_RESPONSE', 502);
+      if (!response?.authorizationCodeVerifier || !response.userCode || (!Number.isFinite(Number(response.expiresIn)) || Number(response.expiresIn) <= 0)) throw new DeliveryError('INVALID_AUTHORIZATION_RESPONSE', 502);
       const url = new URL(response.verificationUrlComplete || response.verificationUrl);
       if (url.origin !== 'https://portal.ifood.com.br') throw new DeliveryError('INVALID_AUTHORIZATION_URL', 502);
       const stored = await unseal((await repo.integration('ifood'))?.sealed_credentials, env.DELIVERY_ENCRYPTION_KEY);
@@ -65,6 +65,7 @@ export function ifoodProvider(env, repo, http = providerRequest, now = () => Dat
       return { merchants: merchants.map(m => ({ merchant_id: m.id, name: m.name || null })) };
     },
     async sync({ poll = false } = {}) {
+      config();
       const start = now();
       const integration = await repo.integration('ifood');
       if (!['connected', 'attention', 'error'].includes(integration?.status)) throw new DeliveryError('IFOOD_NOT_CONNECTED', 409);
@@ -101,7 +102,8 @@ export function ifoodProvider(env, repo, http = providerRequest, now = () => Dat
           processed++;
         } catch (error) {
           failures++;
-          await repo.eventPatch(event, { attempts: event.attempts + 1, last_error: error instanceof DeliveryError ? error.code : 'SYNC_FAILED',
+          const exhausted = event.attempts + 1 >= 3 || (error.status === 404 && now() - Date.parse(event.envelope.createdAt) >= 600000);
+          await repo.eventPatch(event, { attempts: event.attempts + 1, last_error: exhausted ? 'ORDER_RETRY_EXHAUSTED' : error instanceof DeliveryError ? error.code : 'SYNC_FAILED',
             next_attempt_at: new Date(now() + Math.min(3600000, 30000 * 2 ** Math.min(event.attempts, 7))).toISOString() });
           if ([401, 403, 429].includes(error.status)) throw error;
         }

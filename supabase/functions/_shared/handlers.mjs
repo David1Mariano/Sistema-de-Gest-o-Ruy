@@ -1,5 +1,4 @@
-import { DeliveryError, eventEnvelope, publicFailure, requiredString, FOOD99_BLOCKED } from './delivery-domain.mjs';
-import { verifyIFoodSignature } from './provider-http.mjs';
+import { DeliveryError, publicFailure, requiredString, FOOD99_BLOCKED } from './delivery-domain.mjs';
 import { repository } from './repository.mjs';
 import { ifoodProvider } from './ifood.mjs';
 
@@ -76,7 +75,10 @@ export function managementHandler(env, deps = {}) {
       if (!locked) throw new DeliveryError('INTEGRATION_BUSY', 409);
       if (body.action === 'begin') return respond(await provider.begin());
       if (body.action === 'complete') return respond(await provider.complete(requiredString(body.authorizationCode)));
-      if (body.action === 'sync') return respond(await provider.sync({ poll: env.IFOOD_POLLING_ENABLED === 'true' }));
+      if (body.action === 'sync') {
+        if (env.IFOOD_POLLING_ENABLED !== 'true') throw new DeliveryError('POLLING_NOT_ENABLED', 409);
+        return respond(await provider.sync({ poll: true }));
+      }
       if (body.action === 'disconnect') return respond(await provider.disconnect());
       const merchant = requiredString(body.merchantId), external = requiredString(body.externalId), cashId = requiredString(body.cashMovementId);
       const order = await repo.order(platform, merchant, external);
@@ -97,22 +99,10 @@ export function managementHandler(env, deps = {}) {
   };
 }
 
-export function ifoodWebhookHandler(env, deps = {}) {
-  const repo = deps.repo || repository(env, fetch, 1800);
-  return async request => {
-    try {
-      if (request.method !== 'POST') throw new DeliveryError('METHOD_NOT_ALLOWED', 405);
-      if (!env.IFOOD_CLIENT_SECRET) throw new DeliveryError('IFOOD_NOT_CONFIGURED', 503);
-      const bytes = await readBody(request, 512000);
-      if (!await verifyIFoodSignature(bytes, request.headers.get('x-ifood-signature'), env.IFOOD_CLIENT_SECRET)) throw new DeliveryError('INVALID_SIGNATURE', 401);
-      const event = eventEnvelope(parse(bytes));
-      const integration = await repo.integration('ifood');
-      if (!['connected','attention','error'].includes(integration?.status)) throw new DeliveryError('IFOOD_NOT_CONNECTED', 409);
-      await repo.enqueue([event]); // Durável antes do 202. Worker pode reprocessar depois de queda.
-      return new Response(null, { status: 202 });
-    } catch (error) {
-      const failure = publicFailure(error);
-      return new Response(JSON.stringify({ error: failure.code }), { status: failure.status, headers: { 'Content-Type': 'application/json' } });
-    }
-  };
+// Official webhook requires centralized authentication; this app uses distributed auth.
+// Fail closed: no environment flag can enable an unsupported flow.
+export function ifoodWebhookHandler() {
+  return async () => new Response(JSON.stringify({ error: 'WEBHOOK_UNAVAILABLE_FOR_DISTRIBUTED' }), {
+    status: 501, headers: { 'Content-Type': 'application/json', 'Cache-Control': 'no-store' },
+  });
 }

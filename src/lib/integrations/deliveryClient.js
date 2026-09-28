@@ -43,8 +43,11 @@ const messages = {
   PERSISTENCE_UNAVAILABLE: 'Persistência indisponível. Não considere os totais atualizados.',
   PARTIAL_SYNC: 'Sincronização parcial; há eventos pendentes de reprocessamento.',
   SYNC_PENDING: 'Ainda há eventos aguardando processamento.',
+  POLLING_NOT_ENABLED: 'Configuração necessária: habilite a consulta de eventos no servidor após homologação.',
+  UNSUPPORTED_EVENT_TYPE: 'Evento não suportado registrado; confira a operação na plataforma.',
+  ORDER_RETRY_EXHAUSTED: 'Consulta de pedido interrompida após tentativas limitadas. Requer conferência manual.',
 };
-export const deliveryMessage = code => messages[code] || `Integração indisponível (${code || 'falha de conexão'}).`;
+export const deliveryMessage = code => messages[code] || 'Integração indisponível. Consulte o responsável pela configuração.';
 export async function deliveryCall(action, payload = {}) {
   if (!session || session.expiresAt <= Date.now()) { session = null; emit(); throw new Error(messages.ADMIN_VERIFICATION_REQUIRED); }
   let response;

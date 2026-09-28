@@ -1,246 +1,154 @@
-# Integrações de delivery — agente-2
+# Delivery: configuração e homologação
 
-## Baseline e limites
+## Estado auditado
 
-Auditoria em 25/09/2026, HEAD `45f2ff8712938b0ffa25388a950dc83dac0b6a05`, branch
-`agente-2` inicialmente limpa. Nenhum arquivo de outro worktree foi utilizado.
-React/Vite fala diretamente com `records`, usando chave pública e IndexedDB como
-fallback. Não havia backend, pasta Supabase, Edge Functions ou integrações de API.
-`CashMovement` representa conferências diárias por caixa/canal, com dinheiro,
-PIX, débito, crédito, vouchers e saídas. Não é tabela de pedidos. `Revenue` e
-`FinancialExpense` já são usados nos indicadores oficiais. Importar um pedido
-como nova receita/movimento automaticamente duplicaria lançamentos manuais.
+Workspace `C:\Users\Pichau\gestao-ruy-agente-2`, branch `agente-2`, início em
+`b34dde0d1e800b0aee47852df9d44c53cdd507f0`, árvore limpa. Supabase/JWT, comprovantes
+e produção local da main foram preservados. Não houve deploy, credenciais reais,
+loja real ou teste manual no navegador. Migrations não foram aplicadas no Supabase;
+testes SQL usam PGlite em memória. Código testado não significa integração homologada.
 
-Configurações: `src/pages/Configuracoes.jsx`. Financeiro usa `CashMovementPanel`.
-Resumo existente: `src/components/direcao/DirectionCashFlow.jsx`. Rotas em
-`src/App.jsx`. A autenticação legada não é prova de identidade para o backend:
-`localAuth.js` possui senha fixa histórica (`e3b0676`, também em origin/main).
-`emailSender.js` contém configuração Web3Forms histórica. Esses arquivos não são
-alterados nem usados para autorizar as integrações; a exposição histórica exige
-tratamento separado. Nenhum novo segredo será colocado em `records` ou `VITE_*`.
+## Correção da premissa sobre webhook
 
-Baseline de validação: lint/build passam; `test-fase2a.mjs` passa 7/7;
-`check-fase2a.mjs` falha em `dialogo-consulta-sem-escrita` porque a expressão
-proíbe inclusive a leitura de `current_stock`. Teste e estoque serão preservados.
+[Webhook é exclusivo da autenticação centralizada](https://developer.ifood.com.br/en-US/docs/food/guides/modules/events/webhook-overview).
+O adaptador atual usa autorização **distribuída**. A preparação anterior estava
+incorreta ao recomendar webhook nesse fluxo. Agora ifood-webhook responde 501
+WEBHOOK_UNAVAILABLE_FOR_DISTRIBUTED sem aceitar ou persistir eventos. Não cadastrar
+ou implantar esse webhook. Nenhuma flag o habilita silenciosamente. A primitiva
+HMAC permanece testada, mas não representa webhook operante.
 
-## Referências oficiais consultadas
+O transporte suportado é polling, desligado até configuração/homologação. A API
+recusa sync sem IFOOD_POLLING_ENABLED=true. Não implementamos client_credentials;
+o modelo centralizado exigirá implementação própria, inclusive presença.
 
-- [iFood: autorização distribuída](https://developer.ifood.com.br/en-US/docs/food/guides/modules/authentication/distributed)
-- [iFood: aprovação de merchants/homologação](https://developer.ifood.com.br/en-US/docs/getting-started/first-steps/request-access)
-- [iFood: endpoints de pedidos](https://developer.ifood.com.br/en-US/docs/food/guides/modules/order/endpoints)
-- [iFood: campos do pedido](https://developer.ifood.com.br/en-US/docs/guides/modules/order/details/)
-- [iFood: eventos e acknowledgment](https://developer.ifood.com.br/es-CO/docs/food/guides/modules/events/polling-overview)
-- [iFood: assinatura do webhook](https://developer.ifood.com.br/en-US/docs/food/guides/modules/events/webhook-signature)
-- [iFood: resposta do webhook](https://developer.ifood.com.br/en-US/docs/food/guides/modules/events/webhook-request)
-- [iFood: limites](https://developer.ifood.com.br/en-US/docs/getting-started/documentation/rate-limit/)
-- [iFood: uso indevido/presença](https://developer.ifood.com.br/en-US/docs/getting-started/documentation/improper-use)
-- [iFood: API financeira](https://blog-parceiros.ifood.com.br/conciliacao-financeira/)
-- [99Food: portal oficial](https://developer-food.99app.com/pt-BR/openapi/index)
+## Endpoints oficiais confirmados
 
-99Food: o portal apresentou apenas a aplicação JavaScript, sem contrato técnico
-de endpoints legível nesta sessão; navegador indisponível. Não foi obtido OpenAPI
-oficial autorizado nem sandbox. Nenhum endpoint 99Food será deduzido. O adaptador
-recusa operações com `AGUARDANDO HOMOLOGAÇÃO/CREDENCIAIS 99FOOD`. Também é necessário
-fornecer o contrato oficial e validar assinatura, unidades monetárias e eventos
-antes de habilitar normalização/persistência 99Food.
+Host: `https://merchant-api.ifood.com.br`.
 
-Não há garantia de histórico infinito. Os endpoints confirmados nesta etapa são
-de eventos incrementais e detalhe por ID; não foi confirmado um endpoint de
-listagem histórica. Não são inventados cursores, períodos, taxas, repasses ou
-líquido. A API financeira exige permissões/homologação e contrato próprio; seus
-campos não serão inferidos de `orderAmount` (valor cobrado do consumidor).
+| Método e caminho | Fonte |
+|---|---|
+| POST `/authentication/v1.0/oauth/userCode` | [Autorização distribuída](https://developer.ifood.com.br/en-US/docs/food/guides/modules/authentication/distributed) |
+| POST `/authentication/v1.0/oauth/token` | Mesmo contrato: authorization_code e refresh_token |
+| GET `/merchant/v1.0/merchants?page=1&size=100` | [Merchants](https://developer.ifood.com.br/en-US/docs/food/guides/modules/merchant/endpoints) |
+| GET `/order/v1.0/orders/{id}` | [Pedidos](https://developer.ifood.com.br/en-US/docs/food/guides/modules/order/endpoints) |
+| GET `/events/v1.0/events:polling` | [Eventos](https://developer.ifood.com.br/es-CO/docs/food/guides/modules/events/polling-overview) |
+| POST `/events/v1.0/events/acknowledgment` | Mesmo contrato; ACK após persistência |
 
-## Arquitetura entregue
+[Detalhes](https://developer.ifood.com.br/en-US/docs/food/guides/modules/order/details)
+fundamentam os campos normalizados. Não usamos blogs/terceiros como autoridade.
+[Rate limits](https://developer.ifood.com.br/en-US/docs/getting-started/documentation/rate-limit/)
+variam por endpoint. Há timeout, backoff e tratamento de 429.
+[Uso indevido](https://developer.ifood.com.br/en-US/docs/getting-started/documentation/improper-use)
+proíbe polling abaixo de 30 segundos e consultas excessivas do mesmo pedido.
+Descoberta: até 20 páginas, falha explícita se exceder. Polling: até 100 merchants,
+ACK em lotes de 1000 somente depois de persistir.
 
-`Configurações → acesso verificado → delivery-api → API oficial iFood`.
-O acesso adicional usa OTP por e-mail do Supabase Auth e é limitado aos UUIDs
-configurados pelo proprietário. A sessão exclusiva fica em memória, sem
-localStorage/IndexedDB, e não troca a autenticação do restante do aplicativo.
-Papéis/usuários vindos de `records` ou localAuth não são aceitos como autorização.
-A Edge consulta `/auth/v1/user` a cada chamada e confere allowlist server-side.
+[Workflow](https://developer.ifood.com.br/en-US/docs/food/guides/modules/order/workflow)
+documenta detalhes por até 7 dias e retry de 404 inicial por até 10 minutos.
+Não é endpoint de listagem histórica; não há backfill automático. Detalhes usam
+uma tentativa HTTP por processamento, podendo repetir uma vez após refresh em 401.
+Após três processamentos com erro, ou 404 fora da janela, ORDER_RETRY_EXHAUSTED
+retira o evento da fila automática, ainda pendente para conferência. Esse limite
+é por evento, não orçamento global por pedido.
 
-Tokens iFood e verifier são cifrados com AES-256-GCM, chave somente nos secrets
-da Edge Function. A tabela de integrações não tem grants para anon/authenticated.
-O endpoint status seleciona explicitamente apenas metadados. Nenhuma resposta
-ao browser inclui client secret, verifier, access token ou refresh token iFood.
-Administrações e refresh/sync são serializados por lease de cinco minutos; em
-queda da função, o lease expira. Guardar backup seguro da chave de cifragem;
-rotacioná-la exige recifrar credenciais ou reconectar, nunca publicar a chave.
+As regras de [HMAC](https://developer.ifood.com.br/en-US/docs/food/guides/modules/events/webhook-signature)
+e [resposta webhook](https://developer.ifood.com.br/en-US/docs/food/guides/modules/events/webhook-request)
+foram verificadas, mas não autorizam webhook no modelo distribuído.
 
-Rotas oficiais utilizadas no host `https://merchant-api.ifood.com.br`:
+## Arquitetura, arquivos e segurança
 
-| Método | Caminho | Uso |
-|---|---|---|
-| POST | `/authentication/v1.0/oauth/userCode` | Início da autorização distribuída |
-| POST | `/authentication/v1.0/oauth/token` | Troca de código e refresh |
-| GET | `/merchant/v1.0/merchants?page=...&size=100` | Merchants autorizados, até 20 páginas |
-| GET | `/order/v1.0/orders/{id}` | Detalhes de pedido de evento recebido |
-| GET | `/events/v1.0/events:polling` | Alternativa opcional, desligada por padrão |
-| POST | `/events/v1.0/events/acknowledgment` | Confirma evento já persistido |
+Componentes: `src/components/integrations/{DeliverySettings,DeliveryAccess,DeliveryFinancialPanel}.jsx`.
+Cliente, estados e cálculos: `src/lib/integrations/{deliveryClient,deliveryStatus,deliverySummary}.js`.
+Backend: `supabase/functions/delivery-api/index.ts`, `ifood-webhook/index.ts` (bloqueado),
+`_shared/{handlers,ifood,provider-http,repository,delivery-domain}.mjs`.
+Infraestrutura: `supabase/config.toml`, migration `202609250001_delivery_integrations.sql`,
+script opcional `supabase/ops/enable-delivery-worker.sql`, não executado.
+Testes: `scripts/test-delivery-integrations.mjs`, mocks e banco em memória.
+Montagens existentes: Configuracoes, CashMovementPanel, DirectionCashFlow.
 
-O fluxo distribuído devolve código ao lojista no portal iFood, que o informa no
-sistema. Não há callback OAuth fictício: a ação `complete` da Edge recebe esse
-código e troca server-side usando verifier cifrado. Refresh acontece antes da
-expiração ou após um 401, com apenas uma repetição após renovar. 403/revogação
-exigem atenção/reconexão. Desconectar apaga tokens locais e desabilita merchants;
-o responsável deve revogar também no Portal do Parceiro (nenhum endpoint de
-revogação não documentado foi inventado).
+| Tabela | Conteúdo |
+|---|---|
+| delivery_integrations | Estado, credenciais cifradas, datas observadas e lease |
+| delivery_merchants | Lojas autorizadas por plataforma/merchant |
+| delivery_events | Envelope mínimo, chave plataforma/merchant/evento, fila e tentativas |
+| delivery_orders | Pedido, chave plataforma/merchant/pedido, vínculo ao caixa |
 
-Webhook `ifood-webhook`: HMAC-SHA256 nos bytes originais usando client secret,
-conferido antes do JSON. Aceita eventos **de pedidos**, valida merchant habilitado,
-persiste o envelope mínimo e só então responde 202. Não busca detalhes antes de
-responder; chamadas ao banco têm timeout curto. Assinatura inválida → 401; banco
-indisponível → erro, permitindo retry do fornecedor. Configurar somente eventos
-de pedidos no portal; presença e payloads sem orderId não estão implementados.
+RLS e grants somente para service_role; anon/authenticated não acessam tabelas/RPCs.
+Nenhuma tabela/policy antiga é alterada. Tokens/verifier usam AES-256-GCM com chave
+externa à tabela. Status projeta metadados, nunca credenciais. Não há segredos
+delivery em React, VITE, records, localStorage ou IndexedDB, nem logs de tokens.
+Erros não propagam corpos do fornecedor.
 
-`delivery-api` ação `sync` drena a fila. Pode ser chamada manualmente por operador
-autorizado ou por cron com segredo próprio; esse segredo não autoriza conexão,
-desconexão, leitura de pedidos ou status. O worker processa lotes de até 20 eventos,
-com orçamento de tempo e retomada. Erros ficam pendentes com backoff até uma hora;
-eventos não suportados ficam registrados como tal, sem inventar status. Um erro
-parcial não avança `last_sync_at`. O número `pending` retornado é limitado a 20;
-ele indica backlog, não uma contagem global exata.
+Operador: verificação adicional Supabase `/auth/v1/user` e allowlist de UUIDs.
+Sessão adicional em memória, distinta do token iFood e do login principal intacto.
+Viewer somente leitura; CORS por origem exata; worker com segredo só para sync.
+verify_jwt=false não elimina essas verificações internas obrigatórias.
 
-Estados suportados: PLC, CFM, RTP, DSP, CON, CAN. Cancelamento conhecido pode ser
-aplicado mesmo sem consultar novamente o pedido. Atualização atômica de pedido e
-evento evita duplicação; data anterior ou regressão de estado terminal não desfaz
-cancelamento/conclusão. Envelope duplicado é ignorado; ID reutilizado com conteúdo
-divergente falha. Pedidos não contêm nome/endereço/telefone do consumidor.
+## Autorização, eventos e Financeiro
 
-Polling só é usado se `IFOOD_POLLING_ENABLED=true`. Filtra merchants (até 100),
-respeita intervalo mínimo de 30 segundos e envia ACK após persistir. Não confirmar,
-aceitar ou cancelar pedidos é uma decisão intencional: esta integração é de leitura
-para conferência, e a operação de atendimento continua no sistema já usado pela
-loja. Polling pode afetar presença/online no iFood; habilitar somente depois de
-homologação e revisão desse efeito com o iFood. Preferir webhook nesta etapa.
+userCode público → verifier cifrado → autorização no portal → código em input
+mascarado e limpo após envio → troca server-side → tokens cifrados → descoberta
+de merchants antes de marcar conectado. Refresh ocorre 60 segundos antes da
+expiração ou uma vez após 401; falhas exigem atenção/reautenticação. Desconectar
+elimina tokens locais e desabilita lojas; revogar também no portal, sem endpoint deduzido.
 
-## Persistência, financeiro e histórico
+Constraints, transação e locks impedem duplicação. Mesmo ID com envelope divergente
+falha; merchant incorreto é recusado. Eventos antigos não desfazem cancelamento ou
+conclusão. Replay não cria receita. Falhas parciais não avançam last_sync_at.
+pending é limitado a 20, não contagem global. PLC/CFM/RTP/DSP/CON/CAN são suportados;
+demais ficam identificados como não suportados. first_event_at é primeiro observado.
 
-Quatro tabelas novas: `delivery_integrations`, `delivery_merchants`,
-`delivery_events`, `delivery_orders`. Itens e pagamentos são projeções JSON
-normalizadas dentro do pedido; não é necessário criar sete tabelas vazias.
-Segredos nunca vão a `records`. Todas as tabelas têm RLS e grants apenas para
-service_role. Funções SQL são SECURITY INVOKER e também restritas ao service_role.
-A migration não altera tabelas ou policies existentes.
+CashMovement é conferência diária, não pedido. Financeiro vincula pedido ao movimento
+existente do mesmo dia/canal; servidor grava apenas metadados em delivery_orders.
+Não cria CashMovement, Revenue, FinancialExpense ou pagamento. O vínculo não prova
+liquidação nem conciliação automática de valores.
 
-Financeiro recebe a lista de pedidos importados dentro de **Caixas & Delivery**.
-O operador pode vincular um pedido ao `CashMovement` existente do mesmo dia/canal.
-A Edge verifica o registro novamente, não aceita campos financeiros enviados pelo
-cliente. O vínculo fica apenas em `delivery_orders`; não escreve nem soma valores
-em `CashMovement`, `Revenue` ou `FinancialExpense`. Um movimento diário pode
-representar vários pedidos; cabe ao Financeiro reconciliar seus valores.
+Configurações distingue Não configurado, Não conectado, Conectando, Conectado,
+Requer atenção, Erro e Reautenticação necessária. Código de autorização não aparece
+em texto aberto; userCode é código público de vinculação. Erros desconhecidos são genéricos.
+Resumo preserva Balcão/Caixa e separa delivery próprio/iFood/99Food. Sem métricas
+fictícias de plataforma sem sincronização. Taxas, líquido, recebíveis, estornos e
+repasses continuam indisponíveis. Leitura de pedidos é manual; cron precisa de
+instalação. Não há promessa de tempo real nem de ausência de vendas quando a fila está vazia.
 
-O resumo da Direção exibe a mesma consulta em modo leitura, separando pedidos
-das entradas oficiais. Delivery próprio vem dos lançamentos existentes; não
-inventamos sua quantidade de pedidos/ticket. Consolidado das APIs não é somado
-ao total oficial nem às entradas manuais. Essa etapa entrega **conferência**, não
-conciliação financeira automática ou reconhecimento contábil de receita.
+## 99Food
 
-Somente pedidos concluídos entram em valor bruto/ticket da consulta operacional;
-cancelados não entram. Taxas, comissão, líquido do restaurante, recebíveis,
-estornos e repasses ficam `null`/“Não disponível” porque não foram obtidos da API
-financeira. Importações parciais/sem conexão não provam ausência de vendas.
-
-Histórico: sem backfill não documentado. `first_event_at` é o primeiro evento
-observado, não a primeira data disponível no fornecedor; `last_event_at` é o
-último observado. A consulta visual é paginada por dia, até 10 mil registros
-(excesso gera erro, não total incompleto). Merchant discovery tem paginação real;
-polling de eventos não inventa cursor. Para períodos anteriores é necessário
-aprovar um módulo histórico/financeiro oficial e implementar seu contrato.
-
-Não há promessa de “Tempo real”. O badge antigo do resumo agora informa leitura
-periódica de 20s dos caixas; pedidos importados mostram a última sincronização e
-um botão de atualização. O agendador fica desativado até instalação manual.
+O [portal oficial](https://developer-food.99app.com/pt-BR/openapi/index) não forneceu
+contrato legível nesta sessão. Não encontramos OpenAPI suficiente no projeto ou
+documentação pública verificável de autorização/payloads. Configuração necessária,
+botão desabilitado. Não implementados: endpoints, OAuth, tokens, assinatura,
+webhooks, normalização ou estados presumidos. Adaptador recusa FOOD99_NOT_AVAILABLE.
 
 ## AÇÃO NECESSÁRIA DO PROPRIETÁRIO
 
-1. **iFood Developer:** criar/selecionar aplicativo **distribuído** para o CNPJ,
-   solicitar módulos Merchant/Order/Event e cumprir a homologação. Obter credenciais
-   do aplicativo e lojas de teste. Não enviar esses valores por chat ou Git.
-2. **99Food:** acessar o portal oficial, cadastrar aplicativo/parceria, obter
-   sandbox, contrato OpenAPI atual, método de autorização/assinatura, escopos e
-   processo de homologação. Fornecer a documentação sem segredos para implementar
-   o adaptador. O botão continuará bloqueado até essa etapa; não há API 99Food
-   funcional nesta entrega. Solicitar também disponibilidade do módulo financeiro.
-3. **Supabase:** revisar e aplicar `supabase/migrations/202609250001_delivery_integrations.sql`
-   primeiro em ambiente de teste; não foi aplicada ao banco remoto nesta sessão.
-   Se o projeto já tiver histórico de migrations remoto, conciliar esse histórico
-   antes de usar `db push`; não sobrescrever migrations antigas automaticamente.
-4. **Supabase Auth:** criar/confirmar os e-mails dos responsáveis. Anotar os UUIDs
-   reais de `auth.users`. Habilitar entrega de OTP por e-mail e configurar o
-   template Magic Link para conter `{{ .Token }}`. Não migrar AuthUser legado.
-   A verificação vale só para integrações, sem substituir o login existente.
-5. **Secrets das Edge Functions**, somente server-side:
-   `IFOOD_CLIENT_ID`, `IFOOD_CLIENT_SECRET`, `DELIVERY_ENCRYPTION_KEY` (32 bytes
-   aleatórios em Base64), `DELIVERY_ADMIN_USER_IDS` (UUIDs separados por vírgula),
-   `DELIVERY_VIEWER_USER_IDS` (opcional), `DELIVERY_ALLOWED_ORIGINS` (origens exatas,
-   incluindo a porta), `DELIVERY_WORKER_SECRET` (aleatório, mínimo 32 caracteres).
-   `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY` são fornecidos
-   pelo runtime Supabase. `IFOOD_POLLING_ENABLED` é opcional e permanece falso.
-   Não criar nenhuma variável VITE para credencial de plataforma. Credenciais
-   99Food ainda não têm nomes assumidos porque seu contrato não foi confirmado.
-6. **Deploy das funções**, após revisar os secrets e selecionar o projeto correto:
+1. Criar/selecionar aplicativo distribuído no iFood Developer, módulos Merchant/Order/Event
+   e lojas de teste; cumprir os critérios oficiais de homologação.
+2. Confirmar com iFood uso de leitura/conferência, polling, presença e coexistência
+   com o PDV que confirma pedidos. Não ligar polling em loja real sem validação.
+3. Escolher Supabase de teste e revisar histórico remoto antes de aplicar manualmente,
+   com autorização, a migration preparada. Nenhuma aplicação remota nesta tarefa.
+4. Configurar operadores Auth, e-mail/OTP, template `{{ .Token }}` e UUIDs autorizados.
+5. Secrets server-side: `IFOOD_CLIENT_ID`, `IFOOD_CLIENT_SECRET`, `DELIVERY_ENCRYPTION_KEY`,
+   `DELIVERY_ADMIN_USER_IDS`, `DELIVERY_VIEWER_USER_IDS` (opcional), `DELIVERY_ALLOWED_ORIGINS`,
+   `DELIVERY_WORKER_SECRET`, `IFOOD_POLLING_ENABLED`. AES: 32 bytes aleatórios Base64;
+   worker: mínimo 32 caracteres aleatórios. Guardar backup seguro. Runtime fornece
+   `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_SERVICE_ROLE_KEY`. Nada em VITE.
+6. Implantar somente delivery-api no projeto de teste correto. Não cadastrar webhook.
+   Verificar operador → Conectar iFood → autorizar no portal → enviar código mascarado
+   → conferir merchants.
+7. Habilitar IFOOD_POLLING_ENABLED=true no ambiente aprovado. Para automação, configurar
+   Cron/pg_net/Vault, secrets Vault `delivery_project_url` e `delivery_worker_secret`,
+   revisar/executar o script de worker, validar intervalo de 30 segundos e monitorar fila.
+8. Testar ponta a ponta com pedidos de teste: refresh, revogação, 401/403/429, quedas,
+   duplicatas, cancelamentos e vínculo sem dupla contagem. Investigar eventos
+   ORDER_RETRY_EXHAUSTED antes de qualquer reprocessamento manual.
+9. Contratos/permissões de financeiro/histórico ainda exigem desenvolvimento, não só credenciais.
+10. Obter contrato oficial e sandbox 99Food antes de implementar seu adaptador.
+11. Só após homologação, revisar PR e autorizar separadamente merge, deploy e publicação.
 
-   ```powershell
-   npx supabase functions deploy delivery-api --project-ref SEU_PROJECT_REF
-   npx supabase functions deploy ifood-webhook --project-ref SEU_PROJECT_REF
-   ```
+## Validação
 
-   A configuração `verify_jwt=false` é intencional: a API valida token com Auth
-   remoto/allowlist ou segredo exclusivo do worker, e o webhook valida HMAC.
-   Não remover as verificações internas. Sem essas verificações, não publicar.
-7. **No aplicativo:** Configurações → verificar e-mail autorizado → Conectar
-   iFood → autorizar no Portal do Parceiro → informar código devolvido. Só fica
-   conectado depois de obter token e listar merchants reais autorizados.
-8. **iFood webhook:** cadastrar URL HTTPS
-   `https://SEU_PROJECT_REF.supabase.co/functions/v1/ifood-webhook`, selecionar
-   eventos de pedidos e testar assinatura válida/inválida e duplicatas no sandbox.
-9. **Automação:** habilitar Cron, pg_net e Vault no Supabase. Criar secrets Vault
-   `delivery_project_url` e `delivery_worker_secret` (mesmo valor do worker).
-   Revisar/executar `supabase/ops/enable-delivery-worker.sql` para processamento
-   a cada 30 segundos. Não fica automático só por fazer deploy. Monitorar
-   `cron.job_run_details`, respostas HTTP e `delivery_events.last_error`.
-   Intervalos em segundos exigem Postgres compatível conforme documentação.
-10. **Validar ponta a ponta:** criar pedido de teste pela plataforma, receber
-    evento, sincronizar, conferir pedido no Financeiro, vincular ao lançamento
-    existente e conferir resumo sem dupla contagem. Repetir cancelamento,
-    revogação, refresh, falha de rede e replay. Só então liberar uso real.
-11. **Financeiro/histórico:** solicitar homologação/permissões específicas para
-    relatórios financeiros e histórico. Não considerar bruto/pagamento informado
-    pelo cliente como repasse liquidado. Não cadastrar taxas estimadas como reais.
-
-Referências Supabase: [OTP](https://supabase.com/docs/guides/auth/auth-email-passwordless),
-[autorização de Edge Functions](https://supabase.com/docs/guides/functions/auth),
-[agendamento com Vault](https://supabase.com/docs/guides/functions/schedule-functions),
-[Cron e intervalos](https://supabase.com/docs/guides/cron/quickstart).
-
-## Validação e merge posterior
-
-Retomada em 28/09/2026: preservados os 5 arquivos modificados e 17 novos
-encontrados sobre o HEAD inicial. Concluídas validação de payload JSON, preservação
-do estado da conexão em erros de vínculo financeiro e indicação de eventos não
-suportados na sincronização manual. Corrigido texto do badge de leitura.
-
-Resultado local: lint e build PASS; 16 testes delivery PASS; fase2a 7/7 PASS;
-Deno check das duas Edge Functions PASS. A suíte delivery bloqueia fetch de rede,
-usa fixtures sintéticas e PostgreSQL apenas em memória. A migration foi executada
-somente nesse banco efêmero de teste, nunca em Supabase ou produção.
-check-fase2a mantém a falha conhecida de baseline. Build apresenta aviso de tamanho
-de chunk; não houve teste manual de navegador nem validação em loja real.
-Auditoria dos 22 arquivos: nenhum segredo privado novo, JWT real ou .env incluído;
-literais de tokens encontrados são fixtures de teste. As exposições históricas
-descritas no baseline continuam pendentes de tratamento separado.
-
-- `npm.cmd run test:delivery`: contratos/provedores com mocks + migration/RPC/RLS
-  executados em PostgreSQL local WebAssembly (PGlite). Nenhuma chamada a lojas reais.
-- `node scripts/test-fase2a.mjs`: baseline preservado.
-- `node scripts/check-fase2a.mjs`: falha conhecida preservada, não desabilitada.
-- `npm.cmd run lint`, `npm.cmd run build`.
-- `npx deno check supabase/functions/delivery-api/index.ts supabase/functions/ifood-webhook/index.ts`.
-
-As alterações de UI existentes são pequenas: um import/componente em Configurações,
-um em CashMovementPanel, e um em DirectionCashFlow com correção do badge.
-`Financeiro.jsx`, Estoque, Gastos, Compras, Produção, localAuth e cloudDb não foram
-alterados. Ao integrar com agente-1, revisar principalmente esses dois componentes
-financeiros e package.json/package-lock.json. Preservar módulos novos e não somar
-os pedidos importados novamente às receitas/caixas existentes.
+test:delivery, lint, build; regressões test-payment-proof, test-payable-attachment,
+test-production e test-fase2a. Mocks, loopback e banco efêmero, sem plataformas reais.
+check-fase2a tem falha histórica e não foi reescrito. Exposições históricas de
+localAuth/Web3Forms não são credenciais delivery e não foram alteradas nesta etapa.

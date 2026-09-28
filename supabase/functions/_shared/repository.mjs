@@ -20,7 +20,7 @@ export function repository(env, fetcher = fetch, timeoutMs = 8000) {
     disableMerchants: p => rest(`delivery_merchants?${filter(p)}`, { method: 'PATCH', body: { enabled: false } }),
     saveMerchants: (p, rows) => rest('delivery_merchants?on_conflict=platform,merchant_id', { method: 'POST', body: rows.map(m => ({ platform: p, merchant_id: m.id, name: m.name || null, enabled: true })), prefer: 'resolution=merge-duplicates,return=minimal' }),
     enqueue: events => rest('rpc/delivery_enqueue', { method: 'POST', body: { p_platform: 'ifood', p_events: events } }),
-    pending: () => rest(`delivery_events?platform=eq.ifood&processed_at=is.null&next_attempt_at=lte.${q(new Date().toISOString())}&order=received_at.asc&limit=20`),
+    pending: () => rest(`delivery_events?platform=eq.ifood&processed_at=is.null&or=(last_error.is.null,last_error.neq.ORDER_RETRY_EXHAUSTED)&next_attempt_at=lte.${q(new Date().toISOString())}&order=received_at.asc&limit=20`),
     remaining: () => rest('delivery_events?platform=eq.ifood&processed_at=is.null&select=event_id&limit=20'),
     apply: (event, order) => rest('rpc/delivery_apply_event', { method: 'POST', body: { p_platform: 'ifood', p_merchant: event.merchant_id, p_event: event.event_id, p_order: order } }),
     eventPatch: (e, body) => rest(`delivery_events?${eventFilter(e)}`, { method: 'PATCH', body }),

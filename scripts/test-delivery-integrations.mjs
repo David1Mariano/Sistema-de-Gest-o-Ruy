@@ -8,9 +8,72 @@ import { providerRequest, seal, unseal, verifyIFoodSignature } from '../supabase
 import { ifoodProvider } from '../supabase/functions/_shared/ifood.mjs';
 import { managementHandler, ifoodWebhookHandler } from '../supabase/functions/_shared/handlers.mjs';
 import { summarizeDelivery } from '../src/lib/integrations/deliverySummary.js';
+import { deliveryStatus, deliverySyncStatus } from '../src/lib/integrations/deliveryStatus.js';
+import { repository } from '../supabase/functions/_shared/repository.mjs';
 
 // Esta suite usa somente mocks e PostgreSQL em memoria, nunca banco/loja reais.
 globalThis.fetch = async () => { throw new Error('NETWORK_DISABLED_IN_DELIVERY_TESTS'); };
+
+test('estados honestos: credenciais ausentes, 99Food bloqueada e reautenticação', () => {
+  assert.equal(deliveryStatus('ifood', null), 'Conexão não verificada');
+  assert.equal(deliveryStatus('ifood', { ifoodConfigured: false }), 'Não configurado');
+  const state = { ifoodConfigured: true, pollingEnabled: true, integrations: [{ platform: 'ifood', status: 'attention', last_error: 'PROVIDER_UNAUTHORIZED' }] };
+  assert.equal(deliveryStatus('ifood', state), 'Reautenticação necessária');
+  assert.equal(deliverySyncStatus('ifood', state), 'Sem sincronização');
+  assert.equal(deliveryStatus('99food', state), 'Configuração necessária');
+});
+
+test('ausência de credenciais impede begin, complete e sync antes de acessar rede', async () => {
+  for (const key of ['IFOOD_CLIENT_ID', 'IFOOD_CLIENT_SECRET', 'DELIVERY_ENCRYPTION_KEY']) {
+    const conf = env(); delete conf[key];
+    const api = ifoodProvider(conf, memoryRepo(), async () => assert.fail('Não deve chamar plataforma'));
+    await assert.rejects(api.begin(), /IFOOD_NOT_CONFIGURED/);
+    await assert.rejects(api.complete('synthetic'), /IFOOD_NOT_CONFIGURED/);
+    await assert.rejects(api.sync(), /IFOOD_NOT_CONFIGURED/);
+  }
+});
+
+test('sync sem polling habilitado não inventa sucesso ou última sincronização', async () => {
+  const repo = memoryRepo(), handler = managementHandler(env(), { repo, fetcher: async () => Response.json({ id: 'admin-id' }), provider: { sync: async () => assert.fail('Não deve sincronizar') } });
+  const response = await handler(new Request('https://example.invalid', { method: 'POST', headers: { authorization: 'Bearer test-user' }, body: JSON.stringify({ action: 'sync', platform: 'ifood' }) }));
+  assert.equal(response.status, 409);
+  assert.equal((await response.json()).error, 'POLLING_NOT_ENABLED');
+  assert.equal(repo.record.last_sync_at, undefined);
+});
+
+test('projeção pública de status não consulta credenciais; fila suspende tentativas esgotadas', async () => {
+  const urls = [], repo = repository(env(), async url => { urls.push(url); return Response.json([]); });
+  await repo.status(); await repo.pending();
+  assert.ok(!urls[0].includes('sealed_credentials') && !urls[0].includes('select=*'));
+  assert.ok(urls[1].includes('last_error.neq.ORDER_RETRY_EXHAUSTED'));
+});
+
+test('limite de retry mantém evento pendente para conferência sem consultas infinitas', async () => {
+  const conf = env(), repo = memoryRepo({ sealed_credentials: await seal({ accessToken: 'fake-test', refreshToken: 'fake-test', expiresAt: Date.now() + 3600000 }, conf.DELIVERY_ENCRYPTION_KEY) });
+  repo.pending = async () => [{ platform: 'ifood', merchant_id: 'shop-1', event_id: 'evt-1', envelope: event(), attempts: 2 }];
+  const result = await ifoodProvider(conf, repo, async (_url, _init, options) => { assert.equal(options.attempts, 1); throw new DeliveryError('PROVIDER_HTTP_404', 404); }).sync();
+  assert.equal(result.failures, 1);
+  assert.ok(repo.patches.some(p => p.last_error === 'ORDER_RETRY_EXHAUSTED' && p.attempts === 3));
+  assert.equal(repo.record.last_sync_at, undefined);
+});
+
+test('status e erros retornados ao frontend não incluem secrets ou tokens do provedor', async () => {
+  const conf = env(), repo = memoryRepo({ sealed_credentials: await seal({ accessToken: 'synthetic-private-access', refreshToken: 'synthetic-private-refresh' }, env().DELIVERY_ENCRYPTION_KEY) });
+  const handler = managementHandler(conf, { repo, fetcher: async () => Response.json({ id: 'admin-id' }), provider: { begin: async () => { throw Error(conf.IFOOD_CLIENT_SECRET); } } });
+  for (const action of ['status', 'begin']) {
+    const response = await handler(new Request('https://example.invalid', { method: 'POST', headers: { authorization: 'Bearer fake-operator' }, body: JSON.stringify({ action, platform: 'ifood' }) }));
+    const text = await response.text();
+    for (const secret of [conf.IFOOD_CLIENT_SECRET, conf.DELIVERY_ENCRYPTION_KEY, repo.record.sealed_credentials, 'synthetic-private-access', 'synthetic-private-refresh']) assert.ok(!text.includes(secret));
+    assert.equal(response.status, action === 'status' ? 200 : 503);
+  }
+});
+
+test('código expirado e resposta com prazo inválido não autorizam conexão', async () => {
+  const conf = env(), repo = memoryRepo({ sealed_credentials: await seal({ pending: { verifier: 'synthetic-verifier', expiresAt: 1 } }, conf.DELIVERY_ENCRYPTION_KEY) });
+  const api = ifoodProvider(conf, repo, async () => ({ userCode: 'PUBLIC-TEST', authorizationCodeVerifier: 'synthetic-verifier', expiresIn: 0 }));
+  await assert.rejects(api.complete('synthetic-code'), /AUTHORIZATION_EXPIRED/);
+  await assert.rejects(api.begin(), /INVALID_AUTHORIZATION_RESPONSE/);
+});
 
 const event = (id = 'evt-1', code = 'PLC', createdAt = '2026-09-25T12:00:00Z') => ({ id, code, fullCode: code, merchantId: 'shop-1', orderId: 'order-1', createdAt });
 const order = () => ({ id: 'order-1', merchant: { id: 'shop-1' }, displayId: '1001', createdAt: '2026-09-25T11:00:00Z',
@@ -132,17 +195,15 @@ test('backend recusa sessão legada, UUID não autorizado, origem inválida e es
   const handler = managementHandler(conf, { repo, fetcher: async () => new Response('', { status: 401 }) });
   assert.equal((await handler(make({ action: 'status' }, { Authorization: 'Bearer local-user-id' }))).status, 401);
 });
-test('webhook: HMAC nos bytes, sem parse antes de verificar, só 202 após fila persistida', async () => {
-  const conf = env(), repo = memoryRepo(), bytes = new TextEncoder().encode(JSON.stringify(event()));
+test('webhook distribuido bloqueado; assinatura HMAC valida bytes e recusa adulteracao', async () => {
+  const conf = env(), bytes = new TextEncoder().encode(JSON.stringify(event()));
   const sig = createHmac('sha256', conf.IFOOD_CLIENT_SECRET).update(bytes).digest('hex');
   assert.equal(await verifyIFoodSignature(bytes, sig, conf.IFOOD_CLIENT_SECRET), true);
+  assert.equal(await verifyIFoodSignature(bytes, 'invalid', conf.IFOOD_CLIENT_SECRET), false);
   assert.equal(await verifyIFoodSignature(new Uint8Array([...bytes,32]), sig, conf.IFOOD_CLIENT_SECRET), false);
-  const req = signature => new Request('https://example.invalid', { method: 'POST', headers: { 'X-IFood-Signature': signature }, body: bytes });
-  const handler = ifoodWebhookHandler(conf, { repo });
-  assert.equal((await handler(req('invalid'))).status, 401); assert.equal(repo.queued.length, 0);
-  assert.equal((await handler(req(sig))).status, 202); assert.equal(repo.queued.length, 1);
-  repo.enqueue = async () => { throw Error('db down'); };
-  assert.equal((await handler(req(sig))).status, 503);
+  const response = await ifoodWebhookHandler()(new Request('https://example.invalid', { method: 'POST', body: bytes }));
+  assert.equal(response.status, 501);
+  assert.equal((await response.json()).error, 'WEBHOOK_UNAVAILABLE_FOR_DISTRIBUTED');
 });
 
 test('PostgreSQL: migration real, RLS/grants, idempotência, atualização, cancelamento e eventos fora de ordem', async () => {
@@ -181,7 +242,7 @@ test('PostgreSQL: migration real, RLS/grants, idempotência, atualização, canc
 });
 
 test('worker é restrito a sync; chave inválida não permite leitura nem gerência', async () => {
-  const conf = { ...env(), DELIVERY_WORKER_SECRET: randomBytes(32).toString('hex') }, repo = memoryRepo(); let calls = 0;
+  const conf = { ...env(), IFOOD_POLLING_ENABLED: 'true', DELIVERY_WORKER_SECRET: randomBytes(32).toString('hex') }, repo = memoryRepo(); let calls = 0;
   const provider = { sync: async () => { calls++; return { processed: 0, pending: 0 }; } };
   const handler = managementHandler(conf, { repo, provider });
   const req = (action, secret = conf.DELIVERY_WORKER_SECRET) => new Request('https://example.invalid', { method: 'POST', headers: { 'x-delivery-worker-secret': secret }, body: JSON.stringify({ action, platform: 'ifood' }) });
