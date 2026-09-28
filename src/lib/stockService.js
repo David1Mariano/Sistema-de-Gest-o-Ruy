@@ -1,0 +1,250 @@
+// ---------------------------------------------------------------------------
+// Fonte única de verdade sobre o SALDO de estoque.
+//
+// Antes desta fase, cada tela escrevia `InventoryItem.current_stock` por conta
+// própria: lia o saldo que já estava na tela, calculava o novo e chamava
+// `update()`. Como o `update()` faz GET+PATCH sem condição, duas máquinas que
+// movimentassem o mesmo item ao mesmo tempo sobrescreviam uma a outra: saldo
+// 10, uma baixa 2 e a outra baixa 3, e o banco ficava com 8 ou 7 — a saída de
+// 5 se perdia. Além disso nada impedia saldo e histórico de divergirem, porque
+// a movimentação era gravada em outra chamada.
+//
+// Aqui o saldo só muda dentro de `transact`, que lê, calcula e grava de forma
+// atômica (compare-and-swap na nuvem; transação única no IndexedDB). O cálculo
+// usa SEMPRE o valor lido dentro da transação, nunca o que veio na tela. A
+// movimentação correspondente é gravada na sequência.
+//
+// Ordem deliberada: saldo primeiro, histórico depois. Se o histórico falhar, o
+// saldo é revertido, para não sobrar estoque sem lançamento (ver
+// `compensarSaldo`). O inverso deixaria um lançamento apontando para um saldo
+// que não existe.
+//
+// A garantia real de unicidade do `client_token` depende do índice único do
+// banco (migration de integridade) — hoje ela é garantida aqui, na aplicação,
+// pela checagem por token antes de qualquer escrita.
+// ---------------------------------------------------------------------------
+import { base44 } from '@/api/base44Client';
+import {
+  MOVEMENT_TYPES,
+  StockError,
+  costsAfter,
+  roundMoney,
+  roundQty,
+  stockDirection,
+  todayISO,
+  validateMovement,
+} from '@/lib/stockRules';
+
+const InventoryItem = base44.entities.InventoryItem;
+const StockMovement = base44.entities.StockMovement;
+
+/**
+ * Token de idempotência. Um duplo clique (ou um reenvio) do mesmo lançamento
+ * precisa carregar o MESMO token, senão vira duas movimentações.
+ */
+export function newClientToken(prefix = 'mov') {
+  const rnd = (globalThis.crypto?.randomUUID?.() || `${Date.now().toString(36)}${Math.random().toString(36).slice(2)}`)
+    .replaceAll('-', '')
+    .slice(0, 18);
+  return `${prefix}_${rnd}`;
+}
+
+/** Movimentação já gravada com este token? (proteção contra duplo envio) */
+export async function findMovementByClientToken(clientToken) {
+  if (!clientToken) return null;
+  const rows = await StockMovement.filter({ client_token: clientToken });
+  return rows && rows.length ? rows[0] : null;
+}
+
+function assertFresh(item) {
+  if (!item || !item.id) throw new StockError('Selecione o item de estoque.', 'item_obrigatorio');
+}
+
+/**
+ * Aplica uma movimentação de estoque de forma segura contra concorrência.
+ *
+ * `quantity` é sempre a MAGNITUDE (3, não -3); a direção vem do tipo. Para
+ * ajuste de saldo use `targetBalance`, que fixa o saldo final.
+ */
+async function aplicarMovimentacao({
+  item,
+  type,
+  quantity,
+  targetBalance = null,
+  unitCost = 0,
+  date,
+  originType = 'manual',
+  originId = '',
+  observation = '',
+  clientToken = '',
+  responsibleUser = '',
+  retries = 6,
+}) {
+  assertFresh(item);
+
+  // Idempotência: se este token já foi usado, não mexe em nada.
+  const jaExiste = await findMovementByClientToken(clientToken);
+  if (jaExiste) {
+    return { movement: jaExiste, item: await InventoryItem.get(item.id), duplicated: true };
+  }
+
+  // A FORMA do lançamento é validada aqui fora (a mensagem é a mesma). O SALDO,
+  // esse sim, só pode ser conferido dentro da transação, usando o valor atual:
+  // conferir aqui usaria um número velho e deixaria passar uma saída maior do
+  // que o saldo existente.
+  const ehAjusteDeSaldo = targetBalance !== null && targetBalance !== undefined;
+  // No ajuste de inventário não existe "quantidade": o usuário informa o SALDO
+  // final. A diferença para o saldo atual é calculada dentro da transação, e é
+  // ela que vira a quantidade da movimentação.
+  const qty = ehAjusteDeSaldo ? 0 : validateMovement({ item, type, quantity, unit: item.unit, allowNegative: true });
+  let saldoAntes = null;
+  let saldoDepois = null;
+  let custoDepois = { average: null, last: null };
+
+  if (ehAjusteDeSaldo) {
+    const alvo = roundQty(targetBalance);
+    if (!Number.isFinite(alvo)) throw new StockError('Saldo de ajuste inválido.', 'quantidade_invalida');
+    if (alvo < 0) throw new StockError('O saldo de ajuste não pode ser negativo.', 'saldo_invalido');
+  }
+
+  // ---- 1. Saldo: uma única operação atômica -------------------------------
+  // `mutate` precisa ser PURA: o compare-and-swap a chama de novo quando há
+  // conflito, e um efeito colateral aqui viraria lançamento duplicado.
+  const atualizado = await InventoryItem.transact(
+    item.id,
+    (atual) => {
+      const current = roundQty(atual?.current_stock) || 0;
+      const next = ehAjusteDeSaldo
+        ? roundQty(targetBalance)
+        : roundQty(stockDirection(type) === 'entrada' ? current + qty : current - qty);
+      if (!Number.isFinite(next)) throw new StockError('Saldo calculado ficou inválido.', 'quantidade_invalida');
+      if (next < 0) {
+        throw new StockError(
+          `Saldo insuficiente: "${item.name}" tem ${current} ${item.unit || ''} e a saída é de ${qty} ${item.unit || ''}.`,
+          'saldo_insuficiente'
+        );
+      }
+      // No ajuste de inventário o custo NÃO muda: o usuário contou o que tem,
+      // não entrou mercadoria. Deixar `costsAfter` recalcular com qty 0
+      // zeraria o custo médio do item.
+      const custos = ehAjusteDeSaldo
+        ? { average: roundMoney(atual?.average_cost) || 0, last: roundMoney(atual?.last_cost) || 0 }
+        : costsAfter({ item: atual, type, quantity: qty, unitCost });
+      saldoAntes = current;
+      saldoDepois = next;
+      custoDepois = custos;
+      const patch = { current_stock: next, updated_date: new Date().toISOString() };
+      if (custos.average !== null && custos.average !== undefined) {
+        patch.average_cost = custos.average;
+        patch.last_cost = custos.last;
+      }
+      return patch;
+    },
+    { retries }
+  );
+
+  // ---- 2. Histórico -------------------------------------------------------
+  // No ajuste, o delta é a diferença entre o saldo alvo e o saldo que a
+  // transação REALMENTE leu — não o que a tela mostrava.
+  const magnitude = ehAjusteDeSaldo ? Math.abs(roundQty(saldoDepois - saldoAntes)) : qty;
+  const custoUnit = roundMoney(unitCost) || 0;
+
+  const payload = {
+    date: date || todayISO(),
+    inventory_item_id: item.id,
+    item_name: item.name,
+    movement_type: type,
+    direction: stockDirection(type),
+    quantity: magnitude,
+    unit: item.unit,
+    unit_cost: custoUnit,
+    total_cost: roundMoney(magnitude * custoUnit) || 0,
+    balance_before: saldoAntes,
+    balance_after: saldoDepois,
+    origin_type: originType,
+    origin_id: originId,
+    responsible_user: responsibleUser,
+    observation,
+    ...(clientToken ? { client_token: clientToken } : {}),
+  };
+
+  let movimento;
+  try {
+    movimento = await StockMovement.create(payload);
+  } catch (err) {
+    // O saldo já mudou: desfaz para não deixar estoque sem histórico.
+    await compensarSaldo({ itemId: item.id, from: saldoDepois, to: saldoAntes, custo: custoDepois, retries });
+    throw new StockError(
+      `O saldo foi revertido porque a movimentação não pôde ser gravada: ${err.message || err}`,
+      'movimento_falhou'
+    );
+  }
+
+  return { movement: movimento, item: atualizado, duplicated: false };
+}
+
+/** Desfaz o saldo quando o histórico falha, para não ficar inconsistente. */
+async function compensarSaldo({ itemId, from, to, custo, retries = 6 }) {
+  try {
+    await InventoryItem.transact(
+      itemId,
+      (atual) => {
+        // Só reverte se o saldo ainda for o que esta operação gravou; se alguém
+        // mexeu depois, mexer aqui apagaria a movimentação alheia.
+        if (roundQty(atual?.current_stock) !== from) return null;
+        return {
+          current_stock: roundQty(to) || 0,
+          ...(custo && custo.average !== null && custo.average !== undefined
+            ? { average_cost: custo.average, last_cost: custo.last }
+            : {}),
+          updated_date: new Date().toISOString(),
+        };
+      },
+      { retries }
+    );
+  } catch (err) {
+    // Falhou a compensação: registro o problema em vez de esconder.
+    console.error('[stockService] Falha ao compensar o saldo de', itemId, err);
+  }
+}
+
+
+// ---------------------------------------------------------------------------
+// API pública. Cada operação real de estoque passa por aqui; nenhuma tela
+// escreve `current_stock` direto.
+// ---------------------------------------------------------------------------
+
+/** Entrada, saída e perda. A quantidade é a magnitude; a direção vem do tipo. */
+export function registrarMovimentacao(args) {
+  return aplicarMovimentacao(args);
+}
+
+/** Atalho de entrada de estoque. */
+export function registrarEntrada(args) {
+  return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.ENTRADA_MANUAL });
+}
+
+/** Atalho de saída de estoque. */
+export function registrarSaida(args) {
+  return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.SAIDA_MANUAL });
+}
+
+/** Atalho de perda. Uma perda é uma saída cujo motivo fica no histórico. */
+export function registrarPerda(args) {
+  return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.PERDA });
+}
+
+/**
+ * Ajuste de inventário: fixa o SALDO final, em vez de somar uma quantidade.
+ * A diferença para o saldo atual é calculada dentro da transação, então dois
+ * inventários simultâneos não se sobrescrevem.
+ */
+export function ajustarSaldo({ item, targetBalance, type = MOVEMENT_TYPES.AJUSTE, ...resto }) {
+  return aplicarMovimentacao({ ...resto, item, targetBalance, type });
+}
+
+/** Entrada de estoque originada por uma compra recebida. */
+export function registrarEntradaDeCompra(args) {
+  return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.ENTRADA_COMPRA, originType: 'compra' });
+}
+

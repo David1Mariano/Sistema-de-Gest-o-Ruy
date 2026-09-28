@@ -180,6 +180,27 @@ export function createEntityClient(entity) {
       return { id };
     },
 
+    // Lê, calcula e grava dentro de UMA transação do IndexedDB, que já é
+    // atômica — mesma semântica do transact da nuvem (que usa compare-and-swap).
+    async transact(id, mutate) {
+      const saved = await withStore('readwrite', async (store) => {
+        const existing = await reqp(store.get(`${entity}::${id}`));
+        if (!existing) throw new Error(`${entity} "${id}" não encontrado.`);
+        const patch = await mutate(stripMeta(existing));
+        if (patch === null || patch === undefined) return stripMeta(existing);
+        const merged = {
+          ...stripMeta(existing),
+          ...patch,
+          id,
+          updated_date: new Date().toISOString(),
+        };
+        await reqp(store.put({ ...merged, _key: `${entity}::${id}`, _entity: entity }));
+        return merged;
+      });
+      notify(entity);
+      return saved;
+    },
+
     async bulkCreate(items = []) {
       const created = await withStore('readwrite', async (store) => {
         const now = new Date().toISOString();
