@@ -25,23 +25,31 @@
 --     7. insere o StockMovement
 --     8. commit único
 --
--- SEGURANÇA (leia antes de aplicar)
--- a) `security definer` + `set search_path = public, pg_temp`: sem isso, um
---    usuário com CREATE no schema poderia sequestrar a função via search_path.
--- b) A função NÃO recebe `user_id`/`tenant` do cliente para autorização —
---    seria falsificável. A autorização deve usar `auth.uid()` (o JWT), que o
---    cliente não pode forjar, e a policy/role de `public.records`.
--- c) `revoke` de `public` antes do `grant`: por padrão o Postgres dá EXECUTE
---    em funções novas para todo o mundo, o que abriria escrita para qualquer
---    papel. Concedemos explicitamente apenas aos papéis autenticados.
--- d) A RPC NÃO é bypass de RLS: ela valida a existência do item e a
---    autorização pela role, e só então escreve. As policies continuam
---    valendo para o resto do acesso.
+-- SEGURANÇA — LEIA ANTES DE APLICAR
+-- a) `security definer` + `set search_path = public, pg_temp`: sem o
+--    search_path fixo, um usuário com CREATE no schema poderia sequestrar a
+--    função. Está fixado na assinatura.
+-- b) A função NÃO recebe `user_id`/`tenant` do cliente para autorizar: seria
+--    falsificável.
+-- c) `revoke` de `public` (e de `authenticated`/`anon`) está no final.
+-- d) IMPORTANTE: `security definer` com dono = dono da tabela (o padrão no
+--    Supabase é `postgres`) EXECUTA ACIMA DO RLS. As policies da tabela não
+--    são consultadas. Por isso esta função hoje NÃO recebe grant: falta um
+--    modelo de autorização por loja/unidade no app. Ver o bloco "PERMISSÕES"
+--    no final, que traz a análise completa e o caminho para liberar.
+--
+-- STATUS: nenhuma função foi criada; nada foi aplicado.
 -- ===========================================================================
 
 -- 1) A unicidade de client_token vem da migration anterior e é pré-requisito
 --    desta (a RPC depende dela para a idempotência):
---    ver 202609290001_estoque_client_token_unico.sql
+--    ver 20260929010000_estoque_client_token_unico.sql
+--
+-- ORDEM DE APLICAÇÃO: este arquivo é o 2º. O índice precisa existir antes,
+-- senão a checagem de idempotência da RPC fica sem garantia no banco.
+-- Nomes seguem o formato de 14 dígitos do Supabase (AAAAMMDDHHMMSS), que é o
+-- que a CLI ordena lexicograficamente. Foi escolhido 2026-09-29 01:00 e
+-- 01:01 para deixar espaço para o Delivery datar as dele sem colisão.
 
 
 -- ---------------------------------------------------------------------------
@@ -163,29 +171,72 @@ begin
 
 
 -- ---------------------------------------------------------------------------
--- Permissões
+-- PERMISSÕES — REVISÃO DE SEGURANÇA OBRIGATÓRIA (leia antes de aplicar)
 -- ---------------------------------------------------------------------------
--- Por padrão o Postgres dá EXECUTE em função nova para o papel PUBLIC.
--- Revogamos e concedemos explicitamente só ao papel autenticado.
+-- Esta função NÃO recebe grant operacional. Ela fica preparada e inacessível.
+--
+-- MOTIVO (corrige uma afirmação anterior que estava errada):
+-- Dizer "SECURITY DEFINER não é bypass de RLS" é FALSO. Se o dono da função
+-- for o dono da tabela (no Supabase, por padrão `postgres`), a função roda
+-- com os privilégios desse dono e as policies de RLS da tabela NÃO são
+-- consultadas. Ou seja: um grant'ing careless permitiria a QUALQUER usuário
+-- autenticado escrever em qualquer linha, ignorando a policy.
+--
+-- LACUNAS DE AUTORIZAÇÃO QUE IMPEDEM O GRANT (todas reais hoje):
+--   1. A função NÃO chama `auth.uid()` em nenhum ponto executável — o único
+--      `auth.uid` neste arquivo está num comentário. Não há como saber QUEM
+--      chamou.
+--   2. O app NÃO tem modelo de loja/unidade/tenant: não existe merchant_id,
+--      unit_id nem tenant_id em nenhuma entidade (auditado). Portanto não há
+--      escopo para restricting o acesso a um item.
+--   3. `p_item_id` chega do cliente. Sem (1) e (2), qualquer autenticado
+--      poderia movimentar o estoque de QUALQUER item, inclusive de outro
+--      Establishamento, e escrever `responsible_user` com o nome de outra
+--      pessoa — adulterando o histórico.
+--   4. `p_responsavel` também vem do cliente e é gravado direto no
+--      histórico, sem conferir com o JWT.
+--
+-- DECISÃO: enquanto (1)-(4) não forem resolvidos, a função fica SEM grant.
+-- Ela serve de referência do desenho transacional, nada mais.
+--
+-- Para liberar no futuro, o caminho é:
+--   a) ler `auth.uid()` dentro da função e recusar quando for null;
+--   b) validar o papel/escopo do usuário contra uma tabela de autorização
+--      real (a ser definida), NÃO contra um id enviado pelo cliente;
+--   c) ignorar `p_responsavel` e usar o nome derivado do JWT;
+--   d) só então conceder o grant, com `revoke` de `public` antes.
+-- ---------------------------------------------------------------------------
 revoke all on function public.aplicar_movimentacao_estoque(
   text, text, numeric, numeric, numeric, date, text, text, text, text, text
 ) from public;
 
-grant execute on function public.aplicar_movimentacao_estoque(
+revoke all on function public.aplicar_movimentacao_estoque(
   text, text, numeric, numeric, numeric, date, text, text, text, text, text
-) to authenticated;
+) from authenticated;
+
+revoke all on function public.aplicar_movimentacao_estoque(
+  text, text, numeric, numeric, numeric, date, text, text, text, text, text
+) from anon;
+
+-- NENHUM grant é emitido de propósito. Para ligar a função no futuro, troque
+-- o bloco acima pelo procedimento (a)-(d) documentado acima.
+-- Nenhuma linha desta migration deve ser descomentada sem revisão de
+-- segurança e sem o modelo de autorização por loja/unidade definido.
 
 -- ===========================================================================
 -- PRÉ-CHECKS ANTES DE APLICAR
 -- 1. Confirmar que a tabela `records` tem as colunas esperadas (entity, id,
 --    data, created_date, updated_date).
 -- 2. Confirmar que `gen_random_bytes` (pgcrypto) está disponível.
--- 3. Rodar o pré-check de tokens duplicados da migration 202609290001.
--- 4. Ler a policy de `records` e decidir se `authenticated` deve mesmo ter
---    esta execução — a RPC escreve em StockMovement e InventoryItem.
+-- 3. Rodar o pré-check de tokens duplicados da migration do índice.
+-- 4. Definir o modelo de autorização por loja/unidade (item (2) acima). Sem
+--    isso a função não deve ser exposta a nenhum papel de aplicação.
 -- 5. Aponderação completa do custo médio ainda mora em stockRules.js; antes
 --    de trocar o frontend pela RPC, replicar essa regra aqui (hoje só há o
 --    piso seguro: custo não negativo e arredondado).
+-- 6. Conferir o DONO da função: se for `postgres`, lembrar que ela roda acima
+--    do RLS. Restringir o dono, ou trocar por `security invoker` se as
+--    policies forem suficientes.
 -- ===========================================================================
 
   -- ---- (8) commit único (implícito ao fim da função) ------------------------

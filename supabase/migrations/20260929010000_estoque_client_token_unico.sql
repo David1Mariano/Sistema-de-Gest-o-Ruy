@@ -36,8 +36,31 @@
 --   - Um índice UNIQUE sobre jsonb trata todo `NULL` como DISTINTO, então
 --     múltiplos NULLs passariam. Mesmo assim o predicado deixa o índice
 --     pequeno e explicita a intenção: só movimentos com token contam.
---   - `''` (vazio) também seria repetido, e NÃO deve ser: token vazio
---     significa "sem idempotência". O serviço nunca grava vazio.
+--
+-- CUIDADOS REVISADOS NESTA FASE (verificados por consulta, item 6):
+--   1. VAZIO (''): excluído pelo predicado. O serviço nunca grava token
+--      vazio — `...(clientToken ? { client_token: clientToken } : {})` só
+--      inclui a chave quando ela é truthy. Sem isso, todos os lançamentos
+--      sem token colidiram entre si e o índice falharia na aplicação.
+--   2. ESPAÇOS: NÃO são removidos. Um token ' abc' e 'abc' seriam DIFERENTES
+--      no índice, abrindo brecha de idempotência. Nenhum gerador do app
+--      produz espaço, mas um cliente hostil poderia. Mitigação proposta
+--      para quando a RPC entrar em uso: validar o formato do token na
+--      própria função (item 6 do pré-check) e/ou normalizar com btrim().
+--      Deixamos o índice literal de propósito: aplicar btrim() no índice
+--      mudaria a semântica da chave e mascararia dado sujo.
+--   3. CASE: o índice é case-SENSITIVE (btree em texto). 'ABC' ≠ 'abc'. Os
+--      tokens gerados são minúsculos (`mov_`/`ajuste_`/`abertura:` +
+--      hex lowercase, ou `compra:{id}:{id}`), então a colisão por caixa
+--      alta não ocorre no uso normal — mas o índice NÃO impede alguém de
+--      burlar a idempotência mudando a caixa. Mesma mitigação do item 2:
+--      validação de formato no servidor.
+--   4. DATA LEGADA: tokens com o MESMO valor em outro `entity` não
+--      conflitam, porque o índice é parcial por entity='StockMovement'.
+--
+--(idx: os pontos 2 e 3 são lacunas conhecidas e só fecham quando a RPC
+-- passar a validar o token. A migração do índice, sozinha, não é
+-- suficiente para idempotência contra cliente hostil.)
 -- ===========================================================================
 
 -- 1) Índice único parcial por token, restrito a StockMovement.
@@ -50,10 +73,11 @@ comment on index public.records_movimento_client_token_unico is
   'Estoque: garante 1 StockMovement por client_token (idempotência contra duplo envio).';
 
 -- ===========================================================================
--- PRÉ-CHECK (rode ANTES de aplicar; se devolver linhas, NÃO aplique ainda —
--- há tokens repetidos no histórico e é preciso decidir o que fazer com eles).
+-- PRÉ-CHECK (rode TODOS os blocos antes de aplicar). Se qualquer um devolver
+-- linhas ou ≠ 0, NÃO aplique ainda.
 -- ===========================================================================
-/*
+
+-- (1) Tokens duplicados: impediria a criação do índice.
 select data ->> 'client_token' as token,
        count(*) as ocorrencias,
        array_agg(id) as ids
@@ -63,4 +87,26 @@ select data ->> 'client_token' as token,
  group by 1
 having count(*) > 1
  order by 2 desc;
-*/
+
+-- (2) Tokens com espaço nas pontas (não colidem no índice; ver item 2 acima).
+select id, '[' || (data ->> 'client_token') || ']' as token_bruto
+  from public.records
+ where entity = 'StockMovement'
+   and (data ->> 'client_token') <> ''
+   and (data ->> 'client_token') <> btrim(data ->> 'client_token');
+
+-- (3) Tokens com caixa alta (não colidem; ver item 3 acima).
+select id, data ->> 'client_token' as token
+  from public.records
+ where entity = 'StockMovement'
+   and (data ->> 'client_token') <> ''
+   and (data ->> 'client_token') <> lower(data ->> 'client_token');
+
+-- (4) Confere se algum movimento de outra entidade usa o MESMO token. Não é
+--     conflito (o índice é parcial por entity), mas é informação útil.
+select entity, data ->> 'client_token' as token, count(*)
+  from public.records
+ where coalesce(data ->> 'client_token', '') <> ''
+ group by 1, 2
+having count(*) > 1
+ order by 3 desc;
