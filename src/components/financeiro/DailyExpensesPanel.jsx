@@ -12,11 +12,14 @@ import ExpenseCategoryManager from '@/components/financeiro/ExpenseCategoryManag
 import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
 import {
   dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseDeleteBlocker,
-  expenseEditBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount,
-  formatExpenseDate, hasExpenseProof, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
-  EXPENSE_ORIGIN_LABELS,
+  expenseEditBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, findActiveLinkedPayment,
+  formatExpenseAmount, formatExpenseDate, hasExpenseProof, paymentMethodOptions, resolveExpensePeriod,
+  EXPENSE_PERIOD_PRESETS, EXPENSE_ORIGIN_LABELS,
 } from '@/lib/dailyExpenses';
 import { selectableCategories, summarizeByCategory, totalOf } from '@/lib/expenseCategories';
+import DailyExpenseHistory from '@/components/financeiro/DailyExpenseHistory';
+import { useUserRole } from '@/lib/useUserRole';
+import { currentUserName } from '@/lib/useCurrentUser';
 
 const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
 
@@ -184,6 +187,10 @@ function SearchAndFilters({
 }
 
 export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', data, onSaved, onCategoriesChanged, openSignal = 0 }) {
+  // A auditoria de FinancialExpense é sensível (mostra valores e favorecidos de
+  // todo mundo). Só quem já pode administer o Financeiro acessa o histórico,
+  // com o MESMO critério de acesso da tela global de Auditoria.
+  const { isAdmin } = useUserRole();
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState('mes');
   const [customStart, setCustomStart] = useState('');
@@ -224,6 +231,9 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     [rows],
   );
   const blocker = removing ? expenseDeleteBlocker(removing, { payments: data.payments, vales: data.vales }) : null;
+  // Há pagamento ATIVO vinculado? A exclusão não é bloqueada, mas o diálogo
+  // precisa avisar que ele será cancelado (e não apagado).
+  const linkedPaymentOf = (expense) => findActiveLinkedPayment(data.payments, expense?.id);
   // Bloqueios por linha: é isto que habilita editar/excluir gastos criados em
   // outras telas, mantendo de fora apenas o que é gerenciado por outro módulo.
   const editBlockers = useMemo(() => {
@@ -267,7 +277,13 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     setRemovingBusy(true);
     setRemoveError('');
     try {
-      await deleteDailyExpense({ entities: base44.entities, expense: removing, payments: data.payments, vales: data.vales });
+      await deleteDailyExpense({
+        entities: base44.entities,
+        expense: removing,
+        payments: data.payments,
+        vales: data.vales,
+        responsibleUser: currentUserName(),
+      });
       setRemoving(null);
       await onSaved();
     } catch (err) {
@@ -278,8 +294,14 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
   return <div className="space-y-4">
     <div className="flex flex-wrap items-center justify-between gap-3">
       <div>
-        <h2 className="text-xl font-semibold text-slate-900">Gastos Diários</h2>
-        <p className="text-sm text-slate-500">Registre e consulte as despesas do dia a dia da operação.</p>
+        <h2 className="text-xl font-semibold text-slate-900">
+          {view === 'historico' ? 'Histórico de Gastos' : 'Gastos Diários'}
+        </h2>
+        <p className="text-sm text-slate-500">
+          {view === 'historico'
+            ? 'Rastreabilidade dos lançamentos, alterações e exclusões.'
+            : 'Registre e consulte as despesas do dia a dia da operação.'}
+        </p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
         {refreshing && <span className="text-xs text-slate-400" role="status">Atualizando...</span>}
@@ -293,12 +315,27 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
       </div>
     </div>
 
+    {view === 'historico' && !isAdmin && (
+      <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">
+        O histórico de gastos é restrito a administradores, como a tela de Auditoria do sistema.
+      </p>
+    )}
+
     {view === 'categorias' && <ExpenseCategoryManager
       categories={data.categories}
       onSaved={onCategoriesChanged || onSaved}
       onSelect={setCategoryId}
     />}
 
+    {view === 'historico' && isAdmin && <DailyExpenseHistory
+      expenses={rows}
+      categories={data.categories}
+      auditRecords={data.auditRecords}
+      loading={loading}
+      refreshing={refreshing}
+    />}
+
+    {view !== 'historico' && <>
     {failure && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{failure}</p>}
 
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
@@ -375,6 +412,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
         </table>
       </div>
     </div>
+    </>}
 
     <DailyExpenseForm open={formOpen} onClose={closeForm} onSaved={onSaved} data={data} editing={editing} />
 
@@ -384,6 +422,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
           <AlertDialogTitle>Excluir gasto diário?</AlertDialogTitle>
           <AlertDialogDescription>
             {removing ? `"${removing.description || 'Sem descrição'}" de ${formatExpenseAmount(removing.amount)} em ${formatExpenseDate(removing.date)} será removido em definitivo. Esta ação não pode ser desfeita.` : ''}
+            {removing && linkedPaymentOf(removing) && ' O pagamento do colaborador vinculado será cancelado e continuará visível no histórico dele.'}
           </AlertDialogDescription>
         </AlertDialogHeader>
         {blocker && <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{blocker}</p>}

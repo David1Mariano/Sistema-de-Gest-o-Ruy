@@ -423,6 +423,9 @@ export async function saveDailyExpense({ entities, form, editing = null, categor
     const antes = await entities.FinancialExpense.get(editing.id).catch(() => null);
     const linked = findActiveLinkedPayment(payments, editing.id);
     const updated = await updateExpenseGuarded({ entities, editing, patch });
+    // Auditoria: o que MUDOU de fato. Só o que difere do anterior vira evento,
+    // então salvar sem mexer em nada não gera ruído no histórico.
+    await auditExpenseDiff({ entities, antes, depois: updated, responsibleUser });
     // Versão do registro TAL COMO NOSSA GRAVAÇÃO DEIXOU: a chave do CAS.
     const versaoDaNossaGravacao = updated?.updated_date || null;
     try {
@@ -452,6 +455,9 @@ export async function saveDailyExpense({ entities, form, editing = null, categor
   // atualiza o mesmo registro em vez de criar um segundo gasto.
   const id = form.expense_id || newExpenseId();
   const created = await entities.FinancialExpense.create({ ...payload, id });
+  await auditExpense({
+    entities, expense: created, action: 'criacao', newValue: describeExpense(created), responsibleUser,
+  });
   if (!employee) return { expense: created, payment: null, created: true, expenseId: id };
 
   try {
@@ -517,9 +523,9 @@ async function updateExpenseGuarded({ entities, editing, patch }) {
 
 const CANCEL_NOTE = 'Cancelado pelo Financeiro: favorecido do gasto alterado.';
 
-async function cancelLinkedPayment({ entities, linked, expectedUpdatedDate }) {
+async function cancelLinkedPayment({ entities, linked, expectedUpdatedDate, note: noteBase }) {
   if (!linked) return null;
-  const note = [linked.observation, CANCEL_NOTE].filter(Boolean).join(' | ');
+  const note = [linked.observation, noteBase || CANCEL_NOTE].filter(Boolean).join(' | ');
   if (typeof entities.EmployeePayment.transact !== 'function') {
     return entities.EmployeePayment.update(linked.id, { status: 'cancelado', observation: note });
   }
@@ -603,15 +609,18 @@ export function expenseEditBlocker(expense = {}, { vales = [] } = {}) {
   return null;
 }
 
-// Bloqueio de EXCLUSÃO: tudo que bloqueia a edição, mais o vínculo com
-// EmployeePayment (que ficaria órfão).
+// Bloqueio de EXCLUSÃO: apenas o que é estrutural.
+//
+// REGRA DE PRODUTO: o simples vínculo com EmployeePayment NÃO bloqueia mais.
+// O projeto nunca apaga pagamento (ver nota acima): ele CANCELA logicamente e
+// registra o motivo em `observation`. Excluir o gasto faz exatamente o mesmo
+// com o pagamento ativo vinculado, então não sobra pagamento ativo órfão e o
+// histórico do colaborador permanece rastreável.
+//
+// Continuam bloqueados só os casos em que apagar aqui quebraria a origem do
+// registro: Vale, Conta a Pagar, recorrência, lote e vínculo com Vale.
 export function expenseDeleteBlocker(expense = {}, { payments = [], vales = [] } = {}) {
-  const bloqueioEdicao = expenseEditBlocker(expense, { vales });
-  if (bloqueioEdicao) return bloqueioEdicao;
-  if (linkedPayment(expense, payments)) {
-    return 'Este gasto está vinculado a um pagamento de colaborador e não pode ser excluído aqui.';
-  }
-  return null;
+  return expenseEditBlocker(expense, { vales });
 }
 
 // Recarrega os vínculos que protegem a exclusão. `expenseDeleteBlocker` só
@@ -637,15 +646,246 @@ async function reloadLinks({ entities, payments = [], vales = [] }) {
   return { payments: freshPayments, vales: freshVales };
 }
 
-export async function deleteDailyExpense({ entities, expense, payments = [], vales = [], revalidate = true }) {
+const EXCLUSAO_CANCEL_NOTE = 'Cancelado pelo Financeiro: o gasto vinculado foi excluído.';
+
+// Registra um evento de auditoria sem NUNCA derrubar a operação principal.
+// Espelha `logAudit` (src/lib/pontoUtils.js), mas recebe o `entities` em vez de
+// importar a singleton, para poder ser testado com a entity em memória.
+export async function auditExpense({ entities, expense, action, field, oldValue, newValue, reason, responsibleUser }) {
+  try {
+    const create = entities?.AuditLog?.create;
+    if (typeof create !== 'function') return null;
+    return await create.call(entities.AuditLog, {
+      entity_type: 'FinancialExpense',
+      entity_id: expense?.id || '',
+      action: action || 'alteracao',
+      field: field || '',
+      old_value: oldValue != null ? String(oldValue) : '',
+      new_value: newValue != null ? String(newValue) : '',
+      reason: reason || '',
+      responsible_user: responsibleUser || '',
+    });
+  } catch {
+    // A auditoria é best-effort: perder o registro não pode fazer o usuário
+    // acreditar que o gasto não foi excluído.
+    return null;
+  }
+}
+
+const describeExpense = (expense = {}) => `${expense.description || 'Sem descrição'} | ${formatExpenseAmount(expense.amount)} | ${expense.category_name || 'sem categoria'} | ${expense.beneficiary_name || 'sem favorecido'}`;
+
+// Campos que viram evento de auditoria quando mudam. `updated_date` fica de
+// fora de propósito: ele muda em toda gravação e poluiria o histórico.
+const AUDITED_FIELDS = [
+  ['amount', 'valor'],
+  ['category_name', 'categoria'],
+  ['beneficiary_name', 'favorecido'],
+  ['description', 'descricao'],
+  ['status', 'situacao'],
+  ['payment_method', 'forma de pagamento'],
+  ['date', 'data'],
+];
+
+// Um evento por campo que mudou de verdade. Sem `antes` (edição sem
+// snapshot), não registramos nada: inventar um "valor anterior" seria mentira.
+export async function auditExpenseDiff({ entities, antes, depois, responsibleUser }) {
+  if (!antes?.id || !depois?.id) return [];
+  const eventos = [];
+  for (const [campo, rotulo] of AUDITED_FIELDS) {
+    const velho = antes[campo];
+    const novo = depois[campo];
+    if (String(velho ?? '') === String(novo ?? '')) continue;
+    await auditExpense({
+      entities, expense: depois, action: 'alteracao', field: rotulo,
+      oldValue: rotulo === 'valor' ? formatExpenseAmount(velho) : velho,
+      newValue: rotulo === 'valor' ? formatExpenseAmount(novo) : novo,
+      responsibleUser,
+    });
+    eventos.push({ field: rotulo, oldValue: velho, newValue: novo });
+  }
+  return eventos;
+}
+
+// Exclui o gasto tratando o pagamento vinculado.
+//
+// ORDEM (aprovada): cancelar o EmployeePayment ativo -> registrar auditoria ->
+// excluir o gasto.
+//
+// FALHA PARCIAL, documentada: se a exclusão do gasto falhar DEPOIS do
+// cancelamento, o pagamento já está cancelado e o gasto continua existindo. Não
+// há transação distribuída entre as duas entities, então devolvemos um erro
+// explícito avisando que o pagamento foi cancelado e que é preciso conferir na
+// tela — nunca devolvemos sucesso parcial silencioso. O inverso (gasto apagado
+// e pagamento ativo) é impossível pela ordem escolhida: o pagamento é sempre
+// tratado ANTES.
+export async function deleteDailyExpense({
+  entities, expense, payments = [], vales = [], revalidate = true,
+  responsibleUser = '', onPaid = null,
+}) {
   let current = { payments, vales };
   if (revalidate) current = await reloadLinks({ entities, payments, vales });
   const blocker = expenseDeleteBlocker(expense, current);
   if (blocker) throw new Error(blocker);
-  return entities.FinancialExpense.delete(expense.id);
+
+  const linked = findActiveLinkedPayment(current.payments, expense.id);
+  let pagamentoCancelado = false;
+  if (linked) {
+    await cancelLinkedPayment({ entities, linked, note: EXCLUSAO_CANCEL_NOTE });
+    pagamentoCancelado = true;
+  }
+
+  await auditExpense({
+    entities, expense, action: 'exclusao_logica',
+    // Guardamos a "fotografia" do lançamento: categoria, favorecido e valor
+    // continuam recuperáveis mesmo depois que o registro some.
+    oldValue: describeExpense(expense), reason: EXCLUSAO_CANCEL_NOTE, responsibleUser,
+  });
+
+  try {
+    const resultado = await entities.FinancialExpense.delete(expense.id);
+    if (typeof onPaid === 'function') await onPaid({ expense, pagamentoCancelado });
+    return resultado;
+  } catch (e) {
+    throw new Error(
+      pagamentoCancelado
+        ? `O pagamento de ${linked?.employee_name || 'colaborador'} foi cancelado, mas o gasto não pôde ser excluído. `
+          + 'Atualize a lista e tente de novo para não deixar o pagamento cancelado sem o gasto.'
+        : (e?.message || 'Não foi possível excluir o gasto.'),
+    );
+  }
 }
 
 export const expenseCategoryOptions = (categories = []) => categories.filter((category) => category.status === 'ativo');
+
+// ============================================================ HISTÓRICO
+//
+// A tela de Histórico é RASTREABILIDADE, não a lista operacional. Ela junta
+// duas fontes que JÁ existem no projeto, sem inventar armazenamento nem duplicar
+// entidade:
+//
+//   1. FinancialExpense  -> o lançamento como está hoje (data, valor,
+//                           categoria, favorecido, situação, comprovante)
+//   2. AuditLog          -> os eventos de criação/edição/exclusão gravados a
+//                           partir desta versão, por `entity_id`
+//
+// LIMITE HONESTO: até esta versão, FinancialExpense não gravava auditoria.
+// Então o que existe hoje é o ESTADO ATUAL do lançamento mais `created_date` /
+// `updated_date`. Edições feitas ANTES disso não são reconstituíveis — e não
+// vamos fingir que são. A partir de agora, cada evento é gravado.
+
+export const EXPENSE_AUDIT_LABELS = {
+  criacao: 'Criação',
+  alteracao: 'Alteração',
+  exclusao_logica: 'Exclusão',
+};
+
+// Eventos de um gasto, do mais recente para o mais antigo.
+export function expenseEvents(auditRecords = [], expenseId) {
+  if (!expenseId) return [];
+  return (auditRecords || [])
+    .filter((record) => record?.entity_type === 'FinancialExpense' && record?.entity_id === expenseId)
+    .map((record) => ({
+      id: record.id,
+      at: record.created_date || record.updated_date || '',
+      action: record.action,
+      rotulo: EXPENSE_AUDIT_LABELS[record.action] || record.action,
+      field: record.field || '',
+      oldValue: record.old_value || '',
+      newValue: record.new_value || '',
+      reason: record.reason || '',
+      responsibleUser: record.responsible_user || '',
+    }))
+    .sort((a, b) => String(b.at).localeCompare(String(a.at)));
+}
+
+// Uma linha por lançamento, já com os eventos que existem.
+export function buildHistoryRows(expenses = [], auditRecords = []) {
+  return (expenses || []).map((expense) => ({
+    expense,
+    id: expense.id,
+    events: expenseEvents(auditRecords, expense.id),
+    excluido: expenseEvents(auditRecords, expense.id).some((event) => event.action === 'exclusao_logica'),
+  }));
+}
+
+const normalize = (value) => String(value ?? '').toLowerCase().normalize('NFD').replace(/[\u0300-\u036f]/g, '');
+
+// Índice de pesquisa do histórico: descrição, categoria, favorecido,
+// observação e valor — conforme pedido.
+function historySearchIndex(row) {
+  const { expense } = row;
+  const eventos = row.events.map((e) => `${e.field} ${e.oldValue} ${e.newValue} ${e.reason}`).join(' ');
+  return normalize([
+    expense.description, expense.category_name, expense.beneficiary_name,
+    expense.observation, expense.document_number, expense.responsible_user,
+    expense.amount, eventos,
+  ].join(' '));
+}
+
+// Filtros do histórico. `origem` e `evento` são filtros de RASTREABILIDADE;
+// os demais reaproveitam a mesma semântica já validada em `filterExpenses`.
+export function filterHistoryRows(rows = [], {
+  search = '', start = '', end = '', categoryId = '', beneficiary = '', status = '',
+  proof = '', origin = '', event = '',
+} = {}) {
+  const query = normalize(search).trim();
+  return (rows || []).filter((row) => {
+    const { expense } = row;
+    if (start && String(expense.date ?? '').slice(0, 10) < start) return false;
+    if (end && String(expense.date ?? '').slice(0, 10) > end) return false;
+    if (categoryId && expense.category_id !== categoryId) return false;
+    if (beneficiary && expense.beneficiary_name !== beneficiary) return false;
+    if (status && expense.status !== status) return false;
+    if (proof === 'com' && !hasExpenseProof(expense)) return false;
+    if (proof === 'sem' && hasExpenseProof(expense)) return false;
+    if (origin && (expense.origin_type || 'manual') !== origin) return false;
+    if (event && !row.events.some((e) => e.action === event)) return false;
+    if (query && !query.split(/\s+/).filter(Boolean).every((w) => historySearchIndex(row).includes(w))) return false;
+    return true;
+  });
+}
+
+// Mais recente primeiro. Empate resolvido pelo id para a ordem ser estável
+// entre renders (a lista não pode "pular" linha a cada recarga).
+export function sortHistoryRows(rows = []) {
+  return [...(rows || [])].sort((a, b) => {
+    const data = String(b.expense?.updated_date || b.expense?.date || '').localeCompare(String(a.expense?.updated_date || a.expense?.date || ''));
+    if (data) return data;
+    return String(b.expense?.id || '').localeCompare(String(a.expense?.id || ''));
+  });
+}
+
+// Categorias oferecidas no filtro do histórico.
+//
+// Deduplica por nome equivalente e põe as ativas primeiro, com a MESMA regra de
+// `selectableCategories` (expenseCategories.js). Não importamos de lá de
+// propósito: aquele arquivo já importa este, e a importação de volta criaria
+// um ciclo.
+//
+// Categoria DESATIVADA continua na lista (marcada com sufixo): registro antigo
+// não pode sumir do filtro só porque alguém desligou a categoria depois.
+export function historyCategoryOptions(categories = []) {
+  const seen = new Set();
+  const ordered = [...(categories || [])].sort((a, b) => {
+    const ativo = (b.status === 'ativo' ? 1 : 0) - (a.status === 'ativo' ? 1 : 0);
+    if (ativo) return ativo;
+    return String(a?.name || '').localeCompare(String(b?.name || ''), 'pt-BR');
+  });
+  return ordered
+    .filter((category) => {
+      const key = normalizeExpenseText(category?.name).replace(/\s+/g, ' ');
+      if (!key || seen.has(key)) return false;
+      seen.add(key);
+      return true;
+    })
+    .map((category) => ({ ...category, inativa: category.status !== 'ativo' }));
+}
+
+// Origens presentes no histórico, para o filtro não oferecer valor vazio.
+export function historyOriginOptions(rows = []) {
+  return [...new Set((rows || []).map((r) => r.expense?.origin_type || 'manual'))]
+    .sort((a, b) => a.localeCompare(b, 'pt-BR'));
+}
 
 export const paymentMethodOptions = () => Object.entries(EXPENSE_METHOD_LABELS);
 

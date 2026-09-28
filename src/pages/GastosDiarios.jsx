@@ -4,7 +4,7 @@ import DailyExpensesPanel from '@/components/financeiro/DailyExpensesPanel';
 
 const EMPTY = {
   expenses: [], categories: [], centers: [], employees: [],
-  suppliers: [], accounts: [], vales: [], payments: [],
+  suppliers: [], accounts: [], vales: [], payments: [], auditRecords: [],
 };
 
 // Area "Gastos Diários" como página própria.
@@ -47,7 +47,7 @@ export default function GastosDiarios() {
       }
     };
 
-    const [expenses, categories, centers, employees, suppliers, accounts, vales, payments] = await Promise.all([
+    const [expenses, categories, centers, employees, suppliers, accounts, vales, payments, auditRecords] = await Promise.all([
       ler('FinancialExpense', '-date', 1000, 'expenses'),
       ler('ExpenseCategory', 'name', 300, 'categories'),
       ler('CostCenter', 'name', 300, 'centers'),
@@ -56,11 +56,14 @@ export default function GastosDiarios() {
       ler('FinancialAccount', 'name', 100, 'accounts'),
       ler('Vale', '-date', 1000, 'vales'),
       ler('EmployeePayment', '-payment_date', 1000, 'payments'),
+      // Auditoria dos lançamentos: é o que alimenta os eventos do Histórico.
+      // Falha aqui NÃO pode derrubar os gastos, então cai no valor anterior.
+      ler('AuditLog', '-created_date', 1000, 'auditRecords'),
     ]);
 
     if (requestId.current !== id) return; // resposta velha: descarta
     const vazio = !expenses.length && loadedOnce.current;
-    const novo = { expenses, categories, centers, employees, suppliers, accounts, vales, payments };
+    const novo = { expenses, categories, centers, employees, suppliers, accounts, vales, payments, auditRecords };
     dataRef.current = novo;
     setData(novo);
     setFailure(vazio ? 'Não foi possível atualizar os gastos agora. Exibindo os últimos dados carregados.' : '');
