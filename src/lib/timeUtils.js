@@ -16,8 +16,11 @@ export function minutesToTime(min) {
   return `${sign}${String(h).padStart(2, '0')}:${String(m).padStart(2, '0')}`;
 }
 
-export function todayISO() {
-  const d = new Date();
+// Data local do navegador (não UTC): no Brasil (UTC-3), um registro feito às
+// 21h30 precisa continuar no dia certo. Aceita `reference` para os testes;
+// chamadores antigos não passam argumento e o comportamento não muda.
+export function todayISO(reference) {
+  const d = reference ? new Date(reference) : new Date();
   const off = d.getTimezoneOffset();
   const local = new Date(d.getTime() - off * 60000);
   return local.toISOString().slice(0, 10);

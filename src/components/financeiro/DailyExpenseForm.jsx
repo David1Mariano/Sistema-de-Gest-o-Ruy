@@ -9,7 +9,7 @@ import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { ExpenseAttachmentUpload } from '@/components/financeiro/ExpenseAttachment';
 import {
-  saveDailyExpense, validateExpenseForm, expenseToForm, emptyExpenseForm,
+  saveDailyExpense, validateExpenseForm, expenseToForm, emptyExpenseForm, newExpenseId,
   EXPENSE_CLASS_LABELS, EXPENSE_STATUS_LABELS,
   EXPENSE_BENEFICIARY_LABELS, expenseCategoryOptions, paymentMethodOptions, supplierNameOptions,
 } from '@/lib/dailyExpenses';
@@ -47,6 +47,10 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState('');
   const [failure, setFailure] = useState('');
+  // Id estável por tentativa de criação: se o pagamento do colaborador falhar
+  // e o usuário tentar de novo, o mesmo id é reenviado e o `create` faz upsert
+  // do MESMO gasto em vez de duplicar.
+  const pendingId = useRef('');
   const proofRef = useRef();
   const invoiceRef = useRef();
 
@@ -56,6 +60,7 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
     setErrors({});
     setFailure('');
     setUploading('');
+    pendingId.current = '';
   }, [open, editing]);
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
@@ -77,10 +82,12 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
     if (!valid) return;
     setSaving(true);
     setFailure('');
+    // Na criação, o id nasce aqui e vale para todas as tentativas até dar certo.
+    const attemptForm = editing ? form : { ...form, expense_id: pendingId.current || (pendingId.current = newExpenseId()) };
     try {
       await saveDailyExpense({
         entities: base44.entities,
-        form,
+        form: attemptForm,
         editing,
         categories: data.categories,
         centers: data.centers,
@@ -88,9 +95,12 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
         responsibleUser: currentUserName(),
         payments: data.payments,
       });
+      pendingId.current = '';
       onClose();
       await onSaved();
     } catch (err) {
+      // `pendingId` é mantido de propósito: a próxima tentativa reenvia o mesmo
+      // id, então o `create` atualiza o gasto existente em vez de duplicá-lo.
       setFailure(err?.message || 'Não foi possível salvar o gasto. Tente novamente.');
     } finally { setSaving(false); }
   };

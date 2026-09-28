@@ -20,8 +20,34 @@
 // no BANCO é número. Import relativo, e não o alias '@/', porque este arquivo
 // roda igual no app (Vite) e nos testes do Node.
 import { parseDecimalBR, roundMoney } from './numberUtils.js';
+import { todayISO } from './timeUtils.js';
 
-export { roundMoney };
+export { roundMoney, todayISO };
+
+// Erro de concorrência: o gasto foi alterado por outra máquina depois que este
+// formulário foi aberto. A mensagem pede atualização, sem mesclar intenção.
+export class ExpenseConflictError extends Error {
+  constructor(message) {
+    super(message);
+    this.name = 'ExpenseConflictError';
+    this.code = 'gasto_alterado_por_outra_maquina';
+  }
+}
+
+// Id estável por tentativa de criação. `create()` respeita `data.id` nos DOIS
+// backends (cloudDb e localDb fazem upsert pela chave entity+id), então o
+// mesmo id reenviado atualiza o mesmo registro em vez de duplicar o gasto.
+// É o que torna seguro repetir a criação depois de um timeout.
+export function newExpenseId() {
+  if (globalThis.crypto?.randomUUID) return `fe_${globalThis.crypto.randomUUID()}`;
+  if (globalThis.crypto?.getRandomValues) {
+    const bytes = new Uint8Array(16);
+    globalThis.crypto.getRandomValues(bytes);
+    const hex = [...bytes].map((b) => b.toString(16).padStart(2, '0')).join('');
+    return `fe_${hex}`;
+  }
+  return `fe_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
 
 export const EXPENSE_CLASS_LABELS = {
   despesa_operacional: 'Despesa operacional', compra_insumo: 'Compra de insumo', pagamento_colaborador: 'Pagamento de colaborador',
@@ -50,14 +76,9 @@ export const EXPENSE_PERIOD_PRESETS = [
   { key: 'todos', label: 'Tudo' },
 ];
 
-// Mesma regra de data do restante do projeto (stockRules): o dia é o do FUSO do
-// navegador, não o UTC. Sem isso, um gasto registrado às 21h30 no Brasil
-// (UTC-3) seria datado como o dia seguinte. Aceita `reference` para os testes.
-export const todayISO = (reference = new Date()) => {
-  const d = reference instanceof Date ? reference : new Date(reference);
-  if (Number.isNaN(d.getTime())) return '';
-  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
-};
+// A data local vem de `timeUtils.todayISO` (reexportada acima): dia do fuso
+// do navegador, igual ao estoque e ao Ponto. Sem isso, um gasto registrado às
+// 21h30 no Brasil (UTC-3) seria datado como o dia seguinte.
 
 // Datas gravadas pelo app são 'YYYY-MM-DD' (string). Formatamos sem passar por
 // Date para não sofrer o deslocamento de fuso do construtor com meia-noite.
@@ -68,10 +89,15 @@ export function formatExpenseDate(value) {
   return `${match[3]}/${match[2]}/${match[1]}`;
 }
 
+// Formatador único de moeda: o MESMO que o restante do Financeiro usa
+// (`toLocaleString('pt-BR', {style:'currency'})`), só que com o
+// Intl.NumberFormat instanciado uma vez. Não muda o texto exibido.
+const BRL = new Intl.NumberFormat('pt-BR', { style: 'currency', currency: 'BRL' });
+
 export function formatExpenseAmount(value) {
   const n = Number(value);
-  if (!Number.isFinite(n)) return 'R$ 0,00';
-  return n.toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
+  if (!Number.isFinite(n)) return BRL.format(0);
+  return BRL.format(n);
 }
 
 export const isCancelledExpense = (expense) => expense?.status === 'cancelado';
@@ -304,6 +330,17 @@ function linkedPaymentPatch(payload, employee) {
 // Cria/atualiza o gasto e mantém o EmployeePayment vinculado em sincronia.
 // Não toca em CashMovement, AccountsPayable, Purchase nem StockMovement: o
 // gasto diário não gera movimentação financeira automática nesta etapa.
+//
+// Escritas na CRIAÇÃO: 2 (antes eram 3).
+//   1) FinancialExpense.create   — com `id` estável, então repetir a tentativa
+//                                  faz upsert do MESMO registro (não duplica);
+//   2) EmployeePayment.create    — já nasce com `financial_expense_id`, o id do
+//                                  gasto já existe no passo 1. O antigo
+//                                  "create + update para ligar" era um ponto de
+//                                  falha e uma janela em que o pagamento existia
+//                                  sem vínculo (órfão).
+// Se o passo 2 falhar, o gasto é compensado (excluído) para não sobrar registro
+// pela metade, e o erro sobe para a tela: nunca devolvemos sucesso parcial.
 export async function saveDailyExpense({ entities, form, editing = null, categories = [], centers = [], employees = [], responsibleUser = '', payments = [] }) {
   const payload = buildExpensePayload(form, { categories, centers, employees, responsibleUser });
   const employee = payload.beneficiary_id
@@ -314,18 +351,160 @@ export async function saveDailyExpense({ entities, form, editing = null, categor
     // `origin_type`/`origin_id` não mudam na edição: o registro continua
     // pertencendo à tela que o criou.
     const patch = { ...payload, origin_type: editing.origin_type, origin_id: editing.origin_id };
-    const updated = await entities.FinancialExpense.update(editing.id, patch);
-    const linked = (payments || []).find((payment) => payment.financial_expense_id === editing.id);
-    if (linked && employee) await entities.EmployeePayment.update(linked.id, linkedPaymentPatch(payload, employee));
-    return { expense: updated, created: false };
+    const antes = await entities.FinancialExpense.get(editing.id).catch(() => null);
+    const linked = findActiveLinkedPayment(payments, editing.id);
+    const updated = await updateExpenseGuarded({ entities, editing, patch });
+    try {
+      const payment = await syncLinkedEmployeePayment({ entities, expenseId: editing.id, employee, payload, linked });
+      return { expense: updated, payment, created: false };
+    } catch (err) {
+      // `transact` protege UMA linha: o gasto e o pagamento são entidades
+      // diferentes e NÃO há transação entre elas. Se a gravação do pagamento
+      // falhar depois do gasto ter sido gravado, devolvemos o gasto ao estado
+      // anterior — é COMPENSAÇÃO, não atomicidade. Sem ela, FinancialExpense e
+      // EmployeePayment terminariam com valores diferentes em silêncio.
+      if (antes) {
+        try {
+          await entities.FinancialExpense.update(editing.id, {
+            amount: antes.amount, date: antes.date, paid_date: antes.paid_date,
+            description: antes.description, classification: antes.classification,
+            category_id: antes.category_id, category_name: antes.category_name,
+            cost_center_id: antes.cost_center_id, cost_center_name: antes.cost_center_name,
+            beneficiary_type: antes.beneficiary_type, beneficiary_id: antes.beneficiary_id,
+            beneficiary_name: antes.beneficiary_name, employee_id: antes.employee_id,
+            payment_method: antes.payment_method, account: antes.account,
+            status: antes.status, observation: antes.observation, proof_url: antes.proof_url,
+          });
+        } catch { /* mantém o erro original; a reconciliação manual resolve */ }
+      }
+      throw err;
+    }
   }
 
-  const created = await entities.FinancialExpense.create(payload);
-  if (!employee) return { expense: created, created: true };
-  const payment = await entities.EmployeePayment.create(linkedPaymentPatch(payload, employee));
-  await entities.EmployeePayment.update(payment.id, { financial_expense_id: created.id });
-  return { expense: created, created: true };
+  // `expense_id` torna a criação idempotente por tentativa: o mesmo id reenviado
+  // atualiza o mesmo registro em vez de criar um segundo gasto.
+  const id = form.expense_id || newExpenseId();
+  const created = await entities.FinancialExpense.create({ ...payload, id });
+  if (!employee) return { expense: created, payment: null, created: true, expenseId: id };
+
+  try {
+    const payment = await entities.EmployeePayment.create({ ...linkedPaymentPatch(payload, employee), financial_expense_id: created.id });
+    return { expense: created, payment, created: true, expenseId: id };
+  } catch (err) {
+    // Falha parcial: o gasto existe mas o pagamento do colaborador não.
+    // Compensamos removendo o gasto recém-criado (ele não tem nenhum vínculo
+    // ainda), para o estado não ficar pela metade. Se a compensação falhar, o
+    // erro original sobe junto e o id estável evita gasto duplicado no retry.
+    try { await entities.FinancialExpense.delete(created.id); } catch { /* mantém o erro original */ }
+    throw new Error(
+      'O gasto não foi salvo: o registro do pagamento do colaborador falhou e o gasto foi desfeito. '
+      + 'Tente novamente.'
+    );
+  }
 }
+
+// ---------------------------------------------------------------- concorrência
+//
+// `client.transact(id, mutate)` faz read-modify-write COMPARANDO A VERSÃO: se
+// outra máquina gravou no meio, o PATCH volta vazio e a função repete. Nós
+// usamos isso para ABORTAR, não para mesclar: um formulário financeiro não
+// pode sobrescrever a intenção de outro usuário em silêncio.
+//
+// IMPORTANTE: `transact` protege UMA linha. FinancialExpense e EmployeePayment
+// continuam sendo entidades diferentes — a operação NÃO é atômica entre elas.
+
+function assertSameVersion(entity, row, expectedUpdatedDate) {
+  // Sem versão carregada (registro antigo) não há como detectar conflito:
+  // nesse caso seguimos o fluxo normal em vez de bloquear uma edição legítima.
+  if (!expectedUpdatedDate || !row?.updated_date) return;
+  if (row.updated_date !== expectedUpdatedDate) {
+    throw new ExpenseConflictError(
+      `Este gasto foi alterado em outra máquina depois que você abriu a tela. `
+      + 'Atualize a lista e revise antes de salvar, para não sobrescrever a alteração de outro usuário.'
+    );
+  }
+}
+
+// Grava o FinancialExpense da edição detectando conflito. Usa transact quando
+// disponível; sem ele, cai para update() (comportamento antigo, sem Worse).
+async function updateExpenseGuarded({ entities, editing, patch }) {
+  if (typeof entities.FinancialExpense.transact !== 'function') {
+    return entities.FinancialExpense.update(editing.id, patch);
+  }
+  return entities.FinancialExpense.transact(editing.id, async (row) => {
+    assertSameVersion('FinancialExpense', row, editing.updated_date);
+    return { ...patch, id: editing.id };
+  });
+}
+
+// ------------------------------------------------------------ EmployeePayment
+//
+// Decisão de produto (documentada): NUNCA apagamos pagamento.
+// O projeto já trata pagamento cancelado como "inexistente" em todos os
+// cálculos (Financeiro, FichaColaborador e métricas filtram status
+// 'cancelado'), e a FichaColaborador registra exclusão como 'exclusao_logica'.
+// Então, quando o favorecido muda, o pagamento antigo é CANCELADO — o
+// histórico continua visível na ficha de quem o recebeu — e o novo é criado
+// vinculado ao mesmo gasto. Reconciliar o pagamento antigo para o colaborador
+// B apagaria da ficha do A um lançamento que de fato pertence a ele.
+
+const CANCEL_NOTE = 'Cancelado pelo Financeiro: favorecido do gasto alterado.';
+
+async function cancelLinkedPayment({ entities, linked, expectedUpdatedDate }) {
+  if (!linked) return null;
+  const note = [linked.observation, CANCEL_NOTE].filter(Boolean).join(' | ');
+  if (typeof entities.EmployeePayment.transact !== 'function') {
+    return entities.EmployeePayment.update(linked.id, { status: 'cancelado', observation: note });
+  }
+  return entities.EmployeePayment.transact(linked.id, async (row) => {
+    assertSameVersion('EmployeePayment', row, expectedUpdatedDate || linked.updated_date);
+    if (row.status === 'cancelado') return null; // já estava: nada a fazer
+    return { status: 'cancelado', observation: note };
+  });
+}
+
+// Pagamento que "representa" o gasto hoje: o ÚLTIMO ativo vinculado. Depois de
+// uma troca de favorecido existem pagamentos cancelados E um ativo apontando
+// para o mesmo gasto; escolher pelo primeiro da lista pegaria um já cancelado
+// e deixaria o ativo para trás.
+export function findActiveLinkedPayment(payments = [], expenseId) {
+  if (!expenseId) return null;
+  const linked = (payments || []).filter((payment) => payment?.financial_expense_id === expenseId);
+  if (!linked.length) return null;
+  const ativos = linked.filter((payment) => payment.status !== 'cancelado');
+  return ativos[ativos.length - 1] || null;
+}
+
+// Deixa o EmployeePayment coerente com o favorecido atual do gasto.
+//   fornecedor -> fornecedor   : nada a fazer (não existe pagamento)
+//   fornecedor -> colaborador  : cria 1 pagamento já vinculado ao gasto
+//   A -> A                     : atualiza o pagamento existente (não duplica)
+//   A -> B                     : cancela o de A e cria 1 para B
+//   colaborador -> fornecedor  : cancela o pagamento do colaborador
+export async function syncLinkedEmployeePayment({ entities, expenseId, employee, payload, linked }) {
+  if (employee) {
+    if (!linked) {
+      return entities.EmployeePayment.create({ ...linkedPaymentPatch(payload, employee), financial_expense_id: expenseId });
+    }
+    if (linked.employee_id === employee.id) {
+      return updatePaymentGuarded({ entities, linked, patch: linkedPaymentPatch(payload, employee) });
+    }
+    await cancelLinkedPayment({ entities, linked });
+    return entities.EmployeePayment.create({ ...linkedPaymentPatch(payload, employee), financial_expense_id: expenseId });
+  }
+  return cancelLinkedPayment({ entities, linked });
+}
+
+async function updatePaymentGuarded({ entities, linked, patch }) {
+  if (typeof entities.EmployeePayment.transact !== 'function') {
+    return entities.EmployeePayment.update(linked.id, patch);
+  }
+  return entities.EmployeePayment.transact(linked.id, async (row) => {
+    assertSameVersion('EmployeePayment', row, linked.updated_date);
+    return { ...patch, id: linked.id };
+  });
+}
+
 
 // Exclusão é bloqueada quando o gasto pertence a outra tela (vale, pagamento
 // em lote) ou quando algum registro ainda aponta para ele. Sem isso, apagar o
@@ -345,8 +524,33 @@ export function expenseDeleteBlocker(expense = {}, { payments = [], vales = [] }
   return null;
 }
 
-export async function deleteDailyExpense({ entities, expense, payments = [], vales = [] }) {
-  const blocker = expenseDeleteBlocker(expense, { payments, vales });
+// Recarrega os vínculos que protegem a exclusão. `expenseDeleteBlocker` só
+// enxerga o snapshot da tela; se, entre carregar e clicar em excluir, nasceu um
+// EmployeePayment/Vale ou o registro virou origem protegida, o bloqueio
+// acontece mesmo assim. Sem essa revalidação, apagaríamos com base em dado
+// velho. Limitação conhecida: `list` tem teto de registros, então um vínculo
+// além do teto não seria visto (mesma janela de antes, agora com dado fresco).
+async function reloadLinks({ entities, payments = [], vales = [] }) {
+  const load = async (name, snapshot) => {
+    try {
+      const list = entities[name]?.list;
+      if (typeof list !== 'function') return snapshot;
+      return await list.call(entities[name], '-created_date', 2000) || snapshot;
+    } catch {
+      return snapshot; // offline/erro: usa o snapshot, sem travar a exclusão
+    }
+  };
+  const [freshPayments, freshVales] = await Promise.all([
+    load('EmployeePayment', payments),
+    load('Vale', vales),
+  ]);
+  return { payments: freshPayments, vales: freshVales };
+}
+
+export async function deleteDailyExpense({ entities, expense, payments = [], vales = [], revalidate = true }) {
+  let current = { payments, vales };
+  if (revalidate) current = await reloadLinks({ entities, payments, vales });
+  const blocker = expenseDeleteBlocker(expense, current);
   if (blocker) throw new Error(blocker);
   return entities.FinancialExpense.delete(expense.id);
 }
