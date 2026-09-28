@@ -1,0 +1,257 @@
+import { useEffect, useMemo, useRef, useState } from 'react';
+import { AlertTriangle, CalendarDays, Eye, Pencil, Plus, Receipt, Search, Trash2, Wallet, X } from 'lucide-react';
+import { Button } from '@/components/ui/button';
+import { Input } from '@/components/ui/input';
+import {
+  AlertDialog, AlertDialogAction, AlertDialogCancel, AlertDialogContent, AlertDialogDescription,
+  AlertDialogFooter, AlertDialogHeader, AlertDialogTitle,
+} from '@/components/ui/alert-dialog';
+import { base44 } from '@/api/base44Client';
+import DailyExpenseForm from '@/components/financeiro/DailyExpenseForm';
+import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
+import {
+  dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseCategoryOptions,
+  expenseDeleteBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount,
+  formatExpenseDate, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
+  EXPENSE_ORIGIN_LABELS,
+} from '@/lib/dailyExpenses';
+
+const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+
+function Indicator({ label, value, icon: Icon, hint, danger }) {
+  return <div className={`rounded-xl border p-4 ${danger ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-white'}`}>
+    <div className="flex justify-between gap-2">
+      <div>
+        <p className={`text-xs ${danger ? 'text-rose-600' : 'text-slate-500'}`}>{label}</p>
+        <p className={`text-xl font-semibold mt-1 ${danger ? 'text-rose-700' : 'text-slate-900'}`}>{value}</p>
+        {hint && <p className="text-xs text-slate-400 mt-0.5">{hint}</p>}
+      </div>
+      <Icon className={`w-5 h-5 shrink-0 ${danger ? 'text-rose-500' : 'text-amber-600'}`} />
+    </div>
+  </div>;
+}
+
+function ExpenseRow({ expense, onEdit, onRemove }) {
+  const origin = expense.origin_type || 'manual';
+  const editable = origin === 'manual';
+  return <tr className="hover:bg-slate-50">
+    <td className="px-4 py-3 whitespace-nowrap">{formatExpenseDate(expense.date)}</td>
+    <td className="px-4 py-3 font-medium">
+      {expense.description || '—'}
+      {expense.beneficiary_name && <span className="block text-xs font-normal text-slate-500">{expense.beneficiary_name}</span>}
+      {!editable && <span className="block text-xs font-normal text-slate-400">Origem: {EXPENSE_ORIGIN_LABELS[origin] || origin}</span>}
+    </td>
+    <td className="px-4 py-3">
+      {expenseCategoryLabel(expense)}
+      <span className="block text-xs text-slate-400">{expenseStatusLabel(expense)}</span>
+    </td>
+    <td className="px-4 py-3 font-semibold whitespace-nowrap">{formatExpenseAmount(expense.amount)}</td>
+    <td className="px-4 py-3">{expenseMethodLabel(expense)}</td>
+    <td className="px-4 py-3">{expense.responsible_user || '—'}</td>
+    <td className="px-4 py-3">
+      <div className="flex items-center gap-2">
+        <ExpenseAttachment record={expense} field="proof_url" label="Comprovante" />
+        <ExpenseAttachment record={expense} field="invoice_url" label="Nota fiscal" />
+        {!expense.proof_url && !expense.storage_path && <span className="text-amber-600 text-xs">Sem anexo</span>}
+      </div>
+    </td>
+    <td className="px-4 py-3">
+      <div className="flex items-center gap-1">
+        <button type="button" onClick={() => onEdit(expense)} title="Visualizar"
+          aria-label={`Ver gasto ${expense.description || ''}`}
+          className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"><Eye className="w-4 h-4" /></button>
+        <button type="button" onClick={() => onEdit(expense)} disabled={!editable}
+          title={editable ? 'Editar' : 'Gasto gerado em outra tela'} aria-label={`Editar gasto ${expense.description || ''}`}
+          className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed"><Pencil className="w-4 h-4" /></button>
+        <button type="button" onClick={() => onRemove(expense)} disabled={!editable}
+          title={editable ? 'Excluir' : 'Gasto gerado em outra tela'} aria-label={`Excluir gasto ${expense.description || ''}`}
+          className="p-1.5 rounded-md hover:bg-rose-50 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button>
+      </div>
+    </td>
+  </tr>;
+}
+
+
+function SearchAndFilters({
+  search, setSearch, preset, setPreset, customStart, setCustomStart, customEnd, setCustomEnd,
+  categoryId, setCategoryId, paymentMethod, setPaymentMethod, categories, visible, visibleSum,
+  loading, filtersActive, onClear,
+}) {
+  return <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
+    <div className="relative">
+      <Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400" />
+      <Input className="pl-9" placeholder="Pesquisar gasto..." aria-label="Pesquisar gasto" value={search}
+        onChange={(event) => setSearch(event.target.value)} />
+    </div>
+    <div className="flex flex-wrap items-center gap-2">
+      {EXPENSE_PERIOD_PRESETS.map((option) => <button key={option.key} type="button" onClick={() => setPreset(option.key)}
+        aria-pressed={preset === option.key}
+        className={`rounded-lg px-3 py-1.5 text-sm font-medium transition-colors ${preset === option.key ? 'bg-slate-900 text-white' : 'bg-slate-100 text-slate-600 hover:bg-slate-200'}`}>
+        {option.label}
+      </button>)}
+    </div>
+    {preset === 'personalizado' && <div className="flex flex-wrap items-end gap-3">
+      <label className="text-xs">De
+        <input type="date" value={customStart} onChange={(event) => setCustomStart(event.target.value)} className={`${inputCls} mt-1`} />
+      </label>
+      <label className="text-xs">Até
+        <input type="date" value={customEnd} onChange={(event) => setCustomEnd(event.target.value)} className={`${inputCls} mt-1`} />
+      </label>
+    </div>}
+    <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
+      <label className="text-xs">Categoria
+        <select className={`${inputCls} mt-1`} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+          <option value="">Todas as categorias</option>
+          {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
+        </select>
+      </label>
+      <label className="text-xs">Forma de pagamento
+        <select className={`${inputCls} mt-1`} value={paymentMethod} onChange={(event) => setPaymentMethod(event.target.value)}>
+          <option value="">Todas as formas</option>
+          {paymentMethodOptions().map(([value, label]) => <option key={value} value={value}>{label}</option>)}
+        </select>
+      </label>
+      <div className="flex items-end justify-between gap-2">
+        <p className="text-xs text-slate-500 pb-2" role="status">
+          {loading ? 'Carregando...' : `${visible.length} gasto(s) · ${formatExpenseAmount(visibleSum)}`}
+        </p>
+        {filtersActive && <Button variant="ghost" size="sm" onClick={onClear} className="gap-1">
+          <X className="w-3 h-3" /> Limpar
+        </Button>}
+      </div>
+    </div>
+  </div>;
+}
+
+export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, openSignal = 0 }) {
+  const [search, setSearch] = useState('');
+  const [preset, setPreset] = useState('mes');
+  const [customStart, setCustomStart] = useState('');
+  const [customEnd, setCustomEnd] = useState('');
+  const [categoryId, setCategoryId] = useState('');
+  const [paymentMethod, setPaymentMethod] = useState('');
+  const [formOpen, setFormOpen] = useState(false);
+  const [editing, setEditing] = useState(null);
+  const [removing, setRemoving] = useState(null);
+  const [removeError, setRemoveError] = useState('');
+  const [removingBusy, setRemovingBusy] = useState(false);
+
+  const period = useMemo(
+    () => resolveExpensePeriod(preset, { start: customStart, end: customEnd }),
+    [preset, customStart, customEnd],
+  );
+
+  const visible = useMemo(() => filterExpenses(rows, {
+    search, start: period.start, end: period.end, categoryId, paymentMethod,
+  }), [rows, search, period.start, period.end, categoryId, paymentMethod]);
+
+  // Indicadores sobre todos os gastos carregados, não sobre a busca filtrada.
+  const indicators = useMemo(() => dailyExpenseIndicators(rows), [rows]);
+  const categories = expenseCategoryOptions(data.categories);
+  const blocker = removing ? expenseDeleteBlocker(removing, { payments: data.payments, vales: data.vales }) : null;
+  const visibleSum = visible.reduce((total, expense) => total + Number(expense.amount || 0), 0);
+  const filtersActive = Boolean(search || categoryId || paymentMethod || preset !== 'mes');
+
+  const openCreate = () => { setEditing(null); setFormOpen(true); };
+  const openEdit = (expense) => { setEditing(expense); setFormOpen(true); };
+  const closeForm = () => { setFormOpen(false); setEditing(null); };
+  const clearFilters = () => { setSearch(''); setCategoryId(''); setPaymentMethod(''); setPreset('mes'); };
+
+  // O botão "Novo gasto" do cabeçalho do Financeiro abre este formulário
+  // incrementando o contador; assim o funcionário não precisa procurar a aba.
+  const lastSignal = useRef(openSignal);
+  useEffect(() => {
+    if (openSignal === lastSignal.current) return;
+    lastSignal.current = openSignal;
+    setEditing(null);
+    setFormOpen(true);
+  }, [openSignal]);
+
+  const confirmRemove = async () => {
+    if (!removing || blocker) return;
+    setRemovingBusy(true);
+    setRemoveError('');
+    try {
+      await deleteDailyExpense({ entities: base44.entities, expense: removing, payments: data.payments, vales: data.vales });
+      setRemoving(null);
+      await onSaved();
+    } catch (err) {
+      setRemoveError(err?.message || 'Não foi possível excluir o gasto. Tente novamente.');
+    } finally { setRemovingBusy(false); }
+  };
+
+  return <div className="space-y-4">
+    <div className="flex flex-wrap items-center justify-between gap-3">
+      <div>
+        <h2 className="text-xl font-semibold text-slate-900">Gastos Diários</h2>
+        <p className="text-sm text-slate-500">Registre e consulte as despesas do dia a dia da operação.</p>
+      </div>
+      <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" /> Novo gasto</Button>
+    </div>
+
+    <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+      <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
+        hint={indicators.todayCount ? `${indicators.todayCount} lançamento(s)` : 'Nenhum lançamento hoje'} />
+      <Indicator label="Gastos do mês" value={formatExpenseAmount(indicators.monthTotal)} icon={CalendarDays}
+        hint={`${indicators.monthCount} lançamento(s)`} />
+      <Indicator label="Lançamentos" value={indicators.totalCount} icon={Receipt} hint="Total de gastos registrados" />
+      <Indicator label="Pagos sem comprovante" value={indicators.noProofCount} icon={AlertTriangle}
+        danger={indicators.noProofCount > 0} hint="Pendentes de anexo" />
+    </div>
+
+    <SearchAndFilters
+      search={search} setSearch={setSearch}
+      preset={preset} setPreset={setPreset}
+      customStart={customStart} setCustomStart={setCustomStart}
+      customEnd={customEnd} setCustomEnd={setCustomEnd}
+      categoryId={categoryId} setCategoryId={setCategoryId}
+      paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
+      categories={categories} visible={visible} visibleSum={visibleSum}
+      loading={loading} filtersActive={filtersActive} onClear={clearFilters} />
+
+    <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
+      <div className="overflow-x-auto">
+        <table className="w-full text-sm min-w-[950px]">
+          <thead className="bg-slate-50 text-xs uppercase text-slate-500">
+            <tr>{['Data', 'Descrição', 'Categoria', 'Valor', 'Pagamento', 'Responsável', 'Comprovante', 'Ações'].map((header) => (
+              <th key={header} className="text-left px-4 py-3 font-medium">{header}</th>
+            ))}</tr>
+          </thead>
+          <tbody className="divide-y">
+            {loading && <tr><td colSpan={8} className="p-10 text-center text-slate-400">Carregando gastos...</td></tr>}
+            {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
+              <p className="font-medium text-slate-700">Nenhum gasto encontrado.</p>
+              <p className="text-sm mt-1">Ajuste a busca ou os filtros, ou registre um novo gasto.</p>
+              <Button className="mt-4 gap-2" onClick={openCreate}><Plus className="w-4 h-4" /> Novo gasto</Button>
+            </td></tr>}
+            {!loading && visible.map((expense) => <ExpenseRow key={expense.id} expense={expense}
+              onEdit={openEdit}
+              onRemove={(target) => { setRemoveError(''); setRemoving(target); }} />)}
+          </tbody>
+        </table>
+      </div>
+    </div>
+
+    <DailyExpenseForm open={formOpen} onClose={closeForm} onSaved={onSaved} data={data} editing={editing} />
+
+    <AlertDialog open={Boolean(removing)} onOpenChange={(open) => { if (!open && !removingBusy) { setRemoving(null); setRemoveError(''); } }}>
+      <AlertDialogContent>
+        <AlertDialogHeader>
+          <AlertDialogTitle>Excluir gasto diário?</AlertDialogTitle>
+          <AlertDialogDescription>
+            {removing ? `"${removing.description || 'Sem descrição'}" de ${formatExpenseAmount(removing.amount)} em ${formatExpenseDate(removing.date)} será removido em definitivo. Esta ação não pode ser desfeita.` : ''}
+          </AlertDialogDescription>
+        </AlertDialogHeader>
+        {blocker && <p role="alert" className="rounded-md border border-amber-200 bg-amber-50 p-3 text-sm text-amber-800">{blocker}</p>}
+        {removeError && <p role="alert" className="mt-2 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{removeError}</p>}
+        <AlertDialogFooter>
+          <AlertDialogCancel disabled={removingBusy}>Cancelar</AlertDialogCancel>
+          <AlertDialogAction onClick={confirmRemove} disabled={removingBusy || Boolean(blocker)} className="bg-red-600 hover:bg-red-700">
+            {removingBusy ? 'Excluindo...' : 'Excluir gasto'}
+          </AlertDialogAction>
+        </AlertDialogFooter>
+      </AlertDialogContent>
+    </AlertDialog>
+  </div>;
+}
+
