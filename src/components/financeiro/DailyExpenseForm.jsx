@@ -4,6 +4,7 @@ import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import NumberInput from '@/components/shared/NumberInput';
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { ExpenseAttachmentUpload } from '@/components/financeiro/ExpenseAttachment';
@@ -12,6 +13,7 @@ import {
   EXPENSE_CLASS_LABELS, EXPENSE_STATUS_LABELS,
   EXPENSE_BENEFICIARY_LABELS, expenseCategoryOptions, paymentMethodOptions, supplierNameOptions,
 } from '@/lib/dailyExpenses';
+import { toNumberBR } from '@/lib/numberUtils';
 
 const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
 
@@ -26,18 +28,17 @@ const Select = ({ v, on, opts }) => <select className={inputCls} value={v || ''}
   {opts.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
 </select>;
 
-// Máscara de dinheiro: o funcionário digita "12,50" e o registro grava 12.5.
-function CurrencyInput({ value, onChange, error }) {
-  const fmt = (v) => { const n = Number(v); return (v || v === 0) && !isNaN(n) ? n.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 }) : ''; };
-  const [text, setText] = useState('');
-  const [focused, setFocused] = useState(false);
-  useEffect(() => { if (!focused) setText(fmt(value)); }, [value, focused]);
-  return <Input type="text" inputMode="decimal" className="h-9" value={text} placeholder="0,00"
-    aria-invalid={error ? 'true' : undefined}
-    onFocus={() => { setFocused(true); setText(value === '' || value == null ? '' : String(value).replace('.', ',')); }}
-    onBlur={() => { setFocused(false); setText(fmt(value)); }}
-    onChange={(e) => { setText(e.target.value); onChange(e.target.value.replace(/\./g, '').replace(',', '.')); }} />;
-}
+// Valor: usa o NumberInput compartilhado (integrado pelo Agente 1) em vez de
+// uma segunda máscara de dinheiro. Ele já resolve a vírgula decimal pt-BR e
+// entrega NÚMERO ao estado — que é o que `buildExpensePayload` espera.
+const CurrencyInput = ({ value, onChange, error }) => <NumberInput
+  value={value}
+  onChange={onChange}
+  placeholder="0,00"
+  fractionDigits={2}
+  className="h-9"
+  aria-invalid={error ? 'true' : undefined}
+  aria-label="Valor do gasto" />;
 
 
 export default function DailyExpenseForm({ open, onClose, onSaved, data, editing }) {
@@ -97,7 +98,7 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   const activeCategories = expenseCategoryOptions(data.categories);
   const suppliers = supplierNameOptions(data.suppliers);
   const employees = (data.employees || []).filter((employee) => employee.status !== 'inativo');
-  const canSave = Boolean(form.description?.trim()) && Number(String(form.amount ?? '').replace(',', '.')) > 0;
+  const canSave = Boolean(form.description?.trim()) && toNumberBR(form.amount) > 0;
 
   return <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) onClose(); }}>
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>

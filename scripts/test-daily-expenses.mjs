@@ -106,6 +106,28 @@ test('formulário: pendente não recebe paid_date; colaborador exige seleção',
   assert.equal(comEmpregado.employee_id, 'e1');
 });
 
+// Integração com a regra numérica compartilhada (Agente 1): o Gastos Diários
+// NÃO pode ter uma segunda rotina de parse/arredondamento diferente da do estoque.
+test('valor segue a regra compartilhada do numberUtils (pt-BR na tela, número no banco)', async () => {
+  const { parseDecimalBR, roundMoney, toNumberBR } = await import('../src/lib/numberUtils.js');
+  const casos = [
+    ['48,90', 48.9], ['1.234,56', 1234.56], ['1234.56', 1234.56],
+    ['1.500,25', 1500.25], ['0,01', 0.01], ['10', 10],
+  ];
+  for (const [digitado, esperado] of casos) {
+    const payload = buildExpensePayload(validForm({ amount: digitado }), { categories, centers, employees });
+    assert.equal(payload.amount, esperado, `digitado "${digitado}"`);
+    assert.equal(payload.amount, roundMoney(parseDecimalBR(digitado)), 'mesma função do projeto');
+    assert.equal(typeof payload.amount, 'number', 'no banco é número, nunca string formatada');
+  }
+  // Valor não numérico nunca vira NaN no registro.
+  assert.equal(buildExpensePayload(validForm({ amount: 'abc' }), { categories, centers, employees }).amount, 0);
+  // Centavos: nada de erro de ponto flutuante no total gravado.
+  assert.equal(buildExpensePayload(validForm({ amount: '0,1' }), { categories, centers, employees }).amount, 0.1);
+  assert.equal(buildExpensePayload(validForm({ amount: '33,33' }), { categories, centers, employees }).amount, 33.33);
+  assert.equal(toNumberBR(''), NaN);
+});
+
 test('validação do formulário explica cada campo obrigatório', () => {
   const semData = { ...emptyExpenseForm(REF), date: '' };
   const vazio = validateExpenseForm(semData);
@@ -277,7 +299,7 @@ test('abrir um gasto existente preenche o formulário sem perder dados', () => {
     origin_type: 'manual', responsible_user: 'João',
   }, REF);
   assert.equal(form.description, 'Manutenção');
-  assert.equal(form.amount, '320', 'valor volta como texto para o campo');
+  assert.equal(form.amount, 320, 'valor volta como número para o NumberInput compartilhado');
   assert.equal(form.category_id, 'c2');
 
 // ------------------------------------------- não regressão do AttachmentPreview

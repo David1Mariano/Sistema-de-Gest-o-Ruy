@@ -14,6 +14,14 @@
 //   `EmployeePayment.financial_expense_id`;
 // - gastos com `origin_type` diferente de 'manual' (ex.: 'vale') são gerados por
 //   outras telas e nunca devem ser editados/excluídos por aqui.
+//
+// Numeração: segue a regra compartilhada do projeto em `numberUtils.js`
+// (integrada pelo Agente 1) — na TELA o valor é pt-BR com vírgula, no ESTADO e
+// no BANCO é número. Import relativo, e não o alias '@/', porque este arquivo
+// roda igual no app (Vite) e nos testes do Node.
+import { parseDecimalBR, roundMoney } from './numberUtils.js';
+
+export { roundMoney };
 
 export const EXPENSE_CLASS_LABELS = {
   despesa_operacional: 'Despesa operacional', compra_insumo: 'Compra de insumo', pagamento_colaborador: 'Pagamento de colaborador',
@@ -42,9 +50,13 @@ export const EXPENSE_PERIOD_PRESETS = [
   { key: 'todos', label: 'Tudo' },
 ];
 
+// Mesma regra de data do restante do projeto (stockRules): o dia é o do FUSO do
+// navegador, não o UTC. Sem isso, um gasto registrado às 21h30 no Brasil
+// (UTC-3) seria datado como o dia seguinte. Aceita `reference` para os testes.
 export const todayISO = (reference = new Date()) => {
   const d = reference instanceof Date ? reference : new Date(reference);
-  return Number.isNaN(d.getTime()) ? '' : d.toISOString().slice(0, 10);
+  if (Number.isNaN(d.getTime())) return '';
+  return new Date(d.getTime() - d.getTimezoneOffset() * 60000).toISOString().slice(0, 10);
 };
 
 // Datas gravadas pelo app são 'YYYY-MM-DD' (string). Formatamos sem passar por
@@ -192,7 +204,9 @@ export function expenseToForm(expense = {}, reference = new Date()) {
   for (const key of Object.keys(base)) {
     if (expense[key] !== undefined && expense[key] !== null) form[key] = expense[key];
   }
-  form.amount = expense.amount === undefined || expense.amount === null ? '' : String(expense.amount);
+  // NumberInput trabalha com NÚMERO (regra do numberUtils); texto formatado
+  // faria o campo exibir "320" como texto e travar a máscara.
+  form.amount = expense.amount === undefined || expense.amount === null ? '' : Number(expense.amount) || '';
   form.paid_date = expense.paid_date || expense.date || base.paid_date;
   if (expense.beneficiary_id && !expense.employee_id) form.employee_id = expense.beneficiary_id;
   if (!expense.beneficiary_type) form.beneficiary_type = expense.beneficiary_id ? 'colaborador' : 'outro';
@@ -216,13 +230,13 @@ export function validateExpenseForm(form = {}, { employees = [] } = {}) {
 
 // Monta o registro exatamente no formato já usado pelo Financeiro.jsx antes
 // desta mudança: nenhum campo novo e nenhum campo removido.
-// Aceita o que o funcionário digita: "48,90", "1.234,56" ou "1234.56".
+// O valor é normalizado pela regra compartilhada (numberUtils): aceita o que o
+// funcionário digita ("48,90", "1.234,56", "1234.56") e grava número em centavos.
 const parseExpenseAmount = (value) => {
-  const raw = String(value ?? '').trim();
-  if (!raw) return 0;
-  const normalized = raw.includes(',') ? raw.replace(/\./g, '').replace(',', '.') : raw;
-  const parsed = Number(normalized);
-  return Number.isFinite(parsed) ? parsed : 0;
+  const parsed = parseDecimalBR(value);
+  if (parsed === '' || !Number.isFinite(parsed)) return 0;
+  const money = roundMoney(parsed);
+  return Number.isFinite(money) ? money : 0;
 };
 
 export function buildExpensePayload(form = {}, { categories = [], centers = [], employees = [], responsibleUser = '' } = {}) {
