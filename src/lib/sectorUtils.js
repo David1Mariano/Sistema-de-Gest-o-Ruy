@@ -90,7 +90,72 @@ export function filterSectorEmployees(employees = [], { search = '', statusFilte
   ));
 }
 
-// Rótulo do status, reaproveitando os rótulos que o RH já usa.
+// ---------------------------------------------------------------------------
+// SETORES FANTASMAS
+//
+// Existe um risco real aqui: `Employee.sector` guarda um TEXTO, e nada garante
+// que esse texto ainda exista na entity `Sector`. Vários colaboradores carregam
+// nomes de setores que foram apagados/renomeados na tela de Setores — são os
+// "setores fantasmas".
+//
+// REGRA DEFINITIVA, aplicada em um único lugar:
+//   - As OPÇÕES de setor vêm EXCLUSIVAMENTE da entity `Sector`, e só das
+//     ATIVAS. `Employee.sector` NUNCA gera opção. Não recriamos Sector a partir
+//     de valor legado e não mantemos lista fixa.
+//   - O VÍNCULO atual do continua sendo `Employee.sector` (não migramos para id
+//     nesta fase). Para saber ONDE a pessoa está, olhamos `Employee.sector`;
+//     para saber quais setores EXISTEM, olhamos `Sector`. Os dois conceitos não
+//     se misturam.
+//
+// Risco arquitetural documentado: o vínculo é textual. Renomear um setor não
+// atualiza os colaboradores, e dois setores com nomes equivalentes podem
+// receber as mesmas pessoas. Corrigir isso exige `sector_id` no Employee, o que
+// é migração e fica para uma fase futura com autorização.
+
+// "Sem setor": rótulo e valor do seletor. O valor é string vazia, que é o
+// formato que o projeto já usava para "sem setor" (Employee.empty.sector = '').
+export const SEM_SETOR_LABEL = 'Sem setor';
+export const SEM_SETOR_VALUE = '';
+
+// Opções de setor para o seletor. ÚNICA fonte: `Sector`, apenas ativos,
+// deduplicados por nome equivalente e ordenados.
+export function activeSectorOptions(sectors = []) {
+  const seen = new Set();
+  const out = [];
+  for (const sector of sectors || []) {
+    if (sector?.status !== 'ativo') continue; // desativado não é opção para novo vínculo
+    const key = sectorKey(sector.name);
+    if (!key || seen.has(key)) continue;
+    seen.add(key);
+    out.push(sector);
+  }
+  return out.sort((a, b) => String(a.name).localeCompare(String(b.name), 'pt-BR'));
+}
+
+// Estado do vínculo atual do colaborador frente à entity Sector.
+//   'vazio'    -> sem setor (o padrão de "Sem setor")
+//   'ok'       -> setor ativo e válido
+//   'inativo'  -> o setor existe mas está desativado (não pode ser escolhido)
+//   'fantasma' -> o texto não corresponde a nenhum Sector (dado legado)
+export function resolveEmployeeSector(sectors = [], sector) {
+  const nome = String(sector ?? '').trim();
+  if (!nome) return { nome: '', estado: 'vazio' };
+  const key = sectorKey(nome);
+  const encontrado = (sectors || []).find((s) => sectorKey(s?.name) === key);
+  if (!encontrado) return { nome, estado: 'fantasma' };
+  if (encontrado.status !== 'ativo') return { nome, estado: 'inativo' };
+  return { nome, estado: 'ok' };
+}
+
+// Mensagem do vínculo quando ele não é "ok". `null` quando está tudo certo.
+export function sectorLinkWarning(sectors = [], sector) {
+  const { nome, estado } = resolveEmployeeSector(sectors, sector);
+  if (estado === 'fantasma') return `${nome} (setor não cadastrado)`;
+  if (estado === 'inativo') return `${nome} (setor inativo)`;
+  return null;
+}
+
+// Rótulo e estilo do status, reaproveitando os rótulos que o RH já usa.
 export const employeeStatusLabel = (status) => EMPLOYEE_STATUS[status]?.label || status || '—';
 export const employeeStatusStyle = (status) => EMPLOYEE_STATUS[status]?.style || 'bg-slate-100 text-slate-500 border-slate-200';
 

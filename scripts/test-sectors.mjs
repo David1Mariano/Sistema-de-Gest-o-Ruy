@@ -7,9 +7,10 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import {
-  SECTOR_STATUS_FILTERS, employeeAdmissionLabel, employeeDisplayName, employeeMatchesStatusFilter,
-  employeeStatusLabel, employeesOfSector, filterSectorEmployees, sectorEmployeeSummary,
-  sectorFunctionSummary, sectorKey,
+  SECTOR_STATUS_FILTERS, SEM_SETOR_LABEL, SEM_SETOR_VALUE, activeSectorOptions, employeeAdmissionLabel,
+  employeeDisplayName, employeeMatchesStatusFilter, employeeStatusLabel, employeesOfSector,
+  filterSectorEmployees, resolveEmployeeSector, sectorEmployeeSummary, sectorFunctionSummary,
+  sectorKey, sectorLinkWarning,
 } from '../src/lib/sectorUtils.js';
 
 // Fixtures sintéticos. Nenhum dado real.
@@ -195,4 +196,115 @@ test('S6 — resumo normaliza caixa/espaço e ordena por quantidade', () => {
   assert.equal(resumo[0].nome, 'Cozinheiro');
   assert.equal(resumo[0].total, 2);
   assert.equal(resumo[1].nome, 'Auxiliar');
+});
+
+// ============================================================================
+// SETORES FANTASMAS
+//
+// `Employee.sector` guarda TEXTO e nada garante que ele ainda exista na entity
+// `Sector`. Estas travas cobrem a regra: opção de setor vem SÓ da entity, e o
+// vínculo legado é identificado em vez de virar opção.
+// ============================================================================
+
+const sectorsEntity = [
+  { id: 's1', name: 'Produção', status: 'ativo' },
+  { id: 's2', name: 'Cozinha', status: 'ativo' },
+  { id: 's3', name: 'Expedição', status: 'inativo' },
+];
+const opcoes = (sectors = sectorsEntity) => activeSectorOptions(sectors);
+
+test('F1 — setor legado do Employee NÃO entra no dropdown', () => {
+  const nomes = opcoes().map((s) => s.name);
+  assert.deepEqual(nomes, ['Cozinha', 'Produção'], 'só ativos, ordenados');
+  assert.ok(!nomes.includes('Produção Antiga'), 'valor legado não vira opção');
+  // A função recebe a lista de SETORES; nenhum parâmetro de Employee existe.
+  assert.equal(opcoes().length, sectorsEntity.length - 1, 'apenas os ativos da entity');
+});
+
+test('F2 — setor manual ATIVO entra; recém-criado aparece automaticamente', () => {
+  assert.ok(opcoes().some((s) => s.name === 'Produção'));
+  const recemCriado = [...sectorsEntity, { id: 's4', name: 'Entregas', status: 'ativo' }];
+  assert.ok(activeSectorOptions(recemCriado).some((s) => s.name === 'Entregas'), 'aparece sem passo extra');
+});
+
+test('F3 — setor DESATIVADO não entra para novo vínculo', () => {
+  assert.ok(!opcoes().some((s) => s.name === 'Expedição'), 'inativo fora das opções');
+  assert.equal(activeSectorOptions([sectorsEntity[2]]).length, 0, 'nem sozinho ele entra');
+  assert.equal(resolveEmployeeSector(sectorsEntity, 'Expedição').estado, 'inativo', 'mas segue válido para quem já está');
+});
+
+test('F4 — "Sem setor" limpa o vínculo no formato do modelo atual', () => {
+  assert.equal(SEM_SETOR_VALUE, '', 'string vazia, como Employee.empty.sector');
+  assert.equal(SEM_SETOR_LABEL, 'Sem setor');
+  const depois = { ...{ id: 'e1', name: 'Maria', sector: 'Produção' }, sector: SEM_SETOR_VALUE };
+  assert.equal(depois.sector, '', 'o vínculo é removido');
+  assert.equal(resolveEmployeeSector(sectorsEntity, depois.sector).estado, 'vazio');
+});
+
+test('F5 — colaborador com setor fantasma continua abrindo e é identificado', () => {
+  const vinculo = resolveEmployeeSector(sectorsEntity, 'Produção Antiga');
+  assert.equal(vinculo.estado, 'fantasma');
+  assert.equal(vinculo.nome, 'Produção Antiga', 'o valor continua legível');
+  assert.match(sectorLinkWarning(sectorsEntity, 'Produção Antiga'), /Produção Antiga/);
+  assert.match(sectorLinkWarning(sectorsEntity, 'Produção Antiga'), /não cadastrado/, 'identificado visualmente');
+  const legado = { id: 'e9', name: 'Fulano', sector: 'Produção Antiga', function: 'Auxiliar', status: 'ativo' };
+  assert.equal(legado.name, 'Fulano', 'o colaborador abre normalmente');
+  assert.equal(legado.function, 'Auxiliar');
+});
+
+test('F6 — vínculo válido não gera aviso; inativo gera aviso próprio', () => {
+  assert.equal(sectorLinkWarning(sectorsEntity, 'Produção'), null, 'setor ok não avisa');
+  assert.equal(sectorLinkWarning(sectorsEntity, ''), null, 'sem setor não avisa');
+  assert.match(sectorLinkWarning(sectorsEntity, 'Expedição'), /inativo/);
+  assert.ok(!/não cadastrado/.test(sectorLinkWarning(sectorsEntity, 'Expedição')), 'inativo não é fantasma');
+});
+
+
+test('F7 — setor fantasma pode ser substituído sem recriar Sector', () => {
+  const employees = [{ id: 'e9', name: 'Fulano', sector: 'Produção Antiga' }];
+  const antes = sectorsEntity.length;
+  // Troca pelo MESMO fluxo de edição normal do Employee.
+  const depois = { ...employees[0], sector: 'Cozinha' };
+  assert.equal(depois.sector, 'Cozinha');
+  assert.equal(sectorsEntity.length, antes, 'Nenhum Sector foi criado pela troca');
+  assert.ok(!sectorsEntity.some((s) => s.name === 'Produção Antiga'), 'o fantasma não virou registro');
+  assert.equal(resolveEmployeeSector(sectorsEntity, depois.sector).estado, 'ok', 'vínculo passa a ser válido');
+  assert.equal(employees[0].sector, 'Produção Antiga', 'a origem não foi mutada');
+});
+
+test('F8 — trocar para setor válido ou para "Sem setor" resolve o fantasma', () => {
+  for (const alvo of ['Cozinha', SEM_SETOR_VALUE]) {
+    assert.equal(resolveEmployeeSector(sectorsEntity, alvo).estado, alvo === '' ? 'vazio' : 'ok', `alvo ${alvo || '(vazio)'}`);
+  }
+});
+
+test('F9 — cadastro de novo colaborador não recebe setor legado', () => {
+  const naoExiste = 'Setor Que Nunca Foi Cadastrado';
+  assert.ok(!opcoes().some((s) => s.name === naoExiste), 'não há como selecionar valor inexistente');
+  assert.equal(resolveEmployeeSector(sectorsEntity, naoExiste).estado, 'fantasma', 'e se aparecer, é identificado');
+});
+
+test('F10 — comparação ignora caixa/espaço, mas o valor salvo não é reescrito', () => {
+  assert.equal(resolveEmployeeSector(sectorsEntity, '  producao ').estado, 'ok');
+  assert.equal(resolveEmployeeSector(sectorsEntity, 'PRODUÇÃO').estado, 'ok');
+  assert.equal(resolveEmployeeSector(sectorsEntity, ' Producao ').nome, 'Producao', 'devolve o texto original');
+  assert.equal(resolveEmployeeSector(sectorsEntity, ' producao antiga ').estado, 'fantasma', 'quase igual continua fantasma');
+});
+
+test('F11 — nenhuma tela gera opção de setor a partir de Employee', async () => {
+  const employeeForm = await readFile(new URL('../src/components/rh/EmployeeForm.jsx', import.meta.url), 'utf8');
+  assert.ok(
+    !/!sectors\.some\(\(s\) => s\.name === form\.sector\)/.test(employeeForm),
+    'o select do colaborador não injeta o valor legado como opção',
+  );
+  assert.match(employeeForm, /activeSectorOptions\(sectors\)/, 'opções vêm da entity Sector');
+  assert.match(employeeForm, /<option value="">Sem setor<\/option>/, 'opção Sem setor presente');
+  assert.match(employeeForm, /Setor atual:/, 'vínculo legado é identificado na tela');
+
+  const funcionarios = await readFile(new URL('../src/pages/Funcionarios.jsx', import.meta.url), 'utf8');
+  assert.ok(
+    !/employees\.filter\(\(e\) => e\.sector && !sectors\.some/.test(funcionarios),
+    'o filtro de Funcionários não soma setores dos colaboradores',
+  );
+  assert.match(funcionarios, /activeSectorOptions\(sectors\)/, 'filtro usa a mesma regra');
 });

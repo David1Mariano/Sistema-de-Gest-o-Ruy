@@ -63,9 +63,13 @@ export default function Setores() {
 
   const toggleStatus = async (s) => {
     const next = s.status === 'ativo' ? 'inativo' : 'ativo';
-    const count = employees.filter((e) => e.sector === s.name).length;
-    if (next === 'inativo' && count > 0) {
-      if (!confirm(`O setor "${s.name}" possui ${count} colaborador(es) vinculado(s). Desativar mesmo assim? (não exclui)`)) return;
+    // Mesma contagem do painel de detalhe, via função centralizada.
+    const vinculados = employeesOfSector(employees, s);
+    if (next === 'inativo' && vinculados.length > 0) {
+      // Desativar é LÓGICO: não apaga o setor nem mexe nos colaboradores, que
+      // continuam abrindo normalmente e apenas deixam de aparecer como opção
+      // para novo vínculo.
+      if (!confirm(`O setor "${s.name}" possui ${vinculados.length} colaborador(es) vinculado(s). Desativar mesmo assim? (não exclui)`)) return;
     }
     await base44.entities.Sector.update(s.id, { status: next });
     await logAudit({ entity_type: 'Sector', entity_id: s.id, action: 'alteracao', field: 'status', old_value: s.status, new_value: next, responsible_user: currentUserName() });
