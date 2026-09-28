@@ -1,0 +1,8 @@
+project_id = "gestao-ruy-delivery"
+
+# A API verifica a sessão com /auth/v1/user e allowlist de UUIDs; nunca confia
+# na autenticação legada. Worker verifica segredo próprio. Webhook verifica HMAC.
+[functions.delivery-api]
+verify_jwt = false
+[functions.ifood-webhook]
+verify_jwt = false

@@ -8,6 +8,7 @@ import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 import { Save, Clock, ShieldCheck } from 'lucide-react';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
+import DeliverySettings from '@/components/integrations/DeliverySettings';
 
 export default function Configuracoes() {
   const [settings, setSettings] = useState(null);
@@ -51,6 +52,8 @@ export default function Configuracoes() {
         <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
         <p className="text-sm text-slate-500">Parâmetros administrativos do sistema de jornada</p>
       </div>
+
+      <DeliverySettings />
 
       <Card>
         <CardHeader>
