@@ -10,7 +10,7 @@
     "lint:fix": "eslint . --fix",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
-    "test:delivery": "node --test scripts/test-delivery-integrations.mjs",
+    "test:delivery": "node --test scripts/test-delivery-integrations.mjs scripts/delivery-central.test.mjs",
     "prod:publish": "node scripts/production/manage.mjs publish",
     "prod:start": "node scripts/production/manage.mjs start",
     "prod:status": "node scripts/production/manage.mjs status",

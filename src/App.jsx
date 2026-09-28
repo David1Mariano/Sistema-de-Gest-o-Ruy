@@ -34,6 +34,7 @@ import Producao from '@/pages/Producao';
 import RelatorioFinanceiro from '@/pages/RelatorioFinanceiro';
 import Direcao from '@/pages/Direcao';
 import Auditoria from '@/pages/Auditoria';
+import CentralDelivery from '@/pages/CentralDelivery';
 // Add page imports here
 
 const AuthenticatedApp = () => {
@@ -80,6 +81,7 @@ const AuthenticatedApp = () => {
           <Route path="/consumo" element={<Consumo />} />
           <Route path="/advertencias" element={<Advertencias />} />
           <Route path="/financeiro" element={<Financeiro />} />
+          <Route path="/delivery" element={<CentralDelivery />} />
           <Route path="/receitas" element={<ReceitasFinanceiras />} />
           <Route path="/compras" element={<Compras />} />
           <Route path="/estoque" element={<Estoque />} />

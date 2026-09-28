@@ -1,6 +1,6 @@
 import { DeliveryError, publicFailure, requiredString, FOOD99_BLOCKED } from './delivery-domain.mjs';
 import { repository } from './repository.mjs';
-import { ifoodProvider } from './ifood.mjs';
+import { providerAdapter } from './delivery-providers.mjs';
 
 export async function readBody(request, max = 65536) {
   if (Number(request.headers.get('content-length')) > max) throw new DeliveryError('BODY_TOO_LARGE', 413);
@@ -36,7 +36,7 @@ export async function authorize(request, env, write, fetcher = fetch) {
 }
 export function managementHandler(env, deps = {}) {
   const repo = deps.repo || repository(env);
-  const provider = deps.provider || ifoodProvider(env, repo);
+  const provider = deps.provider || providerAdapter('ifood', env, repo).api;
   return async request => {
     const headers = { 'Content-Type': 'application/json', 'Cache-Control': 'no-store', Vary: 'Origin' };
     const respond = (data, status = 200) => new Response(JSON.stringify(data), { status, headers });
