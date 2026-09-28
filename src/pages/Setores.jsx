@@ -96,11 +96,16 @@ export default function Setores() {
         <div className="grid gap-3 md:grid-cols-2">
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Building2 className="w-4 h-4 text-amber-600" /> Sobre o setor</h2>
-            <p className="mt-2 text-sm text-slate-600 whitespace-pre-line">{selected.description || 'Sem descrição cadastrada.'}</p>
+            <p className="mt-2 text-sm text-slate-600 whitespace-pre-line">{selected.description || 'Não informado'}</p>
           </section>
           <section className="rounded-xl border border-slate-200 bg-white p-4">
             <h2 className="flex items-center gap-2 text-sm font-semibold text-slate-800"><Target className="w-4 h-4 text-amber-600" /> Função na empresa</h2>
-            <p className="mt-2 text-sm text-slate-600 whitespace-pre-line">{selected.role_purpose || 'Função não cadastrada ainda. Use "Editar setor" para registrar.'}</p>
+            {/* Setor antigo, cadastrado antes de `role_purpose` existir, cai aqui:
+                mostramos "Não informado" em vez de inventar um texto. O campo
+                continua editável em "Editar setor". */}
+            <p className="mt-2 text-sm text-slate-600 whitespace-pre-line">
+              {selected.role_purpose || 'Não informado'}
+            </p>
           </section>
         </div>
 

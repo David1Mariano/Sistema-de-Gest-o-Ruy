@@ -143,15 +143,43 @@ test('S14 — clique no colaborador usa a ficha existente; o card abre o detalhe
   assert.match(app, /path="\/funcionarios\/:id"/, 'a ficha já existe na rota');
 });
 
-test('S15 — formulário tem "Sobre o setor" e "Função na empresa"; nada é gravado no setor', async () => {
+
+// Setor ANTIGO: cadastrado antes de `role_purpose` existir no registro.
+test('S16 — setor antigo sem role_purpose continua funcionando, sem texto inventado', async () => {
+  const antigo = { id: 's9', name: 'Expedição', description: 'Envios do dia', status: 'ativo' };
+  // 1) Não quebra: o registro segue utilizável e a lista de colaboradores existe.
+  assert.equal(antigo.role_purpose, undefined, 'campo simplesmente ausente');
+  assert.ok(antigo.description, 'description legado intacto');
+  assert.equal(employeesOfSector(colaboradores, antigo).length, 0, 'setor sem ninguém não é erro');
+  assert.equal(sectorEmployeeSummary(employeesOfSector(colaboradores, antigo)).total, 0);
+
+  // 2) A tela mostra "Não informado" em vez de inventar descrição da função.
+  const fonte = await readFile(new URL('../src/pages/Setores.jsx', import.meta.url), 'utf8');
+  assert.match(fonte, /selected\.role_purpose \|\| 'Não informado'/, 'estado vazio é "Não informado"');
+  assert.match(fonte, /selected\.description \|\| 'Não informado'/, 'description vazio também não inventa');
+
+  // 3) O campo continua editável: o formulário carrega o valor anterior vazio.
   const form = await readFile(new URL('../src/components/rh/SectorForm.jsx', import.meta.url), 'utf8');
-  assert.match(form, /Sobre o setor/);
-  assert.match(form, /Função na empresa/);
-  assert.match(form, /role_purpose/, 'persistido em role_purpose');
-  assert.match(form, /description/, 'reaproveita o campo que já existia');
-  const lib = await readFile(new URL('../src/lib/sectorUtils.js', import.meta.url), 'utf8');
-  assert.ok(!lib.includes('Sector.update'), 'a derivação não escreve no setor');
+  assert.match(form, /\{\s*\.\.\.empty,\s*\.\.\.editing\s*\}/, 'ao editar, o registro existente é carregado');
+  assert.match(form, /value=\{form\.role_purpose\}/, 'campo editável');
+
+  // 4) Ao salvar, usa o MESMO fluxo de create/update já existente + auditoria.
+  assert.match(form, /base44\.entities\.Sector\.update\(editing\.id, form\)/);
+  assert.match(form, /base44\.entities\.Sector\.create\(form\)/);
+  assert.match(form, /logAudit\(\{[\s\S]*entity_type: 'Sector'/, 'auditoria preservada');
+  assert.match(form, /editing \? 'alteracao' : 'criacao'/, 'mesmas ações de auditoria');
 });
+
+test('S17 — role_purpose sobrevive ao fluxo de edição sem perder description', async () => {
+  const form = await readFile(new URL('../src/components/rh/SectorForm.jsx', import.meta.url), 'utf8');
+  const empty = form.match(/const empty = \{([^}]*)\}/)[1];
+  assert.match(empty, /role_purpose/, 'campo novo no formulário vazio');
+  assert.match(empty, /description/, 'campo antigo preservado no formulário vazio');
+  // Nenhum campo redundante além de description + role_purpose.
+  const campos = empty.split(',').map((p) => p.trim().split(':')[0].trim()).filter(Boolean);
+  assert.deepEqual(campos.sort(), ['description', 'name', 'responsible_name', 'role_purpose', 'status']);
+});
+
 
   assert.equal(employeeStatusLabel('status_novo'), 'status_novo', 'não oculta status novo');
 });
