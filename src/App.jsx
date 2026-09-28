@@ -27,6 +27,7 @@ import Vales from '@/pages/Vales';
 import Consumo from '@/pages/Consumo';
 import Advertencias from '@/pages/Advertencias';
 import Financeiro from '@/pages/Financeiro';
+import GastosDiarios from '@/pages/GastosDiarios';
 import Compras from '@/pages/Compras';
 import Estoque from '@/pages/Estoque';
 import ReceitasFinanceiras from '@/pages/ReceitasFinanceiras';
@@ -80,6 +81,7 @@ const AuthenticatedApp = () => {
           <Route path="/consumo" element={<Consumo />} />
           <Route path="/advertencias" element={<Advertencias />} />
           <Route path="/financeiro" element={<Financeiro />} />
+    <Route path="/gastos-diarios" element={<GastosDiarios />} />
           <Route path="/receitas" element={<ReceitasFinanceiras />} />
           <Route path="/compras" element={<Compras />} />
           <Route path="/estoque" element={<Estoque />} />

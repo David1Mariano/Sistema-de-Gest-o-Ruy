@@ -4,7 +4,7 @@ import { base44 } from '@/api/base44Client';
 import { todayISO, formatBR, WEEKDAY_FULL } from '@/lib/timeUtils';
 import { buildDayRows, summarizeRows, usePontoData } from '@/lib/pontoData';
 import StatCard from '@/components/shared/StatCard';
-import { Users, UserCheck, UserX, Clock4, Coffee, CalendarDays, ArrowRight } from 'lucide-react';
+import { Users, UserCheck, UserX, Clock4, Coffee, CalendarDays, ArrowRight, Receipt } from 'lucide-react';
 
 export default function Home() {
   const date = todayISO();
@@ -67,7 +67,7 @@ export default function Home() {
       </div>
 
       {/* Atalhos */}
-      <div className="grid grid-cols-2 sm:grid-cols-4 gap-4">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-5 gap-4">
         <Link to="/rh" className="rounded-xl border border-amber-200 bg-amber-50/50 p-5 hover:shadow-sm transition-shadow">
           <Users className="w-6 h-6 text-amber-500 mb-2" />
           <p className="font-semibold text-slate-800">Recursos Humanos</p>
@@ -87,6 +87,11 @@ export default function Home() {
           <Clock4 className="w-6 h-6 text-slate-400 mb-2" />
           <p className="font-semibold text-slate-800">Configurações</p>
           <p className="text-xs text-slate-500 mt-0.5">Tolerância e cobertura</p>
+        </Link>
+        <Link to="/gastos-diarios" className="rounded-xl border border-amber-200 bg-amber-50/50 p-5 hover:shadow-sm transition-shadow">
+          <Receipt className="w-6 h-6 text-amber-500 mb-2" />
+          <p className="font-semibold text-slate-800">Gastos Diários</p>
+          <p className="text-xs text-slate-500 mt-0.5">Despesas do dia a dia</p>
         </Link>
       </div>
     </div>
