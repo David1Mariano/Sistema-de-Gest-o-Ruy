@@ -8,11 +8,13 @@ import EmployeeForm from '@/components/rh/EmployeeForm';
 import EmployeeTimeline from '@/components/rh/ficha/EmployeeTimeline';
 import AbsenceForm from '@/components/rh/AbsenceForm';
 import ValeForm from '@/components/rh/ValeForm';
+import AttachmentPreview from '@/components/rh/AttachmentPreview';
 import ConsumptionForm from '@/components/rh/ConsumptionForm';
 import WarningForm from '@/components/rh/WarningForm';
 import DocumentForm from '@/components/rh/DocumentForm';
 import EvaluationForm from '@/components/rh/EvaluationForm';
 import PaymentForm from '@/components/rh/PaymentForm';
+import PaymentProof from '@/components/rh/PaymentProof';
 import { SangriaDialog } from '@/components/financeiro/SangriaPanel';
 import { useUserRole } from '@/lib/useUserRole';
 import { currentUserName } from '@/lib/useCurrentUser';
@@ -271,6 +273,7 @@ export default function FichaColaborador() {
               { key: 'motive', label: 'Motivo' },
               { key: 'authorized_by', label: 'Autorizou' },
               { key: 'status', label: 'Status', render: (r) => <Badge style={VALE_STATUS[r.status]?.style} label={VALE_STATUS[r.status]?.label || r.status} /> },
+              { key: 'proof_url', label: 'Comprovante', render: (r) => (r.proof_url || r.storage_path) ? <AttachmentPreview record={r} label="Ver comprovante" prefix="Vale" diagLabel="[vale-comprovante]" /> : <span className="text-slate-400">—</span> },
               { key: 'actions', label: '', render: (r) => canRegisterOccurrences ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('vale', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>
@@ -316,7 +319,7 @@ export default function FichaColaborador() {
               { key: 'discount_amount', label: 'Descontos', render: (r) => brl(r.discount_amount) },
               { key: 'net_amount', label: 'Valor líquido', render: (r) => brl(r.net_amount) },
               { key: 'status', label: 'Status', render: (r) => PAYMENT_STATUS_LABELS[r.status] || r.status },
-              { key: 'proof_url', label: 'Comprovante', render: (r) => r.proof_url ? <a className="text-emerald-700 underline" href={r.proof_url} target="_blank" rel="noreferrer">Abrir</a> : '—' },
+              { key: 'proof_url', label: 'Comprovante', render: (r) => r.proof_url || r.storage_path ? <PaymentProof payment={r} label="Abrir" /> : '—' },
               { key: 'actions', label: '', render: (r) => canViewSensitive ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('payment', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>

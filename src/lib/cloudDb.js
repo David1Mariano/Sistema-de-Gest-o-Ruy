@@ -12,10 +12,9 @@
 
 import { sortRows, matchesQuery } from '@/lib/localDb';
 
-export const cloudConfig = {
-  url: import.meta.env.VITE_SUPABASE_URL || 'https://wvcvveqdkecsoygtilop.supabase.co',
-  key: import.meta.env.VITE_SUPABASE_ANON_KEY || 'sb_publishable_HQU9s6nSU5UH-UFMA9SOsA_Exqep5wh',
-};
+import { cloudConfig } from './cloudConfig.js';
+import { getAccessToken } from './supabaseClient.js';
+export { cloudConfig } from './cloudConfig.js';
 
 const LOCAL_DB_NAME = 'gestao_ruy_local_db';
 const MIGRATION_FLAG = 'gr_cloud_migrated_v1';
@@ -25,17 +24,17 @@ export function isCloudConfigured() {
   return Boolean(cloudConfig.url && cloudConfig.key);
 }
 
-function baseHeaders(extra = {}) {
+async function baseHeaders(extra = {}) {
   return {
     apikey: cloudConfig.key,
-    Authorization: `Bearer ${cloudConfig.key}`,
+    Authorization: `Bearer ${await getAccessToken()}`,
     'Content-Type': 'application/json',
     ...extra,
   };
 }
 
 async function rest(path, { method = 'GET', body, prefer } = {}) {
-  const headers = baseHeaders(prefer ? { Prefer: prefer } : {});
+  const headers = await baseHeaders(prefer ? { Prefer: prefer } : {});
   const res = await fetch(`${cloudConfig.url}/rest/v1/${path}`, {
     method,
     headers,
@@ -131,8 +130,12 @@ function startPolling() {
   }, REFRESH_INTERVAL_MS);
 }
 
-function uid() {
+export function createRecordId() {
   return `id_${Date.now().toString(36)}_${Math.random().toString(36).slice(2, 10)}`;
+}
+
+function uid() {
+  return createRecordId();
 }
 
 export function createEntityClient(entity) {

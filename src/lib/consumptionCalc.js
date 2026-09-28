@@ -32,7 +32,7 @@ export function toNumber(value) {
 
 /**
  * Calcula o consumo previsto de insumos para um registro de produção.
- * @returns {state, rows, factor, yieldQuantity, producedQuantity}
+ * Retorna um objeto com state, rows, factor, yieldQuantity e producedQuantity.
  *   state 'ok'        → rows com { ingredient, needed }
  *   state 'no-recipe' → produto sem RecipeIngredient (não bloqueia nada)
  *   state 'bad-yield' → yield_quantity inexistente/zero/inválido

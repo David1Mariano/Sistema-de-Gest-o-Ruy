@@ -8,9 +8,8 @@ import { createEntityClient as createLocalEntityClient, uploadFileLocal } from '
 import {
   createEntityClient as createCloudEntityClient,
   isCloudConfigured,
-  migrateLocalDataIfPending,
 } from '@/lib/cloudDb';
-import { localAuth } from '@/lib/localAuth';
+import { supabaseAuth } from '@/lib/supabaseClient';
 
 // Mesmas entidades que existiam no projeto Base44 (base44/entities/*.jsonc).
 const ENTITY_NAMES = [
@@ -64,11 +63,11 @@ const entities = {};
 for (const name of ENTITY_NAMES) entities[name] = makeEntityClient(name);
 
 // Sobe para a nuvem, uma única vez por navegador, o que já existia local.
-migrateLocalDataIfPending();
+// Login não deve migrar ou regravar dados locais automaticamente.
 
 export const base44 = {
   entities,
-  auth: localAuth,
+  auth: supabaseAuth,
   integrations: {
     Core: {
       UploadFile: uploadFileLocal,
