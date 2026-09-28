@@ -1,4 +1,7 @@
 // Server-only contracts. No model SDK, credentials, message sender or SQL executor.
+// Verdade derivada do próprio módulo: só muda quando um provedor for de fato
+// implementado e homologado aqui. A tela nunca presume IA configurada.
+export const AI_CONFIGURED = false;
 export class AIProvider {
   async plan() { throw Error('AI_NOT_CONFIGURED'); }
 }

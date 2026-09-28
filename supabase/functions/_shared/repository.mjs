@@ -21,8 +21,21 @@ export function repository(env, fetcher = fetch, timeoutMs = 8000) {
     contactScopes: actor => rest(`delivery_operator_scopes?user_id=eq.${q(actor)}&select=provider,merchant_id,can_manage&order=provider.asc,merchant_id.asc&limit=100`),
     contactScope: async (actor, p, m) => (await rest(`delivery_operator_scopes?user_id=eq.${q(actor)}&provider=eq.${q(p)}&merchant_id=eq.${q(m)}&select=can_manage`))[0],
     customers: (p, m, offset) => rest(`delivery_customers?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&select=id,external_id,name,phone,created_at&order=created_at.desc,id.asc&limit=100&offset=${offset}`),
-    conversations: (p, m, offset) => rest(`delivery_conversations?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&select=id,external_id,customer_id,mode,version,assigned_to,updated_at&order=updated_at.desc,id.asc&limit=100&offset=${offset}`),
+    // Clientes da página carregada em uma única consulta, sempre dentro do provider/loja autorizados.
+    customersByIds: (p, m, ids) => rest(`delivery_customers?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&id=in.(${ids.map(q).join(',')})&select=id,external_id,name,phone&order=id.asc&limit=100`),
+    // Última mensagem por conversa via embed com limit por pai; a identidade continua
+    // filtrada por provider/loja. Sem embed de cliente: o vínculo é composto (chave estrangeira composta).
+    conversations: (p, m, offset) => rest(`delivery_conversations?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&select=id,external_id,customer_id,mode,version,assigned_to,created_at,updated_at,last_message:delivery_messages(external_id,direction,author,status,body,occurred_at,received_at,order=received_at.desc,limit=1)&order=updated_at.desc,id.asc&limit=100&offset=${offset}`),
     conversation: async (p, m, id) => (await rest(`delivery_conversations?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&id=eq.${q(id)}&select=id,customer_id,mode,version`))[0],
+    // Estatísticas de conversa por cliente (para a visão de Clientes), escopadas à loja.
+    conversationStats: (p, m, customerIds) => rest(`delivery_conversations?provider=eq.${q(p)}&merchant_id=eq.${q(m)}&customer_id=in.(${customerIds.map(q).join(',')})&select=customer_id,updated_at&limit=1000`),
+    // Marcador de leitura por operador: não depende de estado local do navegador.
+    readMarks: (actor, ids) => rest(`delivery_conversation_reads?user_id=eq.${q(actor)}&conversation_id=in.(${ids.map(q).join(',')})&select=conversation_id,last_read_at&limit=100`),
+    // Janela de mensagens recentes para derivar não lidas quando ainda não há marcador.
+    inboundSince: (ids, since) => rest(`delivery_messages?conversation_id=in.(${ids.map(q).join(',')})&direction=eq.inbound&invalidated=eq.false&received_at=gt.${q(since)}&select=conversation_id,received_at&order=received_at.desc&limit=1000`),
+    markRead: body => rest('delivery_conversation_reads?on_conflict=user_id,conversation_id', { method: 'POST', body, prefer: 'resolution=merge-duplicates,return=minimal' }),
+    handoffAudit: id => rest(`delivery_handoff_audit?conversation_id=eq.${q(id)}&select=id,conversation_id,actor_id,mode,version,created_at&order=version.desc,created_at.desc&limit=100`),
+    attendanceEvents: id => rest(`delivery_attendance_events?conversation_id=eq.${q(id)}&select=event_type,message_external_id,actor_id,conversation_version,created_at&order=created_at.desc&limit=100`),
     messages: (id, offset) => rest(`delivery_messages?conversation_id=eq.${q(id)}&select=id,external_id,direction,author,status,body,occurred_at,received_at,invalidated,conversation_version&order=occurred_at.desc,id.desc&limit=100&offset=${offset}`),
     rpc: (name, body) => rest(`rpc/${name}`, { method: 'POST', body }),
     integration: async p => (await rest(`delivery_integrations?${filter(p)}&select=*`))[0],

@@ -316,7 +316,7 @@ function contactRepo(overrides = {}) {
 test('Ações de atendimento: autorização por loja, provedor conhecido e entradas validadas', async () => {
   // Escopos vêm do token verificado; o navegador nunca informa o próprio escopo.
   const scopes = await contactAction({ action: 'contact_scopes' }, VIEWER, contactRepo());
-  assert.deepEqual(CONTACT_ACTIONS, ['contact_scopes', 'customers', 'conversations', 'messages', 'handoff']);
+  assert.deepEqual(CONTACT_ACTIONS, ['contact_scopes', 'customers', 'conversations', 'messages', 'handoff', 'audit', 'mark_read']);
   assert.deepEqual(CONVERSATION_MODES, ['ai', 'human']);
   assert.equal(scopes.rows[0].can_manage, false);
   // Provedor desconhecido é rejeitado antes de qualquer consulta.

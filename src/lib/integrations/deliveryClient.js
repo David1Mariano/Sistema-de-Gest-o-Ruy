@@ -35,6 +35,7 @@ const messages = {
   CUSTOMER_SCOPE_MISMATCH: 'Esta conversa pertence a outro cliente neste canal/loja.',
   UNKNOWN_PROVIDER: 'Canal não reconhecido para atendimento.',
   INVALID_IDENTIFIER: 'Identificador inválido para esta operação de atendimento.',
+  INVALID_ACTION: 'Esta operação não está disponível nesta versão da central.',
   IFOOD_NOT_CONFIGURED: 'iFood aguarda configuração segura e homologação no servidor.',
   FOOD99_NOT_AVAILABLE: 'AGUARDANDO HOMOLOGAÇÃO/CREDENCIAIS 99FOOD',
   DELIVERY_ACCESS_DENIED: 'Sua conta não está autorizada para esta operação de delivery.',
@@ -70,7 +71,11 @@ export async function deliveryCall(action, payload = {}) {
   try { data = await response.json(); } catch { throw new Error('Resposta inválida do backend de delivery.'); }
   if (!response.ok) {
     if (data.error === 'ADMIN_SESSION_EXPIRED') { session = null; emit(); }
-    throw new Error(deliveryMessage(data.error));
+    // O código segue anexado ao erro: a interface decide o que fazer sem interpretar texto.
+    /** @type {Error & { code?: string }} */
+    const error = new Error(deliveryMessage(data.error));
+    error.code = data.error;
+    throw error;
   }
   return data;
 }
