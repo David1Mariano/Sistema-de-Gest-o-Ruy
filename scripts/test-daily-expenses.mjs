@@ -7,6 +7,8 @@ import {
   expenseStatusLabel, expenseToForm, filterExpenses, formatExpenseAmount, formatExpenseDate,
   hasExpenseProof, newExpenseId, resolveExpensePeriod, saveDailyExpense, supplierNameOptions,
   validateExpenseForm, ExpenseConflictError, PROTECTED_EXPENSE_ORIGINS, linkedPayment, linkedVale,
+  auditExpense, buildHistoryRows, expenseEvents, filterHistoryRows,
+  historyCategoryOptions, historyOriginOptions, sortHistoryRows,
 } from '../src/lib/dailyExpenses.js';
 import {
   categoryKey, findEquivalentCategory, normalizeCategoryName, sameCategoryName,
@@ -612,8 +614,10 @@ test('BUG 1 — exclusão continua bloqueada com vínculo de Vale ou EmployeePay
   const comPagamento = [{ id: 'p1', financial_expense_id: 'fe_1' }];
   assert.equal(linkedVale(expense, comVale), true);
   assert.equal(linkedPayment(expense, comPagamento), true);
+  // REGRA ATUAL: o vínculo comum com EmployeePayment NÃO bloqueia a exclusão —
+  // o pagamento é cancelado logicamente. Vale continua bloqueando.
+  assert.equal(expenseDeleteBlocker(expense, { payments: comPagamento }), null, 'vínculo de pagamento não bloqueia mais');
   assert.match(expenseEditBlocker(expense, { vales: comVale }), /vale/i, 'vínculo de Vale bloqueia edição');
-  assert.match(expenseDeleteBlocker(expense, { payments: comPagamento }), /pagamento de colaborador/);
   // Página vazia não bloqueia ninguém.
   assert.equal(expenseEditBlocker(expense, { vales: [], payments: [] }), null);
   assert.equal(expenseDeleteBlocker(expense, { vales: [], payments: [] }), null);
@@ -1084,16 +1088,19 @@ test('exclusão: gasto manual sem vínculo é removido', async () => {
   assert.equal(store.FinancialExpense.size, 0);
 });
 
-test('exclusão revalida vínculos com dados atuais (não confia só no snapshot)', async () => {
+// REGUE DE PRODUTO: o vínculo com EmployeePayment não bloqueia mais a exclusão.
+// O pagamento é CANCELADO (nunca apagado) e a exclusão segue. A revalidação com
+// dados atuais continua existindo — agora para garantir que o pagamento certo
+// seja tratado, e não por causa do bloqueio.
+test('exclusão revalida vínculos com dados atuais e cancela o pagamento', async () => {
   const { entities, store } = fakeEntities();
   const { expense } = await saveDailyExpense({ entities, form: validForm(), categories, centers, employees });
-  await entities.EmployeePayment.create({ employee_id: 'e1', net_amount: 10, financial_expense_id: expense.id });
-  await assert.rejects(
-    deleteDailyExpense({ entities, expense, payments: [], vales: [] }),
-    /pagamento de colaborador/,
-    'a revalidação enxerga o vínculo que o snapshot não tinha',
-  );
-  assert.equal(store.FinancialExpense.size, 1, 'o gasto não foi apagado');
+  await entities.EmployeePayment.create({ employee_id: 'e1', net_amount: 10, financial_expense_id: expense.id, status: 'pago' });
+  await deleteDailyExpense({ entities, expense, payments: [], vales: [] });
+  assert.equal(store.FinancialExpense.size, 0, 'o gasto foi apagado');
+  const pagamento = [...store.EmployeePayment.values()][0];
+  assert.equal(pagamento.status, 'cancelado', 'o pagamento revalidado foi cancelado, não órfão');
+  assert.match(pagamento.observation, /gasto vinculado foi excluído/);
 });
 
 test('exclusão revalida Vale nascido depois do carregamento da tela', async () => {
@@ -1102,4 +1109,236 @@ test('exclusão revalida Vale nascido depois do carregamento da tela', async () 
   await entities.Vale.create({ id: 'vale_1', financial_expense_id: expense.id, amount: 10 });
   await assert.rejects(deleteDailyExpense({ entities, expense, payments: [], vales: [] }), /vale/i);
   assert.equal(store.FinancialExpense.size, 1);
+});
+
+// ============================================================================
+// Exclusão de gasto de colaborador + auditoria + histórico.
+// ============================================================================
+
+function fakeFull(options = {}) {
+  const { entities, store } = fakeEntities();
+  const audit = [];
+  entities.AuditLog = {
+    async create(data) {
+      if (options.failAudit) throw new Error('falha simulada na auditoria');
+      const rec = { ...data, id: `al${audit.length + 1}`, created_date: stamp(), updated_date: stamp() };
+      audit.push(rec);
+      return rec;
+    },
+    async list() { return audit; },
+  };
+  if (options.failDeleteExpense) {
+    entities.FinancialExpense.delete = async () => { throw new Error('falha simulada ao excluir gasto'); };
+  }
+  return { entities, store, audit };
+}
+
+const gastoDeColaborador = (over = {}) => ({
+  id: 'fe_colab', origin_type: 'pagamento_colaborador', date: '2026-03-10',
+  description: 'Diária de motoboy', amount: 45, status: 'pago',
+  category_id: 'c1', category_name: 'Diária Motoboy', beneficiary_name: 'Maria Souza',
+  created_date: stamp(), updated_date: stamp(), ...over,
+});
+
+test('T1 — gasto de colaborador PODE ser excluído (vínculo não bloqueia mais)', async () => {
+  const { entities, store } = fakeFull();
+  const expense = gastoDeColaborador();
+  store.FinancialExpense.set(expense.id, expense);
+  assert.equal(expenseDeleteBlocker(expense, { payments: [] }), null, 'sem vínculo, liberado');
+  const comVinculo = [{
+    id: 'p1', financial_expense_id: 'fe_colab', status: 'pago', employee_name: 'Maria Souza', updated_date: stamp(),
+  }];
+  store.EmployeePayment.set('p1', comVinculo[0]);
+  assert.equal(expenseDeleteBlocker(expense, { payments: comVinculo }), null, 'vínculo com EmployeePayment NÃO bloqueia mais');
+  await deleteDailyExpense({ entities, expense, payments: comVinculo, vales: [], revalidate: false });
+  assert.equal(store.FinancialExpense.has('fe_colab'), false, 'gasto removido');
+  assert.equal(store.EmployeePayment.get('p1').status, 'cancelado', 'pagamento tratado');
+});
+
+test('T2 — pagamento relacionado NÃO fica ativo órfão e é cancelado', async () => {
+  const { entities, store, audit } = fakeFull();
+  const expense = gastoDeColaborador();
+  store.FinancialExpense.set(expense.id, expense);
+  const pagamento = {
+    id: 'p1', financial_expense_id: 'fe_colab', status: 'pago', employee_id: 'e1',
+    employee_name: 'Maria Souza', net_amount: 45, updated_date: stamp(),
+  };
+  store.EmployeePayment.set('p1', pagamento);
+  await deleteDailyExpense({ entities, expense, payments: [pagamento], vales: [], revalidate: false, responsibleUser: 'Pichau' });
+  assert.equal(store.FinancialExpense.has('fe_colab'), false, 'gasto excluído');
+  const depois = store.EmployeePayment.get('p1');
+  assert.ok(depois, 'o pagamento NÃO é apagado: histórico do colaborador preservado');
+  assert.equal(depois.status, 'cancelado', 'pagamento deixa de estar ativo');
+  assert.match(depois.observation, /gasto vinculado foi excluído/, 'motivo registrado');
+  assert.equal(store.EmployeePayment.size, 1, 'nenhum pagamento órfão criado ou duplicado');
+  assert.equal(pagamentosAtivos(store).length, 0, 'zero pagamentos ativos apontando para o gasto removido');
+  const exclusao = audit.find((a) => a.action === 'exclusao_logica');
+  assert.ok(exclusao, 'exclusão auditada');
+  assert.equal(exclusao.entity_type, 'FinancialExpense');
+  assert.equal(exclusao.entity_id, 'fe_colab');
+  assert.match(exclusao.old_value, /Diária de motoboy/, 'descrição preservada');
+  assert.match(exclusao.old_value, /Diária Motoboy/, 'categoria preservada');
+  assert.match(exclusao.old_value, /Maria Souza/, 'favorecido preservado');
+  assert.equal(exclusao.responsible_user, 'Pichau');
+});
+
+test('T3 — Vale continua bloqueado', async () => {
+  const { entities, store } = fakeFull();
+  const expense = gastoDeColaborador({ origin_type: 'vale', origin_id: 'v1' });
+  store.FinancialExpense.set(expense.id, expense);
+  assert.ok(expenseDeleteBlocker(expense, { vales: [] }), 'origem vale bloqueada');
+  await assert.rejects(deleteDailyExpense({ entities, expense, payments: [], vales: [], revalidate: false }), /não pode ser excluído/);
+  assert.equal(store.FinancialExpense.size, 1, 'gasto de Vale continua existindo');
+});
+
+test('T4 — Conta a Pagar e lote/recorrência continuam bloqueados', () => {
+  assert.ok(expenseDeleteBlocker(gastoDeColaborador({ origin_type: 'conta_pagar' }), { vales: [] }), 'conta a pagar');
+  assert.ok(expenseDeleteBlocker(gastoDeColaborador({ origin_type: 'lote' }), { vales: [] }), 'lote');
+  assert.ok(expenseDeleteBlocker(gastoDeColaborador({ origin_type: 'recorrencia' }), { vales: [] }), 'recorrência');
+  assert.ok(expenseDeleteBlocker(gastoDeColaborador(), { vales: [{ id: 'v1', financial_expense_id: 'fe_colab' }] }), 'vínculo de Vale');
+});
+
+
+test('T5 — FALHA PARCIAL: pagamento cancelado e exclusão falha = erro explícito', async () => {
+  const { entities, store } = fakeFull({ failDeleteExpense: true });
+  const expense = gastoDeColaborador();
+  store.FinancialExpense.set(expense.id, expense);
+  const pagamento = { id: 'p1', financial_expense_id: 'fe_colab', status: 'pago', employee_name: 'Maria Souza', updated_date: stamp() };
+  store.EmployeePayment.set('p1', pagamento);
+  await assert.rejects(
+    deleteDailyExpense({ entities, expense, payments: [pagamento], vales: [], revalidate: false }),
+    (err) => {
+      assert.match(err.message, /cancelado/i, 'avisa que o pagamento foi cancelado');
+      assert.match(err.message, /não pôde ser excluído/i, 'avisa que o gasto ficou');
+      return true;
+    },
+  );
+  // Estado coerente e DOCUMENTADO: pagamento cancelado, gasto preservado.
+  assert.equal(store.EmployeePayment.get('p1').status, 'cancelado');
+  assert.equal(store.FinancialExpense.has('fe_colab'), true, 'gasto continua, nada se perdeu em silêncio');
+  // O inverso é impossível pela ordem escolhida.
+  assert.equal(pagamentosAtivos(store).length, 0, 'nunca sobra pagamento ativo com gasto removido');
+});
+
+test('T6 — auditoria registra criação e alterações de valor/categoria', async () => {
+  const { entities, store, audit } = fakeFull();
+  const form = asColab({ amount: '100,00' });
+  const criado = await saveDailyExpense({ entities, form, categories, centers, employees });
+  assert.ok(audit.some((a) => a.action === 'criacao'), 'criação auditada');
+  store.FinancialExpense.set(criado.expense.id, criado.expense);
+  const editado = await saveDailyExpense({
+    entities, form: { ...form, amount: '150,00', category_id: 'c2' },
+    editing: { ...criado.expense }, categories, centers, employees, payments: [],
+  });
+  const alteracoes = audit.filter((a) => a.action === 'alteracao');
+  assert.ok(alteracoes.some((a) => a.field === 'valor'), 'evento de valor');
+  assert.ok(alteracoes.some((a) => a.field === 'categoria'), 'evento de categoria');
+  assert.equal(editado.expense.amount, 150);
+});
+
+test('T7 — salvar sem mudar nada não gera ruído; auditoria best-effort não trava', async () => {
+  const { entities, store, audit } = fakeFull();
+  const criado = await saveDailyExpense({ entities, form: validForm(), categories, centers, employees });
+  store.FinancialExpense.set(criado.expense.id, criado.expense);
+  const antes = audit.length;
+  await saveDailyExpense({ entities, form: validForm(), editing: { ...criado.expense }, categories, centers, employees, payments: [] });
+  assert.equal(audit.length, antes, 'nenhum evento novo quando nada muda');
+
+  const comFalha = fakeFull({ failAudit: true });
+  const expense = gastoDeColaborador();
+  comFalha.store.FinancialExpense.set(expense.id, expense);
+  await deleteDailyExpense({ entities: comFalha.entities, expense, payments: [], vales: [], revalidate: false });
+  assert.equal(comFalha.store.FinancialExpense.has('fe_colab'), false, 'exclusão acontece mesmo sem auditoria');
+  assert.equal(await auditExpense({ entities: {}, expense }), null, 'sem entity de auditoria, degrada em silêncio');
+});
+
+test('T8 — histórico monta linha com eventos, ignorando outras entities', () => {
+  const audit = [
+    { id: 'a1', entity_type: 'FinancialExpense', entity_id: 'fe_colab', action: 'criacao', created_date: '2026-03-01T10:00:00Z' },
+    { id: 'a2', entity_type: 'FinancialExpense', entity_id: 'fe_colab', action: 'alteracao', field: 'valor', old_value: 'R$ 40,00', new_value: 'R$ 45,00', created_date: '2026-03-05T10:00:00Z' },
+    { id: 'a3', entity_type: 'EmployeePayment', entity_id: 'p1', action: 'criacao', created_date: '2026-03-01T10:00:00Z' },
+  ];
+  const rows = buildHistoryRows([gastoDeColaborador()], audit);
+  assert.equal(rows.length, 1);
+  assert.equal(rows[0].events.length, 2, 'só eventos de FinancialExpense entram');
+  assert.equal(rows[0].events[0].action, 'alteracao', 'mais recente primeiro');
+  assert.equal(rows[0].excluido, false);
+});
+
+test('T9 — exclusão fica registrada como evento (rastreabilidade)', () => {
+  const audit = [{ id: 'a1', entity_type: 'FinancialExpense', entity_id: 'fe_x', action: 'exclusao_logica', created_date: '2026-03-09T10:00:00Z' }];
+  const rows = buildHistoryRows([gastoDeColaborador({ id: 'fe_x' })], audit);
+  assert.equal(rows[0].excluido, true);
+  assert.equal(rows[0].events[0].rotulo, 'Exclusão');
+});
+
+
+test('T10 — filtros por categoria, data e favorecido no histórico', () => {
+  const rows = buildHistoryRows([
+    gastoDeColaborador({ id: 'g1', date: '2026-03-10', category_id: 'c1', beneficiary_name: 'Maria Souza' }),
+    gastoDeColaborador({ id: 'g2', date: '2026-03-05', category_id: 'c2', beneficiary_name: 'Joao Lima', description: 'Compra de queijo' }),
+  ], []);
+  assert.equal(filterHistoryRows(rows, { categoryId: 'c1' }).length, 1, 'categoria');
+  assert.equal(filterHistoryRows(rows, { beneficiary: 'Joao Lima' })[0].id, 'g2', 'favorecido');
+  assert.equal(filterHistoryRows(rows, { start: '2026-03-06' }).length, 1, 'data inicial');
+  assert.equal(filterHistoryRows(rows, { end: '2026-03-06' }).length, 1, 'data final');
+  assert.equal(filterHistoryRows(rows, { categoryId: 'c1', beneficiary: 'Maria Souza' }).length, 1, 'combinados');
+});
+
+test('T11 — pesquisa por descrição, categoria, favorecido, observação e valor', () => {
+  const rows = buildHistoryRows([
+    gastoDeColaborador({ id: 'g1', description: 'Diária de motoboy', category_name: 'Diária Motoboy', beneficiary_name: 'Maria Souza', observation: 'Corrida extra' }),
+  ], []);
+  for (const termo of ['motoboy', 'diaria motoboy', 'maria', 'corrida', '45']) {
+    assert.equal(filterHistoryRows(rows, { search: termo }).length, 1, `busca por ${termo}`);
+  }
+  assert.equal(filterHistoryRows(rows, { search: 'inexistente qualquer' }).length, 0);
+});
+
+test('T12 — categoria desativada continua visível e o registro antigo também', () => {
+  const opcoes = historyCategoryOptions([
+    { id: 'c1', name: 'Diária Motoboy', status: 'inativo' },
+    { id: 'c2', name: 'Embalagens', status: 'ativo' },
+  ]);
+  assert.equal(opcoes.length, 2, 'categoria desativada NÃO some do filtro');
+  assert.equal(opcoes.find((c) => c.id === 'c1').inativa, true, 'marcada como inativa');
+  const rows = buildHistoryRows([gastoDeColaborador({ category_id: 'c1' })], []);
+  assert.equal(filterHistoryRows(rows, { categoryId: 'c1' }).length, 1, 'registro antigo continua visível');
+});
+
+test('T13 — ordenação mais recente primeiro; refresh não zera; vazio não quebra', () => {
+  const rows = buildHistoryRows([
+    gastoDeColaborador({ id: 'antigo', updated_date: '2026-01-01T00:00:00Z' }),
+    gastoDeColaborador({ id: 'novo', updated_date: '2026-03-10T00:00:00Z' }),
+    gastoDeColaborador({ id: 'meio', updated_date: '2026-02-01T00:00:00Z' }),
+  ], []);
+  assert.deepEqual(sortHistoryRows(rows).map((r) => r.id), ['novo', 'meio', 'antigo']);
+  assert.equal(filterHistoryRows(buildHistoryRows([gastoDeColaborador()], []), {}).length, 1, 'com dados, não zera');
+  assert.equal(filterHistoryRows([], {}).length, 0, 'zero só quando não há lançamentos');
+  assert.deepEqual(buildHistoryRows([], []), []);
+  assert.deepEqual(filterHistoryRows(undefined, {}), []);
+  assert.deepEqual(sortHistoryRows(undefined), []);
+  assert.deepEqual(historyOriginOptions([]), []);
+  assert.deepEqual(expenseEvents([], 'x'), []);
+});
+
+test('T14 — filtro por tipo de evento e por origem; origem manual entra como "manual"', () => {
+  const rows = buildHistoryRows([
+    gastoDeColaborador({ id: 'g1', origin_type: undefined }),
+    gastoDeColaborador({ id: 'g2', origin_type: 'pagamento_colaborador' }),
+  ], [{ id: 'a1', entity_type: 'FinancialExpense', entity_id: 'g1', action: 'alteracao', created_date: '2026-03-02T00:00:00Z' }]);
+  assert.equal(filterHistoryRows(rows, { event: 'alteracao' }).length, 1, 'filtro por evento');
+  assert.equal(filterHistoryRows(rows, { origin: 'manual' }).length, 1, 'filtro por origem');
+  assert.deepEqual(historyOriginOptions(rows), ['manual', 'pagamento_colaborador']);
+});
+
+test('T15 — pesquisa + filtro juntos refinam o resultado', () => {
+  const rows = buildHistoryRows([
+    gastoDeColaborador({ id: 'g1', description: 'Diária motoboy', category_id: 'c1', category_name: 'Diária Motoboy' }),
+    gastoDeColaborador({ id: 'g2', description: 'Diária diarista', category_id: 'c1', category_name: 'Diária Diarista' }),
+    gastoDeColaborador({ id: 'g3', description: 'Compra de queijo', category_id: 'c2', category_name: 'Insumos' }),
+  ], []);
+  assert.equal(filterHistoryRows(rows, { search: 'diária', categoryId: 'c1' }).length, 2);
+  assert.equal(filterHistoryRows(rows, { search: 'motoboy', categoryId: 'c1' }).length, 1);
+  assert.equal(filterHistoryRows(rows, { search: 'queijo', categoryId: 'c1' }).length, 0, 'filtro e pesquisa se combinam');
 });
