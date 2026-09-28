@@ -12,8 +12,8 @@ import ExpenseCategoryManager from '@/components/financeiro/ExpenseCategoryManag
 import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
 import {
   dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseDeleteBlocker,
-  expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount, formatExpenseDate,
-  hasExpenseProof, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
+  expenseEditBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount,
+  formatExpenseDate, hasExpenseProof, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
   EXPENSE_ORIGIN_LABELS,
 } from '@/lib/dailyExpenses';
 import { selectableCategories, summarizeByCategory, totalOf } from '@/lib/expenseCategories';
@@ -58,15 +58,26 @@ function Indicator({ label, value, icon: Icon, hint, danger }) {
   </div>;
 }
 
-function ExpenseRow({ expense, onEdit, onRemove }) {
-  const origin = expense.origin_type || 'manual';
-  const editable = origin === 'manual';
+// Ações por LINHA, e não mais por `origin === 'manual'`.
+//
+// Um gasto criado na tela de Pagamentos (diária de motoboy, adiantamento,
+// etc.) chega aqui com `origin_type: 'pagamento_colaborador'` e ficava
+// desabilitado — a tela dona é a de pagamentos, mas o REGISTRO FINANCEIRO é um
+// FinancialExpense normal e precisa poder ser corrigido aqui.
+//
+// Continuam protegidos: Vale, Conta a Pagar, recorrência e lote, além de
+// qualquer gasto com vínculo de Vale (são eles que devem ser alterados na tela
+// dona, para não quebrar a rastreabilidade).
+function ExpenseRow({ expense, editBlocker, deleteBlocker, onEdit, onRemove }) {
+  const canEdit = !editBlocker;
+  const canDelete = !deleteBlocker;
+  const origem = expense.origin_type || 'manual';
   return <tr className="hover:bg-slate-50">
     <td className="px-4 py-3 whitespace-nowrap">{formatExpenseDate(expense.date)}</td>
     <td className="px-4 py-3 font-medium">
       {expense.description || '—'}
       {expense.beneficiary_name && <span className="block text-xs font-normal text-slate-500">{expense.beneficiary_name}</span>}
-      {!editable && <span className="block text-xs font-normal text-slate-400">Origem: {EXPENSE_ORIGIN_LABELS[origin] || origin}</span>}
+      {origem !== 'manual' && <span className="block text-xs font-normal text-slate-400">Origem: {EXPENSE_ORIGIN_LABELS[origem] || origem}</span>}
     </td>
     <td className="px-4 py-3">
       {expenseCategoryLabel(expense)}
@@ -87,11 +98,11 @@ function ExpenseRow({ expense, onEdit, onRemove }) {
         <button type="button" onClick={() => onEdit(expense)} title="Visualizar"
           aria-label={`Ver gasto ${expense.description || ''}`}
           className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500"><Eye className="w-4 h-4" /></button>
-        <button type="button" onClick={() => onEdit(expense)} disabled={!editable}
-          title={editable ? 'Editar' : 'Gasto gerado em outra tela'} aria-label={`Editar gasto ${expense.description || ''}`}
+        <button type="button" onClick={() => onEdit(expense)} disabled={!canEdit}
+          title={canEdit ? 'Editar' : editBlocker} aria-label={`Editar gasto ${expense.description || ''}`}
           className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed"><Pencil className="w-4 h-4" /></button>
-        <button type="button" onClick={() => onRemove(expense)} disabled={!editable}
-          title={editable ? 'Excluir' : 'Gasto gerado em outra tela'} aria-label={`Excluir gasto ${expense.description || ''}`}
+        <button type="button" onClick={() => onRemove(expense)} disabled={!canDelete}
+          title={canDelete ? 'Excluir' : deleteBlocker} aria-label={`Excluir gasto ${expense.description || ''}`}
           className="p-1.5 rounded-md hover:bg-rose-50 text-slate-500 disabled:opacity-30 disabled:cursor-not-allowed"><Trash2 className="w-4 h-4" /></button>
       </div>
     </td>
@@ -172,7 +183,7 @@ function SearchAndFilters({
   </div>;
 }
 
-export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, openSignal = 0 }) {
+export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', data, onSaved, onCategoriesChanged, openSignal = 0 }) {
   const [search, setSearch] = useState('');
   const [preset, setPreset] = useState('mes');
   const [customStart, setCustomStart] = useState('');
@@ -213,6 +224,18 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
     [rows],
   );
   const blocker = removing ? expenseDeleteBlocker(removing, { payments: data.payments, vales: data.vales }) : null;
+  // Bloqueios por linha: é isto que habilita editar/excluir gastos criados em
+  // outras telas, mantendo de fora apenas o que é gerenciado por outro módulo.
+  const editBlockers = useMemo(() => {
+    const mapa = new Map();
+    for (const expense of rows) mapa.set(expense.id, expenseEditBlocker(expense, { vales: data.vales }));
+    return mapa;
+  }, [rows, data.vales]);
+  const deleteBlockers = useMemo(() => {
+    const mapa = new Map();
+    for (const expense of rows) mapa.set(expense.id, expenseDeleteBlocker(expense, { payments: data.payments, vales: data.vales }));
+    return mapa;
+  }, [rows, data.payments, data.vales]);
   const visibleSum = useMemo(() => totalOf(visible), [visible]);
   const periodRows = useMemo(
     () => filterExpenses(rows, { start: effectivePeriod.start, end: effectivePeriod.end }),
@@ -259,6 +282,7 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
         <p className="text-sm text-slate-500">Registre e consulte as despesas do dia a dia da operação.</p>
       </div>
       <div className="flex flex-wrap items-center gap-2">
+        {refreshing && <span className="text-xs text-slate-400" role="status">Atualizando...</span>}
         <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" /> Novo gasto</Button>
         <Button variant={view === 'historico' ? 'default' : 'outline'} onClick={() => setView(view === 'historico' ? 'painel' : 'historico')} className="gap-2">
           <History className="w-4 h-4" /> Histórico
@@ -271,9 +295,11 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
 
     {view === 'categorias' && <ExpenseCategoryManager
       categories={data.categories}
-      onSaved={onSaved}
+      onSaved={onCategoriesChanged || onSaved}
       onSelect={setCategoryId}
     />}
+
+    {failure && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{failure}</p>}
 
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
@@ -331,13 +357,18 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
             ))}</tr>
           </thead>
           <tbody className="divide-y">
+            {/* Só a CARGA INICIAL substitui a tabela. Em um refresh os dados
+                antigos continuam visíveis: nada de "Carregando gastos..."
+                derrubando a lista e os totais (era o bug de instabilidade). */}
             {loading && <tr><td colSpan={8} className="p-10 text-center text-slate-400">Carregando gastos...</td></tr>}
             {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
               <p className="font-medium text-slate-700">Nenhum gasto encontrado.</p>
               <p className="text-sm mt-1">Ajuste a busca ou os filtros, ou registre um novo gasto.</p>
               <Button className="mt-4 gap-2" onClick={openCreate}><Plus className="w-4 h-4" /> Novo gasto</Button>
             </td></tr>}
-            {!loading && visible.map((expense) => <ExpenseRow key={expense.id} expense={expense}
+            {visible.map((expense) => <ExpenseRow key={expense.id} expense={expense}
+              editBlocker={editBlockers.get(expense.id)}
+              deleteBlocker={deleteBlockers.get(expense.id)}
               onEdit={openEdit}
               onRemove={(target) => { setRemoveError(''); setRemoving(target); }} />)}
           </tbody>

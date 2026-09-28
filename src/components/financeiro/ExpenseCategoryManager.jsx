@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { useCallback, useEffect, useRef, useState } from 'react';
 import { FolderPlus, Loader2, Tag, Check } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -7,7 +7,12 @@ import {
   findEquivalentCategory, normalizeCategoryName, selectableCategories,
 } from '@/lib/expenseCategories';
 
-const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+// Rede lenta não pode travar a tela: nenhuma espera aqui é infinita.
+const TIMEOUT_MS = 15000;
+const comTempoLimite = (promise, mensagem) => Promise.race([
+  promise,
+  new Promise((_, reject) => setTimeout(() => reject(new Error(mensagem)), TIMEOUT_MS)),
+]);
 
 // Cadastro de categorias DENTRO da área de Gastos Diários.
 //
@@ -17,64 +22,90 @@ const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 t
 //
 // Não há exclusão física: se a categoria já foi usada em algum gasto, só
 // desativamos (status), preservando o histórico e as descrições gravadas.
+//
+// TRAVAMENTO (bug real): a guarda `saving` do React só vale na PRÓXIMA
+// renderização. Com Enter + clique ou dois cliques rápidos, as duas chamadas
+// liam `saving === false` e persistiam DUAS vezes; e como o `onSaved` antigo
+// recarregava as 8 entidades com `Promise.all`, uma requisição lenta deixava a
+// tela inteira em "Carregando gastos..." com o botão travado. Aqui a guarda é
+// um `ref` (síncrono, vale na hora), o `onSaved` recarrega SÓ as categorias e
+// toda espera tem tempo limite.
 export default function ExpenseCategoryManager({ categories = [], onSaved, onSelect }) {
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
   const [error, setError] = useState('');
+  // Guarda síncrona: impede duas persistências concorrentes.
+  const busy = useRef(false);
 
-  const create = async () => {
+  // Se a tela for desmontada com uma gravação em voo, não mexemos mais no estado.
+  const mounted = useRef(true);
+  useEffect(() => () => { mounted.current = false; }, []);
+
+  const avisar = (fn) => { if (mounted.current) fn(); };
+
+  const create = useCallback(async () => {
+    if (busy.current) return; // já está salvando: ignora o segundo disparo
     const limpo = normalizeCategoryName(name);
-    setError('');
-    setMessage('');
     if (!limpo) { setError('Informe o nome da categoria.'); return; }
 
-    const equivalente = findEquivalentCategory(categories, limpo);
-    if (equivalente) {
-      // "Limpeza" x " LIMPEZA " = mesma categoria: reaproveitamos a existente
-      // (reativando se estiver desligada) em vez de duplicar.
-      if (equivalente.status !== 'ativo') {
-        setSaving(true);
-        try {
-          await base44.entities.ExpenseCategory.update(equivalente.id, { status: 'ativo' });
-          setMessage(`Categoria "${equivalente.name}" já existia e foi reativada.`);
-          await onSaved();
-        } catch (e) {
-          setError(e?.message || 'Não foi possível reativar a categoria.');
-        } finally { setSaving(false); }
-        return;
-      }
-      setMessage(`"${equivalente.name}" já existe. Categorias iguais não são duplicadas.`);
-      setName('');
-      onSelect?.(equivalente.id);
-      return;
-    }
-
+    busy.current = true;
     setSaving(true);
-    try {
-      const criada = await base44.entities.ExpenseCategory.create({
-        name: limpo, group: 'operacao', status: 'ativo',
-      });
-      setName('');
-      setMessage(`Categoria "${limpo}" criada. Já aparece na lista de gastos.`);
-      await onSaved();
-      onSelect?.(criada?.id);
-    } catch (e) {
-      setError(e?.message || 'Não foi possível criar a categoria.');
-    } finally { setSaving(false); }
-  };
-
-  const toggle = async (category) => {
     setError('');
     setMessage('');
-    const novo = category.status === 'ativo' ? 'inativo' : 'ativo';
     try {
-      await base44.entities.ExpenseCategory.update(category.id, { status: novo });
-      await onSaved();
+      const equivalente = findEquivalentCategory(categories, limpo);
+      if (equivalente) {
+        // "Limpeza" x " LIMPEZA " = mesma categoria: reaproveitamos a existente
+        // em vez de duplicar. Só reativamos uma vez e encerramos.
+        if (equivalente.status !== 'ativo') {
+          await comTempoLimite(
+            base44.entities.ExpenseCategory.update(equivalente.id, { status: 'ativo' }),
+            'Tempo esgotado ao reativar a categoria. Tente novamente.',
+          );
+          avisar(() => setMessage(`Categoria "${equivalente.name}" já existia e foi reativada.`));
+        } else {
+          avisar(() => setMessage(`"${equivalente.name}" já existe. Categorias iguais não são duplicadas.`));
+        }
+      } else {
+        const criada = await comTempoLimite(
+          base44.entities.ExpenseCategory.create({ name: limpo, group: 'operacao', status: 'ativo' }),
+          'Tempo esgotado ao criar a categoria. Tente novamente.',
+        );
+        avisar(() => setName(''));
+        avisar(() => setMessage(`Categoria "${limpo}" criada. Já aparece na lista de gastos.`));
+        avisar(() => onSelect?.(criada?.id));
+      }
+      // Recarrega SÓ as categorias; não derruba a tela de gastos.
+      await onSaved?.();
     } catch (e) {
-      setError(e?.message || 'Não foi possível atualizar a categoria.');
+      avisar(() => setError(e?.message || 'Não foi possível salvar a categoria. Tente novamente.'));
+    } finally {
+      busy.current = false;
+      avisar(() => setSaving(false));
     }
-  };
+  }, [categories, name, onSaved, onSelect]);
+
+  const toggle = useCallback(async (category) => {
+    if (busy.current) return;
+    busy.current = true;
+    setSaving(true);
+    setError('');
+    setMessage('');
+    try {
+      const novo = category.status === 'ativo' ? 'inativo' : 'ativo';
+      await comTempoLimite(
+        base44.entities.ExpenseCategory.update(category.id, { status: novo }),
+        'Tempo esgotado ao atualizar a categoria. Tente novamente.',
+      );
+      await onSaved?.();
+    } catch (e) {
+      avisar(() => setError(e?.message || 'Não foi possível atualizar a categoria.'));
+    } finally {
+      busy.current = false;
+      avisar(() => setSaving(false));
+    }
+  }, [onSaved]);
 
   const lista = selectableCategories(categories);
 
@@ -88,13 +119,13 @@ export default function ExpenseCategoryManager({ categories = [], onSaved, onSel
         className="h-9 flex-1 min-w-[180px]"
         value={name}
         onChange={(e) => setName(e.target.value)}
-        onKeyDown={(e) => { if (e.key === 'Enter') create(); }}
+        onKeyDown={(e) => { if (e.key === 'Enter') { e.preventDefault(); create(); } }}
         placeholder="Nova categoria (ex.: Embalagens)"
         aria-label="Nome da nova categoria"
       />
-      <Button onClick={create} disabled={saving} className="gap-2">
+      <Button type="button" onClick={create} disabled={saving} className="gap-2">
         {saving ? <Loader2 className="w-4 h-4 animate-spin" /> : <FolderPlus className="w-4 h-4" />}
-        Nova categoria
+        {saving ? 'Salvando...' : 'Nova categoria'}
       </Button>
     </div>
     {error && <p role="alert" className="mt-2 text-sm text-red-700">{error}</p>}
@@ -107,9 +138,11 @@ export default function ExpenseCategoryManager({ categories = [], onSaved, onSel
               {category.name}
             </span>
             <Button
+              type="button"
               size="sm"
               variant="ghost"
               className="gap-1 text-xs"
+              disabled={saving}
               onClick={() => toggle(category)}
             >
               {category.status === 'ativo' ? 'Desativar' : <><Check className="w-3 h-3" /> Reativar</>}

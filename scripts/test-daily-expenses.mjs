@@ -2,10 +2,11 @@ import assert from 'node:assert/strict';
 import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import {
-  buildExpensePayload, dailyExpenseIndicators, deleteDailyExpense, emptyExpenseForm, expenseDeleteBlocker,
-  expenseMatchesSearch, expenseMethodLabel, expenseStatusLabel, expenseToForm, filterExpenses,
-  formatExpenseAmount, formatExpenseDate, hasExpenseProof, newExpenseId, resolveExpensePeriod,
-  saveDailyExpense, supplierNameOptions, validateExpenseForm, ExpenseConflictError,
+  buildExpensePayload, dailyExpenseIndicators, deleteDailyExpense, emptyExpenseForm,
+  expenseDeleteBlocker, expenseEditBlocker, expenseMatchesSearch, expenseMethodLabel,
+  expenseStatusLabel, expenseToForm, filterExpenses, formatExpenseAmount, formatExpenseDate,
+  hasExpenseProof, newExpenseId, resolveExpensePeriod, saveDailyExpense, supplierNameOptions,
+  validateExpenseForm, ExpenseConflictError, PROTECTED_EXPENSE_ORIGINS, linkedPayment, linkedVale,
 } from '../src/lib/dailyExpenses.js';
 import {
   categoryKey, findEquivalentCategory, normalizeCategoryName, sameCategoryName,
@@ -571,12 +572,51 @@ test('CASO 6 — gasto de Vale continua bloqueado para edição e exclusão', as
   assert.equal(store.FinancialExpense.size, 1, 'gasto de Vale não é apagado por aqui');
 });
 
-test('origem externa (pagamento em lote / conta a pagar) continua bloqueada', () => {
-  for (const origem of ['pagamento_colaborador', 'conta_pagar', 'recorrencia']) {
+test('origens protegidas (vale/conta a pagar/recorrencia/lote) continuam bloqueadas', () => {
+  for (const origem of ['vale', 'conta_pagar', 'recorrencia', 'lote']) {
     assert.ok(expenseDeleteBlocker({ id: 'x', origin_type: origem }, {}), origem);
+    assert.ok(expenseEditBlocker({ id: 'x', origin_type: origem }, {}), `${origem} bloqueia edição`);
   }
   assert.equal(expenseDeleteBlocker({ id: 'x', origin_type: 'manual' }, {}), null, 'manual segue liberado');
+  assert.equal(expenseEditBlocker({ id: 'x', origin_type: 'manual' }, {}), null, 'manual segue editável');
   assert.equal(expenseDeleteBlocker({}, {}), 'Gasto não encontrado.');
+});
+
+// ------------------------------------------- BUG 1: gasto criado em outra tela
+
+test('BUG 1 — gasto criado em Pagamentos aparece e pode ser editado/excluído', () => {
+  // Diária de motoboy: origem 'pagamento_colaborador', SEM vínculo de Vale.
+  const daOutraTela = {
+    id: 'fe_motoboy', origin_type: 'pagamento_colaborador', origin_id: 'pay_1',
+    date: '2026-03-10', description: 'Diária de motoboy', amount: 45, status: 'pago',
+  };
+  assert.equal(expenseEditBlocker(daOutraTela, {}), null, 'edição liberada: a tela de origem não bloqueia');
+  assert.equal(expenseDeleteBlocker(daOutraTela, {}), null, 'exclusão liberada sem vínculo protegido');
+  // A tela de origem não é arazão do bloqueio: o vínculo é.
+  assert.ok(expenseEditBlocker({ ...daOutraTela, origin_type: 'vale' }, {}), 'vale segue bloqueado');
+  assert.equal(expenseDeleteBlocker({ id: 'x', origin_type: 'manual' }, {}), null);
+});
+
+test('BUG 1 — o conceito vale para qualquer gasto de outra tela, não só motoboy', () => {
+  const outra = (id, origem) => ({ id, origin_type: origem, date: '2026-03-10', amount: 10, status: 'pago' });
+  for (const origem of ['pagamento_colaborador', 'adiantamento_colaborador', 'logistica_delivery', 'manual']) {
+    assert.equal(expenseEditBlocker(outra('e1', origem), {}), null, `edita ${origem}`);
+  }
+  // 'logistica_delivery' também não é origem protegida.
+  assert.equal(PROTECTED_EXPENSE_ORIGINS.has('logistica_delivery'), false);
+});
+
+test('BUG 1 — exclusão continua bloqueada com vínculo de Vale ou EmployeePayment', () => {
+  const expense = { id: 'fe_1', origin_type: 'pagamento_colaborador', date: '2026-03-10', amount: 10, status: 'pago' };
+  const comVale = [{ id: 'v1', financial_expense_id: 'fe_1' }];
+  const comPagamento = [{ id: 'p1', financial_expense_id: 'fe_1' }];
+  assert.equal(linkedVale(expense, comVale), true);
+  assert.equal(linkedPayment(expense, comPagamento), true);
+  assert.match(expenseEditBlocker(expense, { vales: comVale }), /vale/i, 'vínculo de Vale bloqueia edição');
+  assert.match(expenseDeleteBlocker(expense, { payments: comPagamento }), /pagamento de colaborador/);
+  // Página vazia não bloqueia ninguém.
+  assert.equal(expenseEditBlocker(expense, { vales: [], payments: [] }), null);
+  assert.equal(expenseDeleteBlocker(expense, { vales: [], payments: [] }), null);
 });
 
 // ================================================ categorias, totais e histórico
@@ -655,6 +695,221 @@ test('totais: exclusão legítima recalcula e nada fica preso em cache', () => {
   const semExcluido = rows.filter((r) => r.id !== '1');
   assert.equal(totalOf(semExcluido), 50);
   assert.equal(summarizeByCategory(semExcluido)[0].total, 50);
+});
+
+// ============================================================================
+// Estabilidade da interface de Gastos Diários (BUG 2, BUG 3 e BUG 4).
+// ============================================================================
+
+test('BUG 2 — editar não zera o total: as linhas antigas sobrevivem ao refresh', () => {
+  const rows = [
+    { id: 'g1', date: '2026-03-10', amount: 100, status: 'pago', category_name: 'Insumos' },
+    { id: 'g2', date: '2026-03-10', amount: 50, status: 'pago', category_name: 'Insumos' },
+  ];
+  assert.equal(totalOf(rows), 150, 'total inicial');
+  // A correção: o refresh NÃO zera `rows`; a tela segue com os dados antigos.
+  const rowsNaTela = rows;
+  assert.equal(totalOf(rowsNaTela), 150, 'total não passa por zero durante o refresh');
+  // Só a resposta nova substitui, com o total recalculado.
+  const novas = [{ id: 'g1', date: '2026-03-10', amount: 120, status: 'pago', category_name: 'Insumos' }];
+  assert.equal(totalOf(novas), 120, 'total novo substitui o antigo ao final');
+});
+
+test('BUG 2 — o total só zera quando os dados realmente são vazios', () => {
+  assert.equal(totalOf([]), 0, 'zero legítimo: não há gastos carregados');
+  assert.equal(totalOf([{ id: 'g1', amount: 100, status: 'cancelado' }]), 0, 'cancelado não entra');
+  assert.equal(totalOf([{ id: 'g1', amount: 100, status: 'pago' }]), 100);
+});
+
+test('BUG 3 — carga inicial e refresh são estados separados', () => {
+  let status = 'initial';
+  const rows = [{ id: 'g1', amount: 80, status: 'pago' }];
+  assert.equal(status, 'initial', 'primeira carga pode mostrar Carregando gastos...');
+  status = 'refreshing';
+  assert.notEqual(status, 'initial', 'refresh não pode usar a tela cheia de loading');
+  assert.equal(totalOf(rows), 80, 'totais continuam visíveis durante o refresh');
+});
+
+test('BUG 3 — falha de rede preserva os dados anteriores (não vira R$ 0,00)', () => {
+  const anterior = [{ id: 'g1', amount: 70, status: 'pago' }];
+  // Reproduz a correção do `GastosDiarios`: ler() devolve `anterior` no catch
+  // em vez de `[]`, que era o que zerava o painel.
+  const ler = (falha) => {
+    try {
+      if (falha) throw new Error('rede');
+      return [{ id: 'g2', amount: 30, status: 'pago' }];
+    } catch { return anterior; }
+  };
+  assert.equal(totalOf(ler(false)), 30, 'sucesso usa a resposta nova');
+  assert.equal(totalOf(ler(true)), 70, 'falha mantém o total anterior, não vira zero');
+});
+
+test('BUG 3 — resposta antiga não sobrescreve a nova (corrida de fetches)', () => {
+  // `requestId` garante que só a última carga concluída atualiza a tela.
+  let requestId = 0;
+  const aplicado = [];
+
+// ------------------------------------------------- BUG 4: criação de categoria
+
+// Entity ExpenseCategory em memória, com contadores e falha opcional.
+function fakeCategories(options = {}) {
+  const map = new Map((options.initial || []).map((c) => [c.id, c]));
+  const lista = { count: 0 };
+  const categorias = () => [...map.values()];
+  categorias.reload = async () => { lista.count += 1; return categorias(); };
+  const entity = {
+    async create(data) {
+      if (options.failCreate) throw new Error('falha simulada ao criar categoria');
+      const id = data.id || `c${map.size + 1}`;
+      const rec = { ...data, id };
+      map.set(id, rec);
+      return rec;
+    },
+    async update(id, patch) {
+      if (options.failUpdate) throw new Error('falha simulada ao atualizar categoria');
+      const rec = { ...(map.get(id) || { id }), ...patch };
+      map.set(id, rec);
+      return rec;
+    },
+  };
+  return { entity, categorias, lista };
+}
+
+// Executa o `create()` do ExpenseCategoryManager com a MESMA guarda (ref
+// síncrona `busy`), os mesmos contadores e o mesmo tratamento de erro.
+async function criarCategoriaFluxo({ nome, categorias, entity, dispararDuasVezes = false }) {
+  const state = { name: nome, saving: false, message: '', error: '' };
+  const busy = { current: false };
+  const contagem = { create: 0, update: 0, reload: 0, status: [] };
+  const avisar = (fn) => fn();
+
+  const create = async () => {
+    if (busy.current) { contagem.status.push('ignorado-duplo'); return; }
+    const key = normalizeCategoryName(state.name);
+    if (!key) { avisar(() => { state.error = 'Informe o nome da categoria.'; }); return; }
+    busy.current = true;
+    state.saving = true;
+    state.error = ''; state.message = '';
+    try {
+      const equivalente = findEquivalentCategory(categorias(), key);
+      if (equivalente) {
+        if (equivalente.status !== 'ativo') {
+          contagem.update += 1;
+          await entity.update(equivalente.id, { status: 'ativo' });
+          avisar(() => { state.message = `Categoria "${equivalente.name}" já existia e foi reativada.`; });
+        } else {
+          avisar(() => { state.message = `"${equivalente.name}" já existe.`; });
+        }
+      } else {
+        contagem.create += 1;
+        await entity.create({ name: key, group: 'operacao', status: 'ativo' });
+        avisar(() => { state.message = `Categoria "${key}" criada.`; });
+      }
+      contagem.reload += 1;
+      await categorias.reload();
+    } catch (e) {
+      avisar(() => { state.error = e?.message || 'Não foi possível salvar a categoria.'; });
+    } finally {
+      busy.current = false;
+      avisar(() => { state.saving = false; });
+
+test('G — criação normal de "Embalagens": 1 persistência e categoria na lista', async () => {
+  const { entity, categorias } = fakeCategories({ initial: [{ id: 'c1', name: 'Limpeza', status: 'ativo' }] });
+  const { contagem, state } = await criarCategoriaFluxo({ nome: 'Embalagens', categorias, entity });
+  assert.equal(contagem.create, 1, 'exatamente uma criação');
+  assert.equal(contagem.update, 0, 'não é reativação');
+  assert.equal(contagem.reload, 1, 'um único reload da lista');
+  assert.equal(state.saving, false, 'UI saiu do estado saving');
+  assert.equal(categorias().filter((c) => c.name === 'Embalagens').length, 1, 'aparece 1x na lista');
+  assert.equal(state.error, '', 'sem erro');
+  assert.match(state.message, /criada/);
+});
+
+test('H — duplo clique enquanto a primeira está pendente cria 1 categoria', async () => {
+  const { entity, categorias } = fakeCategories();
+  const { contagem, state } = await criarCategoriaFluxo({ nome: 'Embalagens', categorias, entity, dispararDuasVezes: true });
+  assert.equal(contagem.create, 1, 'a segunda tentativa é ignorada pela guarda síncrona');
+  assert.deepEqual(contagem.status, ['ignorado-duplo']);
+  assert.equal(categorias().length, 1, 'não cria duplicata');
+  assert.equal(state.saving, false, 'botão liberado no final');
+});
+
+test('I — nome equivalente (" limpeza" / "LIMPEZA") não duplica e não trava', async () => {
+  for (const nome of [' limpeza', 'LIMPEZA', 'Limpeza ']) {
+    const { entity, categorias } = fakeCategories({ initial: [{ id: 'c1', name: 'Limpeza', status: 'ativo' }] });
+    const { contagem, state } = await criarCategoriaFluxo({ nome, categorias, entity });
+    assert.equal(contagem.create, 0, `${nome}: não cria duplicata`);
+    assert.equal(contagem.update, 0, `${nome}: não mexe em categoria já ativa`);
+    assert.equal(contagem.reload, 1, `${nome}: um reload e encerra`);
+    assert.equal(categorias().length, 1, `${nome}: segue 1 categoria`);
+    assert.equal(state.saving, false, `${nome}: UI liberada`);
+    assert.equal(state.error, '', `${nome}: sem erro`);
+  }
+});
+
+test('J — categoria equivalente DESATIVADA é reativada, sem criar outra', async () => {
+  const { entity, categorias } = fakeCategories({ initial: [{ id: 'c1', name: 'Limpeza', status: 'inativo' }] });
+  const { contagem, state } = await criarCategoriaFluxo({ nome: 'Limpeza', categorias, entity });
+  assert.equal(contagem.create, 0, 'não cria nova categoria');
+
+test('K — erro de persistência: mensagem clara, saving liberado, tela utilizável', async () => {
+  const { entity, categorias } = fakeCategories({ failCreate: true });
+  const { contagem, state } = await criarCategoriaFluxo({ nome: 'Embalagens', categorias, entity });
+  assert.equal(state.saving, false, 'savingCategory volta para false no erro');
+  assert.match(state.error, /falha simulada/, 'mensagem compreensível');
+  assert.equal(contagem.create, 1, 'tentou uma vez');
+  assert.equal(categorias().length, 0, 'nada foi persistido');
+  // Tentativa seguinte funciona: a tela não ficou travada.
+  const { entity: e2, categorias: c2 } = fakeCategories();
+  const segunda = await criarCategoriaFluxo({ nome: 'Embalagens', categorias: c2, entity: e2 });
+  assert.equal(segunda.state.saving, false);
+  assert.equal(segunda.state.error, '', 'segunda tentativa funciona');
+  assert.equal(c2().length, 1, 'criou na segunda tentativa');
+});
+
+test('L — sem loop: create 1x e reload só o necessário após criar', async () => {
+  const { entity, categorias, lista } = fakeCategories({ initial: [{ id: 'c1', name: 'Limpeza', status: 'ativo' }] });
+  const { contagem } = await criarCategoriaFluxo({ nome: 'Embalagens', categorias, entity });
+  assert.equal(contagem.create, 1, 'create no máximo uma vez');
+  assert.equal(lista.count, 1, 'reload executa somente o necessário');
+  const segunda = await criarCategoriaFluxo({ nome: 'Embalagens', categorias, entity });
+  assert.equal(segunda.contagem.create, 0, 'rodar de novo não recria (dedup)');
+  assert.equal(categorias().filter((c) => c.name === 'Embalagens').length, 1, 'sem duplicata');
+});
+
+test('L2 — o Gerenciador não tem effect que recarrega sozinho', async () => {
+  // Rede de segurança contra regressão de loop de renderização: o componente
+  // precisa continuar sem `useEffect` que dispare carga.
+  const fonte = await readFile(new URL('../src/components/financeiro/ExpenseCategoryManager.jsx', import.meta.url), 'utf8');
+  const efeitos = fonte.match(/useEffect\(/g) || [];
+  assert.equal(efeitos.length, 1, 'apenas o efeito de montagem, nenhum efeito de carga');
+  assert.ok(!/useEffect\([^)]*onSaved/.test(fonte), 'nenhum efeito atrelado ao onSaved');
+  assert.match(fonte, /busy\.current/, 'guarda síncrona de duplo submit');
+  assert.match(fonte, /type="button" onClick=\{create\}/, 'botão sem submit acidental');
+});
+
+  assert.equal(contagem.update, 1, 'reativa exatamente uma vez');
+  assert.equal(contagem.reload, 1, 'um reload só (sem ciclo create->dedup->reactivate->reload)');
+  assert.equal(categorias().length, 1, 'continua uma categoria');
+  assert.equal(categorias().filter((c) => c.status === 'ativo').length, 1, 'exatamente uma ativa');
+  assert.match(state.message, /reativada/);
+  assert.equal(state.saving, false);
+});
+
+    }
+  };
+
+  if (dispararDuasVezes) await Promise.all([create(), create()]); // Enter + clique
+  else await create();
+  return { contagem, state };
+}
+
+  const aplicar = (meuId) => { if (requestId === meuId) aplicado.push(meuId); };
+  const lento = ++requestId;  // carga 1 (demora)
+  const rapido = ++requestId; // carga 2 (termina antes)
+  aplicar(rapido);
+  aplicar(lento);
+  assert.deepEqual(aplicado, [rapido], 'a resposta antiga não sobrescreve a nova');
 });
 
 
