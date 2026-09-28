@@ -9,6 +9,7 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { HIRE_TYPE_LABELS } from '@/lib/rhUtils';
+import { activeSectorOptions, sectorLinkWarning } from '@/lib/sectorUtils';
 import { Upload, User, Briefcase, Shield } from 'lucide-react';
 
 const empty = {
@@ -53,6 +54,10 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
   }, [open, employee]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
+
+  // Opções de setor e aviso de vínculo legado, derivados da entity Sector.
+  const opcoesSetor = activeSectorOptions(sectors);
+  const avisoSetor = sectorLinkWarning(sectors, form.sector);
 
   const onPhoto = async (e) => {
     const file = e.target.files?.[0];
@@ -139,11 +144,24 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
           <Section icon={Briefcase} title="Dados profissionais">
             <Field label="Data de entrada"><Input type="date" value={form.admission_date} onChange={(e) => set('admission_date', e.target.value)} /></Field>
             <Field label="Setor">
+              {/* As opções vêm EXCLUSIVAMENTE da entity `Sector` e só das
+                  ATIVAS — `activeSectorOptions` centraliza essa regra.
+                  `Employee.sector` NÃO gera opção: é por isso que o antigo
+                  `{form.sector && !sectors.some(...)}` foi removido (criava
+                  exatamente o "setor fantasma" que queremos eliminar). */}
               <select className={inputCls} value={form.sector} onChange={(e) => set('sector', e.target.value)}>
-                <option value="">Selecione</option>
-                {sectors.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
-                {form.sector && !sectors.some((s) => s.name === form.sector) && <option value={form.sector}>{form.sector}</option>}
+                <option value="">Sem setor</option>
+                {opcoesSetor.map((s) => <option key={s.id} value={s.name}>{s.name}</option>)}
               </select>
+              {/* Se o valor atual não é uma opção válida, o select fica em
+                  "Sem setor" — mas o ESTADO continua com o texto antigo: só
+                  muda se o usuário escolher algo. Assim salvar sem mexer não
+                  apaga o vínculo legado por acidente. */}
+              {avisoSetor && (
+                <p className="mt-1 text-xs text-amber-700">
+                  Setor atual: {avisoSetor}
+                </p>
+              )}
             </Field>
             <Field label="Função">
               <select className={inputCls} value={form.function} onChange={(e) => set('function', e.target.value)}>

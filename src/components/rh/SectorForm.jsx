@@ -8,7 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 
-const empty = { name: '', description: '', responsible_name: '', status: 'ativo' };
+// `description` = "Sobre o setor" (campo que já existia, reaproveitado).
+// `role_purpose` = "Função na empresa" (campo novo). Nenhum dos dois exige
+// migration: a entity Sector dispensa schema por entidade (ver cloudDb.js).
+const empty = { name: '', description: '', role_purpose: '', responsible_name: '', status: 'ativo' };
 
 export default function SectorForm({ open, onOpenChange, editing = null, onSaved, employees = [] }) {
   const [form, setForm] = useState(empty);
@@ -32,7 +35,8 @@ export default function SectorForm({ open, onOpenChange, editing = null, onSaved
         <DialogHeader><DialogTitle>{editing ? 'Editar setor' : 'Novo setor'}</DialogTitle></DialogHeader>
         <div className="grid grid-cols-1 gap-3 py-2">
           <div className="space-y-1"><Label className="text-xs">Nome *</Label><Input value={form.name} onChange={(e) => set('name', e.target.value)} /></div>
-          <div className="space-y-1"><Label className="text-xs">Descrição</Label><Textarea rows={2} value={form.description} onChange={(e) => set('description', e.target.value)} /></div>
+          <div className="space-y-1"><Label className="text-xs">Sobre o setor</Label><Textarea rows={2} value={form.description} onChange={(e) => set('description', e.target.value)} placeholder="O que esse setor faz na empresa" /></div>
+          <div className="space-y-1"><Label className="text-xs">Função na empresa</Label><Textarea rows={2} value={form.role_purpose} onChange={(e) => set('role_purpose', e.target.value)} placeholder="Qual o papel/função desse setor na operação" /></div>
           <div className="space-y-1"><Label className="text-xs">Responsável</Label>
             <Input value={form.responsible_name} onChange={(e) => set('responsible_name', e.target.value)} placeholder="Nome do responsável" />
           </div>
