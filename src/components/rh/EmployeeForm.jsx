@@ -10,6 +10,7 @@ import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { HIRE_TYPE_LABELS } from '@/lib/rhUtils';
 import { activeSectorOptions, sectorLinkWarning } from '@/lib/sectorUtils';
+import { activeRoleOptions } from '@/lib/roleUtils';
 import { Upload, User, Briefcase, Shield } from 'lucide-react';
 
 const empty = {
@@ -58,6 +59,8 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
   // Opções de setor e aviso de vínculo legado, derivados da entity Sector.
   const opcoesSetor = activeSectorOptions(sectors);
   const avisoSetor = sectorLinkWarning(sectors, form.sector);
+  // Funções: só as ATIVAS, mantendo o filtro por setor que já existia.
+  const opcoesFuncao = activeRoleOptions(roles, { sector: form.sector });
 
   const onPhoto = async (e) => {
     const file = e.target.files?.[0];
@@ -164,10 +167,13 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
               )}
             </Field>
             <Field label="Função">
+              {/* Mesma regra dos setores: opções vêm SÓ da entity `JobRole` e só
+                  das ATIVAS. O antigo fallback que injetava `form.function`
+                  quando não havia JobRole correspondente foi removido — era ele
+                  que criava a "função fantasma" após uma desativação. */}
               <select className={inputCls} value={form.function} onChange={(e) => set('function', e.target.value)}>
                 <option value="">Selecione</option>
-                {roles.filter((r) => !form.sector || r.sector_name === form.sector).map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
-                {form.function && !roles.some((r) => r.name === form.function) && <option value={form.function}>{form.function}</option>}
+                {opcoesFuncao.map((r) => <option key={r.id} value={r.name}>{r.name}</option>)}
               </select>
             </Field>
             <Field label="Unidade"><Input value={form.unit} onChange={(e) => set('unit', e.target.value)} /></Field>
