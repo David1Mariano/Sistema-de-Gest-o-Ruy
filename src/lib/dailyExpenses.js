@@ -61,7 +61,9 @@ export const EXPENSE_STATUS_LABELS = { pago: 'Pago', pendente: 'Pendente' };
 
 export const EXPENSE_BENEFICIARY_LABELS = { fornecedor: 'Fornecedor', colaborador: 'Colaborador', outro: 'Outro' };
 
-// Origens conhecidas. Só 'manual' é editável/excluível neste painel.
+// Origens conhecidas. A origem NÃO decide sozinho a edição/exclusão: o que
+// protege é `PROTECTED_EXPENSE_ORIGINS` (e os vínculos). Um gasto de
+// 'pagamento_colaborador' é um FinancialExpense normal e pode ser corrigido aqui.
 export const EXPENSE_ORIGIN_LABELS = {
   manual: 'Lançamento manual',
   vale: 'Vale do RH',
@@ -571,20 +573,43 @@ async function updatePaymentGuarded({ entities, linked, patch }) {
 }
 
 
-// Exclusão é bloqueada quando o gasto pertence a outra tela (vale, pagamento
-// em lote) ou quando algum registro ainda aponta para ele. Sem isso, apagar o
-// gasto deixaria Vale/EmployeePayment órfãos apontando para um id inexistente.
-export function expenseDeleteBlocker(expense = {}, { payments = [], vales = [] } = {}) {
+// Origens cujo registro financeiro é DERIVADO de outro módulo que é o
+// dono da verdade. Editar/apagar o gasto aqui quebraria a rastreabilidade
+// (o Vale continua sendo o Vale; a Conta a Pagar continua sendo a conta).
+// `pagamento_colaborador` NÃO está aqui: o EmployeePayment é o dono dos
+// dados do pagamento e o gasto é apenas o espelho financeiro — por isso um
+// gasto criado na tela de Pagamentos precisa ser editável aqui.
+export const PROTECTED_EXPENSE_ORIGINS = new Set(['vale', 'conta_pagar', 'recorrencia', 'lote']);
+
+// Vínculos que exigem o fluxo da tela dona: apagar o gasto deixaria o Vale ou
+// o EmployeePayment apontando para um id inexistente.
+export const linkedVale = (expense, vales = []) =>
+  (vales || []).some((vale) => vale?.financial_expense_id === expense?.id);
+export const linkedPayment = (expense, payments = []) =>
+  (payments || []).some((payment) => payment?.financial_expense_id === expense?.id);
+
+// Bloqueio de EDIÇÃO: só origem protegida ou vínculo com Vale. Um pagamento de
+// colaborador não impede a edição — o `saveDailyExpense` já mantém o
+// EmployeePayment sincronizado.
+export function expenseEditBlocker(expense = {}, { vales = [] } = {}) {
   if (!expense.id) return 'Gasto não encontrado.';
   const origin = expense.origin_type || 'manual';
-  if (origin !== 'manual') {
-    return `Este gasto foi gerado em "${EXPENSE_ORIGIN_LABELS[origin] || origin}" e não pode ser excluído aqui.`;
+  if (PROTECTED_EXPENSE_ORIGINS.has(origin)) {
+    return `Este gasto veio de "${EXPENSE_ORIGIN_LABELS[origin] || origin}" e não pode ser excluído nem editado aqui: altere o registro de origem.`;
   }
-  if ((vales || []).some((vale) => vale.financial_expense_id === expense.id)) {
-    return 'Este gasto está vinculado a um vale. Cancele o vale antes de excluir o gasto.';
+  if (linkedVale(expense, vales)) {
+    return 'Este gasto está vinculado a um Vale do RH e não pode ser excluído nem editado aqui: altere o vale.';
   }
-  if ((payments || []).some((payment) => payment.financial_expense_id === expense.id)) {
-    return 'Este gasto está vinculado a um pagamento de colaborador e não pode ser excluído.';
+  return null;
+}
+
+// Bloqueio de EXCLUSÃO: tudo que bloqueia a edição, mais o vínculo com
+// EmployeePayment (que ficaria órfão).
+export function expenseDeleteBlocker(expense = {}, { payments = [], vales = [] } = {}) {
+  const bloqueioEdicao = expenseEditBlocker(expense, { vales });
+  if (bloqueioEdicao) return bloqueioEdicao;
+  if (linkedPayment(expense, payments)) {
+    return 'Este gasto está vinculado a um pagamento de colaborador e não pode ser excluído aqui.';
   }
   return null;
 }
