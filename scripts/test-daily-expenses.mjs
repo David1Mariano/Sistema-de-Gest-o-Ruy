@@ -3,10 +3,14 @@ import { test } from 'node:test';
 import { readFile } from 'node:fs/promises';
 import {
   buildExpensePayload, dailyExpenseIndicators, deleteDailyExpense, emptyExpenseForm, expenseDeleteBlocker,
-  expenseMatchesSearch, expenseToForm, filterExpenses, formatExpenseAmount, formatExpenseDate,
-  newExpenseId, resolveExpensePeriod, saveDailyExpense, supplierNameOptions, validateExpenseForm,
-  ExpenseConflictError,
+  expenseMatchesSearch, expenseMethodLabel, expenseStatusLabel, expenseToForm, filterExpenses,
+  formatExpenseAmount, formatExpenseDate, hasExpenseProof, newExpenseId, resolveExpensePeriod,
+  saveDailyExpense, supplierNameOptions, validateExpenseForm, ExpenseConflictError,
 } from '../src/lib/dailyExpenses.js';
+import {
+  categoryKey, findEquivalentCategory, normalizeCategoryName, sameCategoryName,
+  selectableCategories, summarizeByCategory, totalOf,
+} from '../src/lib/expenseCategories.js';
 import {
   expenseAttachmentRecord, hasExpenseAttachment, validateExpenseAttachmentFile,
   EXPENSE_ATTACHMENT_ACCEPT, EXPENSE_ATTACHMENT_PREFIX,
@@ -87,7 +91,12 @@ function fakeEntities(options = {}) {
   });
   return {
     store,
-    entities: { FinancialExpense: makeClient('FinancialExpense'), EmployeePayment: makeClient('EmployeePayment'), Vale: makeClient('Vale') },
+    entities: {
+      FinancialExpense: makeClient('FinancialExpense'),
+      EmployeePayment: makeClient('EmployeePayment'),
+      Vale: makeClient('Vale'),
+      ExpenseCategory: makeClient('ExpenseCategory'),
+    },
   };
 }
 
@@ -570,7 +579,154 @@ test('origem externa (pagamento em lote / conta a pagar) continua bloqueada', ()
   assert.equal(expenseDeleteBlocker({}, {}), 'Gasto não encontrado.');
 });
 
-// ================================================================ concorrência
+// ================================================ categorias, totais e histórico
+
+test('categorias: nomes equivalentes (caixa/espaço/acento) não duplicam', () => {
+  const lista = [{ id: 'c1', name: 'Limpeza', status: 'ativo' }];
+  assert.equal(findEquivalentCategory(lista, 'limpeza').id, 'c1');
+  assert.equal(findEquivalentCategory(lista, ' LIMPEZA ').id, 'c1');
+  assert.equal(findEquivalentCategory(lista, '  Limpeza  ').id, 'c1');
+  assert.equal(findEquivalentCategory(lista, 'Manutenção'), null, 'nome diferente não casa');
+  assert.equal(findEquivalentCategory(lista, ''), null);
+  assert.equal(findEquivalentCategory(lista, '   '), null);
+});
+
+test('categorias: acento e caixa são ignorados ao comparar', () => {
+  assert.equal(categoryKey('Manutenção'), categoryKey('manutencao'));
+  assert.equal(categoryKey('  MÚltiplos   Espaços '), 'multiplos espacos');
+  assert.equal(sameCategoryName('Limpeza', ' LIMPEZA'), true);
+  assert.equal(sameCategoryName('Limpeza', 'Limpezas'), false);
+  assert.equal(normalizeCategoryName('  Embalagens  '), 'Embalagens');
+});
+
+test('categorias: a seleção não repete categoria já duplicada no banco', () => {
+  const lista = selectableCategories([
+    { id: 'c1', name: 'Limpeza', status: 'ativo' },
+    { id: 'c2', name: 'limpeza', status: 'ativo' },
+    { id: 'c3', name: 'Embalagens', status: 'ativo' },
+    { id: 'c4', name: 'Antiga', status: 'inativo' },
+  ]);
+  const nomes = lista.map((c) => c.name);
+  assert.equal(nomes.filter((n) => categoryKey(n) === 'limpeza').length, 1, 'apenas uma Limpeza');
+  assert.ok(nomes.includes('Embalagens'));
+  assert.ok(nomes.includes('Antiga'), 'categoria desativada continua visível');
+  assert.equal(lista[0].status, 'ativo', 'ativas primeiro');
+});
+
+test('totais por categoria: soma, acumula e respeita o cancelamento', () => {
+  const rows = [
+    { id: '1', category_name: 'Embalagens', amount: 100, status: 'pago' },
+    { id: '2', category_name: 'Embalagens', amount: 50, status: 'pago' },
+    { id: '3', category_name: 'Embalagens', amount: 20, status: 'pago' },
+    { id: '4', category_name: 'Manutenção', amount: 200, status: 'pago' },
+    { id: '5', category_name: 'Embalagens', amount: 999, status: 'cancelado' },
+  ];
+  const resumo = summarizeByCategory(rows);
+  const embalagens = resumo.find((r) => r.nome === 'Embalagens');
+  assert.equal(embalagens.total, 170, '100 + 50 + 20, cancelado fora');
+  assert.equal(embalagens.quantidade, 3);
+  assert.equal(resumo.find((r) => r.nome === 'Manutenção').total, 200);
+  assert.equal(totalOf(rows), 370, 'total geral também ignora o cancelado');
+  assert.equal(resumo[0].nome, 'Manutenção', 'ordenado pelo maior total (200 > 170)');
+  assert.equal(resumo[1].nome, 'Embalagens');
+});
+
+test('totais: editar valor e trocar de categoria recalcula as duas pontas', () => {
+  const antes = [
+    { id: '1', category_name: 'Embalagens', amount: 500, status: 'pago' },
+    { id: '2', category_name: 'Manutenção', amount: 200, status: 'pago' },
+  ];
+  assert.equal(summarizeByCategory(antes).find((r) => r.nome === 'Embalagens').total, 500);
+  const editado = [{ ...antes[0], amount: 450 }, antes[1]];
+  assert.equal(summarizeByCategory(editado).find((r) => r.nome === 'Embalagens').total, 450);
+  const trocado = [{ ...antes[0], category_name: 'Manutenção' }, antes[1]];
+  const depois = summarizeByCategory(trocado);
+  assert.equal(depois.find((r) => r.nome === 'Embalagens'), undefined, 'Embalagens recalculada');
+  assert.equal(depois.find((r) => r.nome === 'Manutenção').total, 700, 'Manutenção absorveu o gasto');
+  assert.equal(totalOf(trocado), 700, 'total geral não muda ao trocar de categoria');
+});
+
+test('totais: exclusão legítima recalcula e nada fica preso em cache', () => {
+  const rows = [
+    { id: '1', category_name: 'Embalagens', amount: 100, status: 'pago' },
+    { id: '2', category_name: 'Embalagens', amount: 50, status: 'pago' },
+  ];
+  assert.equal(totalOf(rows), 150);
+  const semExcluido = rows.filter((r) => r.id !== '1');
+  assert.equal(totalOf(semExcluido), 50);
+  assert.equal(summarizeByCategory(semExcluido)[0].total, 50);
+});
+
+
+test('categoria criada permanece após recarregar os dados', async () => {
+  // Persistida pela entity ExpenseCategory (já existente no projeto): recarregar
+  // devolve exatamente o que foi criado — sem estado local e sem migration.
+  const { entities, store } = fakeEntities();
+  store.ExpenseCategory = new Map();
+  const criada = await entities.ExpenseCategory.create({ name: 'Embalagens', group: 'operacao', status: 'ativo' });
+  const recarregado = await entities.ExpenseCategory.list('name', 300);
+  assert.equal(recarregado.length, 1, 'sobrevive ao recarregamento');
+  assert.equal(recarregado[0].name, criada.name);
+  assert.equal(recarregado[0].id, criada.id);
+  assert.equal(selectableCategories(recarregado)[0].name, 'Embalagens', 'aparece na seleção');
+});
+
+test('filtros: categoria, favorecido, situação e comprovante', () => {
+  const base = [
+    { id: '1', date: '2026-03-10', category_id: 'c1', beneficiary_name: 'Hortifruti', status: 'pago', amount: 10, proof_url: 'data:image/png;base64,AA==' },
+    { id: '2', date: '2026-03-10', category_id: 'c2', beneficiary_name: 'Oficina', status: 'pendente', amount: 20 },
+    { id: '3', date: '2026-03-10', category_id: 'c1', beneficiary_name: 'Oficina', status: 'pago', amount: 30 },
+    { id: '4', date: '2026-03-10', category_id: 'c1', beneficiary_name: 'Oficina', status: 'cancelado', amount: 40 },
+  ];
+  const ids = (o) => filterExpenses(base, o).map((r) => r.id);
+  assert.deepEqual(ids({ categoryId: 'c1' }), ['1', '3']);
+  assert.deepEqual(ids({ beneficiary: 'Oficina' }), ['2', '3']);
+  assert.deepEqual(ids({ status: 'pendente' }), ['2']);
+  assert.deepEqual(ids({ proof: 'com' }), ['1']);
+  assert.deepEqual(ids({ proof: 'sem' }), ['2', '3']);
+  assert.deepEqual(ids({ status: 'cancelado' }), [], 'cancelado fora do painel');
+  assert.deepEqual(ids({ status: 'cancelado', includeCancelled: true }), ['4'], 'histórico mostra o cancelado');
+  assert.equal(hasExpenseProof(base[0]), true);
+  assert.equal(hasExpenseProof(base[1]), false);
+});
+
+test('histórico: busca por descrição, favorecido e valor, com soma dos resultados', () => {
+  const base = [
+    { id: '1', date: '2026-03-10', description: 'Compra de copos', beneficiary_name: 'Hortifruti', category_name: 'Embalagens', category_id: 'c1', amount: 827.4, status: 'pago' },
+    { id: '2', date: '2026-03-11', description: 'Café', beneficiary_name: 'Padaria', category_name: 'Mercadoria', category_id: 'c2', amount: 500, status: 'pago' },
+  ];
+  const busca = (o) => filterExpenses(base, { includeCancelled: true, ...o });
+  assert.deepEqual(busca({ search: 'copos' }).map((r) => r.id), ['1']);
+  assert.deepEqual(busca({ search: 'padaria' }).map((r) => r.id), ['2'], 'busca por favorecido');
+  assert.deepEqual(busca({ search: '827,40' }).map((r) => r.id), ['1'], 'valor pt-BR');
+  assert.deepEqual(busca({ search: '827.40' }).map((r) => r.id), ['1'], 'valor com ponto');
+  assert.deepEqual(busca({ search: 'copos', categoryId: 'c1' }).map((r) => r.id), ['1']);
+  assert.deepEqual(busca({ search: 'copos', categoryId: 'c2' }).map((r) => r.id), [], 'filtro combina com a busca');
+  const selecao = busca({ search: 'copos', categoryId: 'c1' });
+  assert.equal(totalOf(selecao), 827.4, 'total dos resultados filtrados');
+  assert.equal(summarizeByCategory(selecao)[0].total, 827.4, 'breakdown por categoria da seleção');
+  assert.equal(summarizeByCategory(selecao)[0].nome, 'Embalagens');
+  assert.equal(totalOf(base), 1327.4, 'total geral é separado do filtrado');
+});
+
+test('histórico: o gasto salvo aparece na listagem com os dados principais', async () => {
+  const { entities, store } = fakeEntities();
+  const { expense } = await saveDailyExpense({
+    entities, form: validForm({ category_id: 'c1' }),
+    categories, centers, employees, responsibleUser: 'Operador',
+  });
+  const listados = filterExpenses([...store.FinancialExpense.values()], { includeCancelled: true });
+  assert.equal(listados.length, 1, 'o gasto salvo aparece no histórico');
+  const linha = listados[0];
+  assert.equal(linha.id, expense.id);
+  assert.equal(formatExpenseDate(linha.date), '18/03/2026');
+  assert.equal(linha.description, 'Compra de queijo');
+  assert.equal(linha.category_name, 'Insumos');
+  assert.equal(linha.responsible_user, 'Operador');
+  assert.equal(expenseStatusLabel(linha), 'Pago');
+  assert.equal(hasExpenseProof(linha), false, 'sem comprovante é identificável');
+  assert.equal(expenseMethodLabel(linha), 'Pix');
+});
 
 test('conflito concorrente no FinancialExpense aborta em vez de sobrescrever', async () => {
   const { entities, store } = fakeEntities();

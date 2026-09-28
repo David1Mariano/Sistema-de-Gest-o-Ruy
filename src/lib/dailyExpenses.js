@@ -124,12 +124,18 @@ export function normalizeExpenseText(value) {
     .trim();
 }
 
-// Campos buscáveis: descrição, categoria, fornecedor/colaborador e responsável.
+// Campos buscáveis: descrição, categoria, fornecedor/colaborador, responsável e
+// também o VALOR — o funcionário digita "1.250,90" ou "1250,90" e encontra.
 export function expenseSearchIndex(expense = {}) {
+  const amount = Number(expense.amount);
+  const valor = Number.isFinite(amount)
+    ? [amount.toFixed(2), amount.toLocaleString('pt-BR', { minimumFractionDigits: 2, maximumFractionDigits: 2 })]
+    : [];
   return normalizeExpenseText([
     expense.description, expense.category_name, expense.classification,
     expense.beneficiary_name, expense.beneficiary_type,
     expense.cost_center_name, expense.responsible_user, expense.observation,
+    ...valor,
   ].filter(Boolean).join(' '));
 }
 
@@ -148,12 +154,23 @@ function inRange(value, start, end) {
   return true;
 }
 
-export function filterExpenses(rows = [], { search = '', start = '', end = '', categoryId = '', paymentMethod = '' } = {}) {
+export const hasExpenseProof = (expense = {}) => Boolean(expense.proof_url || expense.storage_path);
+
+// Filtros do histórico. `includeCancelled` só é usado no histórico completo,
+// para o usuário enxergar o que cancelou — os totais da tela continuam ignorando.
+export function filterExpenses(rows = [], {
+  search = '', start = '', end = '', categoryId = '', paymentMethod = '',
+  beneficiary = '', status = '', proof = '', includeCancelled = false,
+} = {}) {
   return rows.filter((expense) => {
-    if (isCancelledExpense(expense)) return false;
+    if (!includeCancelled && isCancelledExpense(expense)) return false;
     if (!inRange(expense.date, start, end)) return false;
     if (categoryId && expense.category_id !== categoryId) return false;
     if (paymentMethod && expense.payment_method !== paymentMethod) return false;
+    if (beneficiary && expense.beneficiary_name !== beneficiary) return false;
+    if (status && expense.status !== status) return false;
+    if (proof === 'com' && !hasExpenseProof(expense)) return false;
+    if (proof === 'sem' && hasExpenseProof(expense)) return false;
     return expenseMatchesSearch(expense, search);
   });
 }

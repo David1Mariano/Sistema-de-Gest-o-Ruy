@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from 'react';
-import { AlertTriangle, CalendarDays, Eye, Pencil, Plus, Receipt, Search, Trash2, Wallet, X } from 'lucide-react';
+import { AlertTriangle, CalendarDays, Eye, FolderPlus, History, Pencil, Plus, Receipt, Search, Trash2, Wallet, X } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import {
@@ -8,15 +8,42 @@ import {
 } from '@/components/ui/alert-dialog';
 import { base44 } from '@/api/base44Client';
 import DailyExpenseForm from '@/components/financeiro/DailyExpenseForm';
+import ExpenseCategoryManager from '@/components/financeiro/ExpenseCategoryManager';
 import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
 import {
-  dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseCategoryOptions,
-  expenseDeleteBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount,
-  formatExpenseDate, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
+  dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseDeleteBlocker,
+  expenseMethodLabel, expenseStatusLabel, filterExpenses, formatExpenseAmount, formatExpenseDate,
+  hasExpenseProof, paymentMethodOptions, resolveExpensePeriod, EXPENSE_PERIOD_PRESETS,
   EXPENSE_ORIGIN_LABELS,
 } from '@/lib/dailyExpenses';
+import { selectableCategories, summarizeByCategory, totalOf } from '@/lib/expenseCategories';
 
 const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
+
+// Resumo por categoria: SEMPRE derivado dos gastos reais, nunca guardado.
+// Editar, mudar de categoria, cancelar ou excluir recalcula na hora.
+function CategorySummary({ rows, total, loading }) {
+  const porCategoria = useMemo(() => summarizeByCategory(rows), [rows]);
+  return <div className="rounded-xl border border-slate-200 bg-white p-4">
+    <div className="flex flex-wrap items-baseline justify-between gap-2 mb-3">
+      <h3 className="font-semibold text-slate-800">Resumo por categoria</h3>
+      <p className="text-sm text-slate-500">
+        Total do período: <span className="font-semibold text-slate-900">{formatExpenseAmount(total)}</span>
+      </p>
+    </div>
+    {loading ? <p className="text-sm text-slate-400">Carregando...</p>
+      : porCategoria.length ? <div className="divide-y">
+        {porCategoria.map((item) => (
+          <div key={item.chave} className="flex items-center justify-between gap-3 py-2 text-sm">
+            <span className="text-slate-700">{item.nome}<span className="text-slate-400 text-xs"> · {item.quantidade}</span></span>
+            <span className="font-medium tabular-nums">{formatExpenseAmount(item.total)}</span>
+          </div>
+        ))}
+      </div>
+        : <p className="text-sm text-slate-400">Nenhum gasto no período selecionado.</p>}
+  </div>;
+}
+
 
 function Indicator({ label, value, icon: Icon, hint, danger }) {
   return <div className={`rounded-xl border p-4 ${danger ? 'border-rose-200 bg-rose-50' : 'border-slate-200 bg-white'}`}>
@@ -52,7 +79,7 @@ function ExpenseRow({ expense, onEdit, onRemove }) {
       <div className="flex items-center gap-2">
         <ExpenseAttachment record={expense} field="proof_url" label="Comprovante" />
         <ExpenseAttachment record={expense} field="invoice_url" label="Nota fiscal" />
-        {!expense.proof_url && !expense.storage_path && <span className="text-amber-600 text-xs">Sem anexo</span>}
+        {!hasExpenseProof(expense) && <span className="text-amber-600 text-xs">Sem anexo</span>}
       </div>
     </td>
     <td className="px-4 py-3">
@@ -74,7 +101,8 @@ function ExpenseRow({ expense, onEdit, onRemove }) {
 
 function SearchAndFilters({
   search, setSearch, preset, setPreset, customStart, setCustomStart, customEnd, setCustomEnd,
-  categoryId, setCategoryId, paymentMethod, setPaymentMethod, categories, visible, visibleSum,
+  categoryId, setCategoryId, paymentMethod, setPaymentMethod, beneficiary, setBeneficiary,
+  status, setStatus, proof, setProof, categories, beneficiaries, visible, visibleSum,
   loading, filtersActive, onClear,
 }) {
   return <div className="rounded-xl border border-slate-200 bg-white p-4 space-y-3">
@@ -111,6 +139,27 @@ function SearchAndFilters({
           {paymentMethodOptions().map(([value, label]) => <option key={value} value={value}>{label}</option>)}
         </select>
       </label>
+      <label className="text-xs">Favorecido
+        <select className={`${inputCls} mt-1`} value={beneficiary} onChange={(event) => setBeneficiary(event.target.value)}>
+          <option value="">Todos os favorecidos</option>
+          {beneficiaries.map((name) => <option key={name} value={name}>{name}</option>)}
+        </select>
+      </label>
+      <label className="text-xs">Situação
+        <select className={`${inputCls} mt-1`} value={status} onChange={(event) => setStatus(event.target.value)}>
+          <option value="">Todas</option>
+          <option value="pago">Pago</option>
+          <option value="pendente">Pendente</option>
+          <option value="cancelado">Cancelado</option>
+        </select>
+      </label>
+      <label className="text-xs">Comprovante
+        <select className={`${inputCls} mt-1`} value={proof} onChange={(event) => setProof(event.target.value)}>
+          <option value="">Todos</option>
+          <option value="com">Com comprovante</option>
+          <option value="sem">Sem comprovante</option>
+        </select>
+      </label>
       <div className="flex items-end justify-between gap-2">
         <p className="text-xs text-slate-500 pb-2" role="status">
           {loading ? 'Carregando...' : `${visible.length} gasto(s) · ${formatExpenseAmount(visibleSum)}`}
@@ -130,32 +179,55 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
   const [customEnd, setCustomEnd] = useState('');
   const [categoryId, setCategoryId] = useState('');
   const [paymentMethod, setPaymentMethod] = useState('');
+  const [beneficiary, setBeneficiary] = useState('');
+  const [status, setStatus] = useState('');
+  const [proof, setProof] = useState('');
+  const [view, setView] = useState('painel'); // 'painel' | 'historico' | 'categorias'
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [removing, setRemoving] = useState(null);
   const [removeError, setRemoveError] = useState('');
   const [removingBusy, setRemovingBusy] = useState(false);
 
-  const period = useMemo(
-    () => resolveExpensePeriod(preset, { start: customStart, end: customEnd }),
-    [preset, customStart, customEnd],
+  // No histórico a busca é livre (sem a trava de período padrão), senão o
+  // funcionário não acha um lançamento antigo. Os totais da tela continuam
+  // ignorando cancelados; só a LISTA do histórico os mostra.
+  const effectivePreset = view === 'historico' && preset === 'mes' ? 'todos' : preset;
+  const effectivePeriod = useMemo(
+    () => resolveExpensePeriod(effectivePreset, { start: customStart, end: customEnd }),
+    [effectivePreset, customStart, customEnd],
   );
 
   const visible = useMemo(() => filterExpenses(rows, {
-    search, start: period.start, end: period.end, categoryId, paymentMethod,
-  }), [rows, search, period.start, period.end, categoryId, paymentMethod]);
+    search, start: effectivePeriod.start, end: effectivePeriod.end, categoryId, paymentMethod,
+    beneficiary, status, proof, includeCancelled: view === 'historico',
+  }), [rows, search, effectivePeriod.start, effectivePeriod.end, categoryId, paymentMethod, beneficiary, status, proof, view]);
 
   // Indicadores sobre todos os gastos carregados, não sobre a busca filtrada.
   const indicators = useMemo(() => dailyExpenseIndicators(rows), [rows]);
-  const categories = expenseCategoryOptions(data.categories);
+  // Deduplica por nome equivalente, então categoria antiga repetida não aparece
+  // duas vezes na seleção.
+  const categories = useMemo(() => selectableCategories(data.categories), [data.categories]);
+  const beneficiaries = useMemo(
+    () => [...new Set(rows.map((r) => r.beneficiary_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
+    [rows],
+  );
   const blocker = removing ? expenseDeleteBlocker(removing, { payments: data.payments, vales: data.vales }) : null;
-  const visibleSum = visible.reduce((total, expense) => total + Number(expense.amount || 0), 0);
-  const filtersActive = Boolean(search || categoryId || paymentMethod || preset !== 'mes');
+  const visibleSum = useMemo(() => totalOf(visible), [visible]);
+  const periodRows = useMemo(
+    () => filterExpenses(rows, { start: effectivePeriod.start, end: effectivePeriod.end }),
+    [rows, effectivePeriod.start, effectivePeriod.end],
+  );
+  const periodTotal = useMemo(() => totalOf(periodRows), [periodRows]);
+  const filtersActive = Boolean(search || categoryId || paymentMethod || beneficiary || status || proof || preset !== 'mes');
 
   const openCreate = () => { setEditing(null); setFormOpen(true); };
   const openEdit = (expense) => { setEditing(expense); setFormOpen(true); };
   const closeForm = () => { setFormOpen(false); setEditing(null); };
-  const clearFilters = () => { setSearch(''); setCategoryId(''); setPaymentMethod(''); setPreset('mes'); };
+  const clearFilters = () => {
+    setSearch(''); setCategoryId(''); setPaymentMethod('');
+    setBeneficiary(''); setStatus(''); setProof(''); setPreset('mes');
+  };
 
   // O botão "Novo gasto" do cabeçalho do Financeiro abre este formulário
   // incrementando o contador; assim o funcionário não precisa procurar a aba.
@@ -186,8 +258,22 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
         <h2 className="text-xl font-semibold text-slate-900">Gastos Diários</h2>
         <p className="text-sm text-slate-500">Registre e consulte as despesas do dia a dia da operação.</p>
       </div>
-      <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" /> Novo gasto</Button>
+      <div className="flex flex-wrap items-center gap-2">
+        <Button onClick={openCreate} className="gap-2"><Plus className="w-4 h-4" /> Novo gasto</Button>
+        <Button variant={view === 'historico' ? 'default' : 'outline'} onClick={() => setView(view === 'historico' ? 'painel' : 'historico')} className="gap-2">
+          <History className="w-4 h-4" /> Histórico
+        </Button>
+        <Button variant={view === 'categorias' ? 'default' : 'outline'} onClick={() => setView(view === 'categorias' ? 'painel' : 'categorias')} className="gap-2">
+          <FolderPlus className="w-4 h-4" /> Categorias
+        </Button>
+      </div>
     </div>
+
+    {view === 'categorias' && <ExpenseCategoryManager
+      categories={data.categories}
+      onSaved={onSaved}
+      onSelect={setCategoryId}
+    />}
 
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
@@ -206,8 +292,35 @@ export default function DailyExpensesPanel({ rows = [], loading, data, onSaved, 
       customEnd={customEnd} setCustomEnd={setCustomEnd}
       categoryId={categoryId} setCategoryId={setCategoryId}
       paymentMethod={paymentMethod} setPaymentMethod={setPaymentMethod}
-      categories={categories} visible={visible} visibleSum={visibleSum}
+      beneficiary={beneficiary} setBeneficiary={setBeneficiary}
+      status={status} setStatus={setStatus}
+      proof={proof} setProof={setProof}
+      categories={categories} beneficiaries={beneficiaries}
+      visible={visible} visibleSum={visibleSum}
       loading={loading} filtersActive={filtersActive} onClear={clearFilters} />
+
+    {/* Resumo do PERÍODO (sem a busca) x total da SELEÇÃO atual, identificados
+        separadamente para não misturar os dois números. */}
+    <div className="grid lg:grid-cols-2 gap-3">
+      <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-baseline justify-between gap-3">
+        <div>
+          <p className="text-xs text-slate-500">Total do período selecionado</p>
+          <p className="text-2xl font-semibold text-slate-900">{formatExpenseAmount(periodTotal)}</p>
+        </div>
+        <p className="text-xs text-slate-400 text-right">
+          {periodRows.length} gasto(s)<br />canceleados não entram
+        </p>
+      </div>
+      <div className="rounded-xl border border-slate-200 bg-white p-4 flex items-baseline justify-between gap-3">
+        <div>
+          <p className="text-xs text-slate-500">Total da busca atual</p>
+          <p className="text-2xl font-semibold text-slate-900">{formatExpenseAmount(visibleSum)}</p>
+        </div>
+        <p className="text-xs text-slate-400 text-right">{visible.length} resultado(s)</p>
+      </div>
+    </div>
+
+    <CategorySummary rows={view === 'historico' ? visible : periodRows} total={view === 'historico' ? visibleSum : periodTotal} loading={loading} />
 
     <div className="rounded-xl border border-slate-200 bg-white overflow-hidden">
       <div className="overflow-x-auto">
