@@ -612,6 +612,47 @@ test('troca de favorecido termina sempre com 1 pagamento ativo coerente', async 
   assert.equal(ativos[0].net_amount, expenseOf(store)[0].amount, 'gasto e pagamento não divergem');
 });
 
+test('compensação protegida: alteração concorrente de B NÃO é sobrescrita pelo rollback de A', async () => {
+  const { entities, store } = fakeEntities();
+  const { expense } = await saveDailyExpense({ entities, form: asColab(), categories, centers, employees });
+  const telaA = { ...expense };
+  const pagamentosNaTela = paymentsOf(store); // o que a tela de A tinha em memória
+
+  // Passo 4: operação B altera o MESMO gasto depois da gravação de A e antes
+  // de a gravação do pagamento de A acontecer.
+  let bAlterou = false;
+  const outraMaquinaGrava = async () => {
+    if (bAlterou) return;
+    bAlterou = true;
+    await entities.FinancialExpense.update(expense.id, {
+      description: 'ALTERADO PELA MÁQUINA B', amount: 777,
+    });
+  };
+  // Passo 5: a manipulação do pagamento de A falha.
+  entities.EmployeePayment.transact = async () => {
+    await outraMaquinaGrava();
+    throw new Error('falha ao gravar pagamento');
+  };
+
+  // Passo 6: a compensação de A é acionada. A operação A retorna erro.
+  await assert.rejects(
+    salvarEdicaoComPagamentos(entities, telaA, pagamentosNaTela, asColab({ amount: '150,00' })),
+    /falha ao gravar pagamento/,
+    'A não pode virar sucesso silencioso',
+  );
+
+  // A alteração de B permanece intacta — a compensação não a sobrescreveu.
+  const final = store.FinancialExpense.get(expense.id);
+  assert.equal(final.description, 'ALTERADO PELA MÁQUINA B', 'alteração de B preservada');
+  assert.equal(final.amount, 777, 'valor de B preservado (rollback de A não rodou)');
+
+  // Nenhum EmployeePayment incorreto/duplicado ficou ativo.
+  const ativos = pagamentosAtivos(store);
+  assert.equal(ativos.length, 1, 'continua um único pagamento ativo');
+  assert.equal(ativos[0].id, pagamentosNaTela[0].id, 'o pagamento de A não foi duplicado');
+  assert.equal(ativos[0].net_amount, 48.9, 'o pagamento de A não foi gravado pela operação que falhou');
+});
+
 test('sem `transact` disponível o código ainda salva (compatibilidade)', async () => {
   const { entities, store } = fakeEntities();
   delete entities.FinancialExpense.transact;

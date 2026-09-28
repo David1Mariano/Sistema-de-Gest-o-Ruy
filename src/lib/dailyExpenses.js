@@ -341,6 +341,56 @@ function linkedPaymentPatch(payload, employee) {
 //                                  sem vínculo (órfão).
 // Se o passo 2 falhar, o gasto é compensado (excluído) para não sobrar registro
 // pela metade, e o erro sobe para a tela: nunca devolvemos sucesso parcial.
+// Devolve o gasto ao estado anterior SEMPRE que ainda for seguro.
+//
+// Só reverte se o registro continuar sendo EXATAMENTE o que esta operação
+// gravou. A prova é a VERSÃO: `transact` devolve o registro já com o
+// `updated_date` novo, então comparar esse valor com o `updated_date` atual
+// dentro da transação distingue "ninguém mexeu depois de mim" de "outra
+// máquina mexeu" — sem depender de um campo de negócio (valor, descrição...),
+// que pode estar igual por coincidência.
+//
+// Se alguém mexeu, NÃO sobrescrevemos, NÃO forçamos rollback e NÃO mesclamos:
+// devolvemos `null`, que faz o `transact` abortar SEM NENHUMA ESCRITA. O erro
+// original da falha do EmployeePayment sobe normalmente e a alteração
+// concorrente fica intacta.
+async function compensarExpenseSeSeguro({ entities, id, versaoDaNossaGravacao, antes }) {
+  if (!antes) return { compensado: false, motivo: 'sem snapshot anterior' };
+  // Sem versão não há como provar posse da linha: não escrever é mais seguro.
+  if (!versaoDaNossaGravacao) return { compensado: false, motivo: 'gravação sem versão' };
+
+  const restaurar = {
+    amount: antes.amount, date: antes.date, paid_date: antes.paid_date,
+    description: antes.description, classification: antes.classification,
+    category_id: antes.category_id, category_name: antes.category_name,
+    cost_center_id: antes.cost_center_id, cost_center_name: antes.cost_center_name,
+    beneficiary_type: antes.beneficiary_type, beneficiary_id: antes.beneficiary_id,
+    beneficiary_name: antes.beneficiary_name, employee_id: antes.employee_id,
+    payment_method: antes.payment_method, account: antes.account,
+    status: antes.status, observation: antes.observation, proof_url: antes.proof_url,
+  };
+
+  if (typeof entities.FinancialExpense.transact !== 'function') {
+    // Sem transação não dá para provar que a linha continua sendo nossa; em vez
+    // de arriscar apagar alteração alheia, deixamos para reconciliação manual.
+    console.error('[gastos-diarios] Compensação ignorada: transact indisponível.', { id });
+    return { compensado: false, motivo: 'transact indisponível' };
+  }
+
+  try {
+    await entities.FinancialExpense.transact(id, (atual) => {
+      // Ainda é o que eu gravei? Só então restauro.
+      if (atual?.updated_date !== versaoDaNossaGravacao) return null;
+      return restaurar;
+    });
+    return { compensado: true, motivo: 'restaurado' };
+  } catch (err) {
+    // Falhou a própria compensação: não mascaramos, registramos para a reconciliação.
+    console.error('[gastos-diarios] Falha ao compensar o gasto', id, err);
+    return { compensado: false, motivo: 'falha na compensação' };
+  }
+}
+
 export async function saveDailyExpense({ entities, form, editing = null, categories = [], centers = [], employees = [], responsibleUser = '', payments = [] }) {
   const payload = buildExpensePayload(form, { categories, centers, employees, responsibleUser });
   const employee = payload.beneficiary_id
@@ -354,29 +404,27 @@ export async function saveDailyExpense({ entities, form, editing = null, categor
     const antes = await entities.FinancialExpense.get(editing.id).catch(() => null);
     const linked = findActiveLinkedPayment(payments, editing.id);
     const updated = await updateExpenseGuarded({ entities, editing, patch });
+    // Versão do registro TAL COMO NOSSA GRAVAÇÃO DEIXOU: a chave do CAS.
+    const versaoDaNossaGravacao = updated?.updated_date || null;
     try {
       const payment = await syncLinkedEmployeePayment({ entities, expenseId: editing.id, employee, payload, linked });
       return { expense: updated, payment, created: false };
     } catch (err) {
-      // `transact` protege UMA linha: o gasto e o pagamento são entidades
+      // `transact` protege UMA linha: gasto e pagamento são entidades
       // diferentes e NÃO há transação entre elas. Se a gravação do pagamento
-      // falhar depois do gasto ter sido gravado, devolvemos o gasto ao estado
-      // anterior — é COMPENSAÇÃO, não atomicidade. Sem ela, FinancialExpense e
-      // EmployeePayment terminariam com valores diferentes em silêncio.
-      if (antes) {
-        try {
-          await entities.FinancialExpense.update(editing.id, {
-            amount: antes.amount, date: antes.date, paid_date: antes.paid_date,
-            description: antes.description, classification: antes.classification,
-            category_id: antes.category_id, category_name: antes.category_name,
-            cost_center_id: antes.cost_center_id, cost_center_name: antes.cost_center_name,
-            beneficiary_type: antes.beneficiary_type, beneficiary_id: antes.beneficiary_id,
-            beneficiary_name: antes.beneficiary_name, employee_id: antes.employee_id,
-            payment_method: antes.payment_method, account: antes.account,
-            status: antes.status, observation: antes.observation, proof_url: antes.proof_url,
-          });
-        } catch { /* mantém o erro original; a reconciliação manual resolve */ }
+      // falhar depois do gasto gravado, tentamos devolver o gasto ao estado
+      // anterior — é COMPENSAÇÃO, não atomicidade. Só o fazemos se o registro
+      // ainda for o nosso; havendo alteração concorrente, ela é preservada e
+      // fica valendo a última gravação.
+      const resultado = await compensarExpenseSeSeguro({
+        entities, id: editing.id, versaoDaNossaGravacao, antes,
+      });
+      if (!resultado.compensado) {
+        console.error('[gastos-diarios] Gasto não compensado; pode exigir reconciliação manual.', {
+          id: editing.id, motivo: resultado.motivo,
+        });
       }
+      // O erro original da falha do pagamento sobe sempre: nada é mascarado.
       throw err;
     }
   }
