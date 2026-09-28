@@ -8,6 +8,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { Upload } from 'lucide-react';
+import AttachmentPreview from '@/components/rh/AttachmentPreview';
+
+const VALE_DIAG = '[vale-comprovante]';
+const VALE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf';
 
 const empty = { employee_id: '', employee_name: '', date: '', amount: '', type: 'dinheiro', motive: '', payment_method: '', authorized_by: '', status: 'pendente', observation: '', proof_url: '' };
 
@@ -77,12 +81,12 @@ export default function ValeForm({ open, onOpenChange, employees = [], onSaved, 
           <div className="col-span-2 space-y-1"><Label className="text-xs">Motivo</Label><Input value={form.motive} onChange={(e) => set('motive', e.target.value)} /></div>
           <div className="col-span-2 space-y-1"><Label className="text-xs">Observação</Label><Textarea rows={2} value={form.observation} onChange={(e) => set('observation', e.target.value)} /></div>
           <div className="col-span-2 space-y-1"><Label className="text-xs">Comprovante</Label>
-            <input ref={fileRef} type="file" className="hidden" onChange={onFile} />
+            <input ref={fileRef} type="file" className="hidden" accept={VALE_PROOF_ACCEPT} onChange={onFile} />
             <div className="flex items-center gap-2">
               <Button type="button" variant="outline" size="sm" onClick={() => fileRef.current?.click()} disabled={uploading} className="gap-2">
                 <Upload className="w-4 h-4" /> {uploading ? 'Enviando...' : form.proof_url ? 'Trocar arquivo' : 'Selecionar arquivo'}
               </Button>
-              {form.proof_url && <a href={form.proof_url} target="_blank" rel="noreferrer" className="text-xs text-emerald-600 underline">Ver comprovante ✓</a>}
+              {(form.proof_url || form.storage_path) && <AttachmentPreview record={form} label="Ver comprovante ✓" prefix="Vale" diagLabel={VALE_DIAG} className="text-xs text-emerald-600 underline" />}
             </div>
           </div>
         </div>

@@ -1,72 +1,108 @@
-import React, { createContext, useState, useContext, useEffect, useCallback } from 'react';
-import { base44 } from '@/api/base44Client';
+import { createContext, useState, useContext, useEffect, useCallback, useRef } from 'react';
+import { supabase, supabaseAuth } from './supabaseClient';
+import { setCurrentUser } from './currentUserStore';
+import { queryClientInstance } from './query-client';
 
-const AuthContext = createContext();
+const AuthContext = createContext(null);
 
-export const AuthProvider = ({ children }) => {
+export function AuthProvider({ children }) {
   const [user, setUser] = useState(null);
-  const [isAuthenticated, setIsAuthenticated] = useState(false);
-  const [isLoadingAuth, setIsLoadingAuth] = useState(true);
-  const [authChecked, setAuthChecked] = useState(false);
-  const [authError, setAuthError] = useState(null);
+  const [isLoadingAuth, setLoading] = useState(true);
+  const [authChecked, setChecked] = useState(false);
+  const [authError, setError] = useState(null);
+  const generation = useRef(0);
+  const identity = useRef(null);
 
-  const checkUserAuth = useCallback(async () => {
-    try {
-      setIsLoadingAuth(true);
-      const currentUser = await base44.auth.me();
-      setUser(currentUser);
-      setIsAuthenticated(true);
-      setAuthError(null);
-    } catch {
-      setUser(null);
-      setIsAuthenticated(false);
-    } finally {
-      setIsLoadingAuth(false);
-      setAuthChecked(true);
-    }
+  const clearUserState = useCallback(() => {
+    setCurrentUser(null);
+    setUser(null);
+    setError(null);
   }, []);
 
+  const checkUserAuth = useCallback(async () => {
+    const seq = ++generation.current;
+    setLoading(true);
+    try {
+      const profile = await supabaseAuth.me();
+      if (seq !== generation.current) return;
+      setCurrentUser(profile);
+      setUser(profile);
+      setError(null);
+    } catch (err) {
+      if (seq !== generation.current) return;
+      clearUserState();
+      if (err.status !== 401) {
+        setError({ type: 'profile_error', message: err.message });
+      }
+    } finally {
+      if (seq === generation.current) {
+        setLoading(false);
+        setChecked(true);
+      }
+    }
+  }, [clearUserState]);
+
   useEffect(() => {
-    checkUserAuth();
-  }, [checkUserAuth]);
+    let timer;
+    const { data: { subscription } } = supabase.auth.onAuthStateChange((event, session) => {
+      // Não executar chamadas Auth dentro do callback que detém o lock do SDK.
+      const nextId = session?.user?.id || null;
+      if (nextId !== identity.current || event === 'SIGNED_OUT') {
+        identity.current = nextId;
+        generation.current += 1;
+        queryClientInstance.clear();
+        clearUserState();
+      }
+      clearTimeout(timer);
+      if (!session) {
+        setLoading(false);
+        setChecked(true);
+      } else {
+        setLoading(true);
+        timer = setTimeout(checkUserAuth, 0);
+      }
+    });
+    return () => {
+      generation.current += 1;
+      clearTimeout(timer);
+      subscription.unsubscribe();
+    };
+  }, [checkUserAuth, clearUserState]);
 
-  const logout = (shouldRedirect = true) => {
-    setUser(null);
-    setIsAuthenticated(false);
-    base44.auth.logout(shouldRedirect ? window.location.href : undefined);
-  };
-
-  const navigateToLogin = () => {
-    base44.auth.redirectToLogin(window.location.href);
-  };
+  const logout = useCallback(async (shouldRedirect = true) => {
+    try {
+      await supabaseAuth.logout();
+    } finally {
+      generation.current += 1;
+      queryClientInstance.clear();
+      clearUserState();
+      setLoading(false);
+      setChecked(true);
+      if (shouldRedirect) window.location.assign('/login');
+    }
+  }, [clearUserState]);
 
   return (
-    <AuthContext.Provider
-      value={{
-        user,
-        isAuthenticated,
-        isLoadingAuth,
-        // Não existe mais um "app público" hospedado no Base44 para consultar,
-        // então isso nunca fica em loading e nunca gera erro de app.
-        isLoadingPublicSettings: false,
-        authError,
-        appPublicSettings: null,
-        authChecked,
-        logout,
-        navigateToLogin,
-        checkUserAuth,
-        checkAppState: checkUserAuth,
-      }}
-    >
+    <AuthContext.Provider value={{
+      user,
+      isAuthenticated: Boolean(user),
+      isLoadingAuth,
+      isLoadingPublicSettings: false,
+      authChecked,
+      authError,
+      appPublicSettings: null,
+      logout,
+      checkUserAuth,
+      checkAppState: checkUserAuth,
+      navigateToLogin: () => supabaseAuth.redirectToLogin(window.location.href),
+    }}>
       {children}
     </AuthContext.Provider>
   );
-};
+}
 
-export const useAuth = () => {
-  const context = useContext(AuthContext);
-  if (!context) {
-    throw new Error('useAuth must be used within an AuthProvider');
-  }
-  return context;
-};
+export function useAuth() {
+  const value = useContext(AuthContext);
+  if (!value) throw new Error('useAuth must be used within an AuthProvider');
+  return value;
+}
