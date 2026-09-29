@@ -1,5 +1,7 @@
 // Utilitários compartilhados do módulo RH — RUY GESTÃO
-import { todayISO, addDays, startOfWeek, endOfWeek } from './timeUtils';
+// A extensão `.js` segue o padrão dos módulos mais novos (dailyExpenses,
+// expenseCategories) e permite importar este arquivo direto no Node, sem bundler.
+import { todayISO, addDays, startOfWeek, endOfWeek } from './timeUtils.js';
 
 export const EMPLOYEE_STATUS = {
   ativo: { label: 'Ativo', style: 'bg-emerald-100 text-emerald-700 border-emerald-200' },
