@@ -34,9 +34,12 @@ import {
   todayISO,
   validateMovement,
 } from '@/lib/stockRules';
+import { DELETE_MODE, itemDecision, itemDeletePatch } from '@/lib/stockItemUtils';
 
 const InventoryItem = base44.entities.InventoryItem;
 const StockMovement = base44.entities.StockMovement;
+const PurchaseItem = base44.entities.PurchaseItem;
+const RecipeIngredient = base44.entities.RecipeIngredient;
 
 /**
  * Token de idempotência. Um duplo clique (ou um reenvio) do mesmo lançamento
@@ -246,5 +249,190 @@ export function ajustarSaldo({ item, targetBalance, type = MOVEMENT_TYPES.AJUSTE
 /** Entrada de estoque originada por uma compra recebida. */
 export function registrarEntradaDeCompra(args) {
   return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.ENTRADA_COMPRA, originType: 'compra' });
+}
+
+/**
+ * Cria um item de estoque e, se ele nascer com saldo, registra a MOVIMENTAÇÃO
+ * de saldo inicial.
+ *
+ * Antes, a tela fazia `InventoryItem.create({ current_stock: 50 })`: o item
+ * passava a existir com 50 unidades e o histórico ficava vazio. Respondendo
+ * "por que este produto está com saldo 50?" só se consultasse o cadastro —
+ * não havia lançamento explicando a entrada. Isso quebra a rastreabilidade
+ * que o resto do serviço promete.
+ *
+ * Decisões:
+ * - Saldo zero (ou vazio) NÃO gera movimentação: um lançamento de 0 só polui
+ *   o histórico. O item nasce em 0, como sempre.
+ * - O item é SEMPRE criado começando em 0, e o saldo entra pelo mesmo caminho
+ *   de qualquer outra entrada (`aplicarMovimentacao`). Assim o saldo inicial
+ *   passa pelo mesmo compare-and-swap, gera o mesmo formato de histórico e
+ *   respeita a mesma proteção de saldo insuficiente.
+ * - O movimento usa `AJUSTE_ENTRADA` (entrada de ajuste) com
+ *   `origin_type: 'saldo_inicial'`. O vocabulário é o que já existe no
+ *   projeto: nenhum tipo novo foi inventado.
+ *
+ * FALHA PARCIAL — leia antes de usar:
+ * Não existe transação entre duas entidades. Se o item for criado e a
+ * movimentação falhar, o item fica sem histórico. Preferimos isso a deletar
+ * o item: perder o cadastro do usuário seria pior, e o serviço DEVOLVE o erro
+ * (com `codigo: 'saldo_inicial_sem_historico'`) para a tela avisar, em vez de
+ * fingir sucesso. A correção definitiva é a RPC transacional preparada em
+ * `supabase/migrations/` — ainda não aplicada.
+ */
+export async function criarItemComEstoqueInicial({
+  item,
+  openingQty = 0,
+  unitCost = 0,
+  date,
+  responsibleUser = '',
+  observation = '',
+  clientToken = '',
+  retries = 6,
+}) {
+  if (!item || !item.name) throw new StockError('Informe o nome do item de estoque.', 'item_obrigatorio');
+
+  const abertura = roundQty(openingQty);
+  if (openingQty !== '' && openingQty !== null && openingQty !== undefined && !Number.isFinite(abertura)) {
+    throw new StockError('Estoque inicial inválido.', 'quantidade_invalida');
+  }
+  const qty = Number.isFinite(abertura) ? abertura : 0;
+  if (qty < 0) throw new StockError('O estoque inicial não pode ser negativo.', 'saldo_invalido');
+
+  // Nasce sempre em zero. O saldo entra como movimentação logo abaixo.
+  const criado = await InventoryItem.create({ ...item, current_stock: 0 });
+
+  if (qty === 0) {
+    return { item: criado, movement: null, itemId: criado.id, openingQty: 0 };
+  }
+
+  // Token estável para o mesmo item: reenviar a mesma criação não duplica a
+  // entrada. O prefixo `abertura:` é exclusivo deste fluxo.
+  const token = clientToken || `abertura:${criado.id}`;
+
+  try {
+    const r = await aplicarMovimentacao({
+      item: criado,
+      type: MOVEMENT_TYPES.AJUSTE_ENTRADA,
+      quantity: qty,
+      unitCost: Number.isFinite(roundMoney(unitCost)) ? roundMoney(unitCost) : 0,
+      date,
+      originType: 'saldo_inicial',
+      originId: criado.id,
+      observation: observation || 'Estoque inicial no cadastro do item',
+      // `responsibleUser` só é repassado se existir de verdade: inventar um
+      // responsável no histórico seria pior do que deixá-lo vazio.
+      responsibleUser: responsibleUser || '',
+      clientToken: token,
+      retries,
+    });
+    // `duplicated` vem do `aplicarMovimentacao`: um reenvio com o mesmo token
+    // não mexe no saldo e devolve o movimento já existente.
+    return {
+      item: r.item,
+      movement: r.movement,
+      itemId: criado.id,
+      openingQty: qty,
+      duplicated: r.duplicated === true,
+    };
+  } catch (err) {
+    throw new StockError(
+      `O item "${criado.name}" foi criado, mas o lançamento de estoque inicial não pôde ser gravado (${err.message || err}). `
+      + 'Abra o ajuste de inventário para registrar a entrada.',
+      'saldo_inicial_sem_historico'
+    );
+  }
+}
+
+// ---------------------------------------------------------------------------
+// Exclusão, desativação e reativação de item de estoque.
+//
+// A mutação de `status` mora AQUI, e não na tela, por dois motivos:
+//
+// 1. `check:stock` (scripts/check-stock-integrity.mjs) proíbe `InventoryItem.
+//    update(...)` fora deste arquivo. A regra existe porque o update sem
+//    condição reescreve a linha inteira e, com `current_stock` junto, destrói
+//    saldo. Passar por aqui mantém o saldo sob `transact`.
+// 2. A decisão de apagar ou desativar precisa ser reavaliada contra o banco no
+//    momento da escrita, não contra a linha que a tela tinha em memória. Entre
+//    abrir o modal e clicar em confirmar, alguém pode ter registrado uma
+//    movimentação. A tela decide para dar o feedback certo; aqui decide de novo
+//    para não confiar na tela.
+//
+// `StockMovement` nunca é apagado e nada é apagado em cascata, em nenhum
+// caminho. A única chamada de `delete` é a do próprio `InventoryItem`, e
+// apenas quando o item é comprovadamente descartável.
+// ---------------------------------------------------------------------------
+
+/**
+ * Vínculos queREFERENCIAM um item: histórico de movimentação, itens de compra e
+ * ingredientes de ficha técnica.
+ *
+ * Sem `.catch`: se a consulta falhar, o erro sobe e a operação é abortada.
+ * Tratar falha como "sem vínculos" liberaria exclusão física de um item que
+ * talvez tenha histórico — o pior resultado possível aqui.
+ */
+export async function buscarVinculosDoItem(itemId) {
+  const [movements, purchaseItems, recipeIngredient] = await Promise.all([
+    StockMovement.filter({ inventory_item_id: itemId }),
+    PurchaseItem.filter({ inventory_item_id: itemId }),
+    RecipeIngredient.filter({ inventory_item_id: itemId }),
+  ]);
+  return {
+    movements: movements || [],
+    purchaseItems: purchaseItems || [],
+    recipeIngredient: recipeIngredient || [],
+  };
+}
+
+/** Relê o item do banco: a decisão de apagar nunca usa a linha da tela. */
+async function relerItem(item) {
+  if (!item || !item.id) throw new StockError('Selecione o item de estoque.', 'item_obrigatorio');
+  if (typeof InventoryItem.get === 'function') {
+    const atual = await InventoryItem.get(item.id);
+    if (atual) return atual;
+  }
+  const linhas = await InventoryItem.filter({ id: item.id });
+  return (linhas && linhas[0]) || item;
+}
+
+/**
+ * Executa a decisão de exclusão, revalidando tudo no banco.
+ *
+ * @param {object} mode  `DELETE_MODE.DELETE` ou `DELETE_MODE.DEACTIVATE`.
+ * @throws {StockError} se a revalidação não sustentar o caminho pedido.
+ */
+export async function excluirOuDesativarItem({ item, mode }) {
+  const atual = await relerItem(item);
+  const vinculos = await buscarVinculosDoItem(atual.id);
+  const esperado = itemDecision(atual, vinculos);
+
+  // O caminho pedido precisa ser exatamente o que o banco autoriza agora. Se
+  // qualquer um dos dois for `blocked`, não há nada a fazer.
+  if (esperado.mode === DELETE_MODE.BLOCKED || esperado.mode !== mode) {
+    throw new StockError(
+      esperado.blocker || 'Não é possível concluir a operação com o estado atual do item.',
+      'exclusao_bloqueada'
+    );
+  }
+
+  if (mode === DELETE_MODE.DELETE) {
+    await InventoryItem.delete(atual.id);
+    return { itemId: atual.id, mode: DELETE_MODE.DELETE, name: atual.name };
+  }
+
+  const patch = itemDeletePatch();
+  await InventoryItem.update(atual.id, patch);
+  return { itemId: atual.id, mode: DELETE_MODE.DEACTIVATE, name: atual.name, status: patch.status };
+}
+
+/**
+ * Reativa o MESMO registro — nenhum item novo é criado e o histórico é mantido.
+ * Só o `status` volta a `ativo`; o saldo não é tocado.
+ */
+export async function reativarItem({ item }) {
+  const atual = await relerItem(item);
+  await InventoryItem.update(atual.id, { status: 'ativo' });
+  return { itemId: atual.id, status: 'ativo', name: atual.name };
 }
 

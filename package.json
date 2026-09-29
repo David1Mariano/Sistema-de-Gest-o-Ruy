@@ -8,6 +8,8 @@
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
+    "test:stock": "node scripts/test-stock.mjs",
+    "check:stock": "node scripts/check-stock-integrity.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "prod:publish": "node scripts/production/manage.mjs publish",
