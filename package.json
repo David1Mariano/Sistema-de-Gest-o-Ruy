@@ -13,6 +13,7 @@
     "test:theme-comportamento": "node scripts/test-theme-comportamento.mjs",
     "test:theme-cobertura": "node scripts/test-theme-cobertura.mjs",
     "test:theme-inventario": "node scripts/test-theme-inventario.mjs",
+    "test:theme-superficies": "node scripts/test-theme-superficies.mjs",
     "test:financeiro-estabilidade": "node scripts/test-financeiro-estabilidade.mjs",
     "test:financeiro-integrado": "node scripts/test-financeiro-integrado.mjs",
     "check:stock": "node scripts/check-stock-integrity.mjs",

@@ -250,7 +250,11 @@
 /* Classes com modificador de opacidade. O `bg-amber-50/50` compila para um nome
    de classe PRÓPRIO (a barra vira parte do nome), então a regra `.bg-amber-50`
    não a alcança: sem isto, todo card `bg-*-50/50` ficava claro no dark. O alpha
-   é mantido, porque ele é o que dava a leveza do card sobre fundo claro. */
+   é mantido, porque ele é o que dava a leveza do card sobre fundo claro.
+
+   `bg-white\/80` não tem consumidor hoje, mas fica de propósito: ele é a
+   MESMA armadilha das outras (nome de classe próprio) e a regra custa uma
+   linha. Sem ela, o primeiro uso futuro escaparia do dark em silêncio. */
 .dark .bg-white\/80,
 .dark .bg-white\/90 { background-color: hsl(var(--card) / 0.9); }
 .dark .bg-slate-50\/60 { background-color: hsl(var(--muted) / 0.6); }
@@ -259,14 +263,34 @@
 .dark .bg-amber-50\/40 { background-color: hsl(38 45% 13% / 0.5); }
 .dark .bg-amber-500\/15 { background-color: hsl(38 70% 40% / 0.2); }
 
-/* SAÍDA DE EMERGÊNCIA: superfície que precisa continuar clara no dark.
-   Comprovante, imagem, papel, logo sobre fundo escuro, preview. A regra vem
-   depois das remapeamentos e é mais específica, então vence sem `!important`. */
+/* SAÍDA DE EMERGÊNCIA: superfície 100% papel.
+   Só para algo que é fisicamente branco por definição — folha impressa, PDF.
+   A regra vem DEPOIS dos remapeamentos e é mais específica, então vence sem
+   `!important`. Pinta TUDO dentro, incluindo descendentes: use com cuidado. */
 .dark .theme-static-light,
 .dark .theme-static-light * {
   background-color: #ffffff;
   color: #0f172a;
   border-color: #e2e8f0;
+}
+
+/* SAÍDA CIRÚRGICA: só a SUPERFÍCIE de mídia/documento.
+   Usada no preview de comprovante, onde o papel precisa ficar claro mas o
+   título, a mensagem de erro e os controles do modal têm que acompanhar o tema.
+   Diferente da regra acima, esta NÃO pinta os descendentes: apenas a caixa que
+   segura o documento. O `color-scheme: light` acompanha porque o visualizador
+   nativo de PDF do browser se orienta por ele, não pelas classes. */
+.dark .theme-static-light-surface {
+  background-color: #ffffff;
+  color-scheme: light;
+}
+
+/* Superfície escura NÃO deve "vazar" para dentro da área de mídia: sem isto, um
+   pai com `bg-card` escuroueria o espaço em volta da foto do comprovante. */
+.dark .theme-static-light-surface img,
+.dark .theme-static-light-surface iframe {
+  background-color: #ffffff;
+  color-scheme: light;
 }
 
 /* Impressão é papel, não tela: o documento sai claro mesmo com o dark ligado.
@@ -288,6 +312,14 @@
     --input: 0 0% 89.8%;
     --sidebar-background: 0 0% 100%;
     --sidebar-border: 0 0% 89.8%;
+    /* A paleta dos gráficos também é tema. Sem esta volta, um relatório com
+       gráfico impresso com o dark ligado sairia com as séries em azul/verde
+       escuros — bons na tela, ilegíveis no papel. Volta a ser a paleta clara. */
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
     /* A família `cash` volta ao claro junto: sem isso, o relatório do bloco
        Caixas & Delivery sairia com card cinza-escuro no papel. */
     --cash-primary: #4F46E5;
