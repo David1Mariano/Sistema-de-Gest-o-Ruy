@@ -1,9 +1,13 @@
 import { useEffect, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
+import { usePersistentDraft } from '@/lib/usePersistentDraft';
+import { hasDraftChanged } from '@/lib/draftStore';
+import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, draftEditKey } from '@/lib/draftConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
+import DraftNotice from '@/components/shared/DraftNotice';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 
 const today = () => new Date().toISOString().slice(0, 10);
@@ -24,11 +28,23 @@ export default function ProductionOrderDialog({ open, onClose, order, products, 
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState('');
 
+  // Rascunho apenas no CADASTRO da ordem (planejamento). A produção diária é
+  // operação com baixa de estoque e não recebe rascunho: restaurar aquele
+  // formulário poderia levar a pessoa a executar um lançamento sem perceber.
+  const draft = usePersistentDraft({
+    formKey: draftEditKey(DRAFT_FORM_KEYS.PRODUCAO_ORDEM_NOVO, order?.id),
+    enabled: open,
+    value: form,
+    recordUpdatedAt: order?.updated_at,
+  });
+
   useEffect(() => {
     if (!open) return;
-    setForm(order ? { ...blank, ...order } : { ...blank, date: today(), responsible: currentUserName() });
+    // O rascunho entra pelo mesmo reset que já existia, sem competir de ordem
+    // de efeito com o hook.
+    setForm(draft.restoreInto(order ? { ...blank, ...order } : { ...blank, date: today(), responsible: currentUserName() }));
     setError('');
-  }, [open, order]);
+  }, [open, order, draft.restoreInto]);
 
   const set = (k, v) => setForm((x) => ({ ...x, [k]: v }));
 
@@ -53,17 +69,29 @@ export default function ProductionOrderDialog({ open, onClose, order, products, 
       } else {
         await base44.entities.ProductionOrder.create(payload);
       }
+      // Backend confirmou: agora sim o rascunho sai. Se o `await` lançar, ele
+      // continua lá — é a única cópia do planejamento digitado.
+      draft.markSaved();
       onClose();
       await onSaved?.();
     } catch (e) {
+      draft.markFailed();
       setError(e?.message || 'Não foi possível salvar.');
     } finally {
       setSaving(false);
     }
   };
 
+  const requestClose = () => {
+    if (saving) return;
+    const base = order ? { ...blank, ...order } : { ...blank, date: today(), responsible: currentUserName() };
+    if (hasDraftChanged(form, base) && window.confirm(DRAFT_CANCEL_CONFIRM)) draft.discard();
+    else draft.keep();
+    onClose();
+  };
+
   return (
-    <Dialog open={open} onOpenChange={(v) => !v && onClose()}>
+    <Dialog open={open} onOpenChange={(v) => !v && requestClose()}>
       <DialogContent>
         <DialogHeader>
           <DialogTitle>{order ? 'Editar ordem' : 'Nova ordem de produção'}</DialogTitle>
@@ -113,8 +141,13 @@ export default function ProductionOrderDialog({ open, onClose, order, products, 
           <Input value={form.observation} onChange={(e) => set('observation', e.target.value)} />
         </Field>
         {error && <p className="text-sm text-destructive">{error}</p>}
+        <DraftNotice
+          status={draft.status}
+          message={draft.message}
+          onDiscard={draft.discard}
+          onDismiss={draft.dismissNotice} />
         <DialogFooter>
-          <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+          <Button variant="outline" onClick={requestClose} disabled={saving}>Cancelar</Button>
           <Button onClick={save} disabled={saving}>{saving ? 'Salvando...' : 'Salvar ordem'}</Button>
         </DialogFooter>
       </DialogContent>
