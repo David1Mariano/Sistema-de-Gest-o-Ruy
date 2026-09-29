@@ -3,6 +3,8 @@ import { Eye, History as HistoryIcon, Filter, Paperclip, X } from 'lucide-react'
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
+import CategoryDigest from '@/components/financeiro/CategoryDigest';
+import { findCategoryIdByKey } from '@/lib/expenseCategories';
 import {
   EXPENSE_ORIGIN_LABELS, EXPENSE_AUDIT_LABELS, EXPENSE_PERIOD_PRESETS,
   buildHistoryRows, expenseCategoryLabel, expenseMethodLabel, expenseStatusLabel,
@@ -123,11 +125,18 @@ export default function DailyExpenseHistory({
   const [origin, setOrigin] = useState('');
   const [event, setEvent] = useState('');
   const [selected, setSelected] = useState(null);
+  const [categoriaDigest, setCategoriaDigest] = useState('');
+  const [dia, setDia] = useState('');
 
   const allRows = useMemo(() => buildHistoryRows(expenses, auditRecords), [expenses, auditRecords]);
+  // Um dia específico SOBREPOE o preset: escolher 29/09 restringe o histórico
+  // inteiro a esse dia, reaproveitando o mesmo `inRange` que os presets usam —
+  // não existe cálculo paralelo para "dia".
   const period = useMemo(
-    () => resolveExpensePeriod(preset, { start: customStart, end: customEnd }),
-    [preset, customStart, customEnd],
+    () => (dia
+      ? { start: dia, end: dia }
+      : resolveExpensePeriod(preset, { start: customStart, end: customEnd })),
+    [dia, preset, customStart, customEnd],
   );
   // Categorias manuais entram junto: usamos TODAS as cadastradas, não só as ativas.
   const categoryOptions = useMemo(() => historyCategoryOptions(categories), [categories]);
@@ -143,18 +152,43 @@ export default function DailyExpenseHistory({
       .sort((a, b) => a.localeCompare(b, 'pt-BR')),
     [expenses],
   );
+  // O card NÃO tem lista própria: ele escreve no filtro de categoria que já
+  // existe na tela. A lista abaixo reage sozinha, sem estado duplicado.
   const visible = useMemo(() => sortHistoryRows(filterHistoryRows(allRows, {
     search, start: period.start, end: period.end, categoryId, beneficiary,
     status, proof, origin, event,
   })), [allRows, search, period.start, period.end, categoryId, beneficiary, status, proof, origin, event]);
 
+  // Resumo: a lista visível, mas SEM o filtro de categoria. Se o card aplicasse
+  // o filtro antes de resumir, o total cairia para o próprio card e o usuário
+  // perderia a comparação entre categorias.
+  const resumoRows = useMemo(() => {
+    if (!categoriaDigest) return visible;
+    // Só período/busca/demais filtros valem; a categoria sai de propósito.
+    return sortHistoryRows(filterHistoryRows(allRows, {
+      search, start: period.start, end: period.end, beneficiary,
+      status, proof, origin, event,
+    }));
+  }, [visible, allRows, categoriaDigest, search, period.start, period.end, beneficiary, status, proof, origin, event]);
+
+  // A tabela recebe os GASTOS (não as rows), que é o que summarizeByCategory
+  // consome. `visible` é lista de {expense, events}.
+  const resumoExpenses = useMemo(
+    () => resumoRows.map((row) => row.expense).filter(Boolean),
+    [resumoRows],
+  );
+
+  const rotuloPeriodo = dia
+    ? formatExpenseDate(dia)
+    : (period.start && period.end ? `${formatExpenseDate(period.start)} a ${formatExpenseDate(period.end)}` : 'todos os períodos');
+
   const limpar = () => {
     setSearch(''); setCategoryId(''); setBeneficiary(''); setStatus('');
     setProof(''); setOrigin(''); setEvent(''); setPreset('todos');
-    setCustomStart(''); setCustomEnd('');
+    setCustomStart(''); setCustomEnd(''); setCategoriaDigest(''); setDia('');
   };
   const temFiltro = Boolean(
-    search || categoryId || beneficiary || status || proof || origin || event || customStart || customEnd,
+    search || categoryId || beneficiary || status || proof || origin || event || customStart || customEnd || dia,
   );
 
   return (
@@ -260,6 +294,32 @@ export default function DailyExpenseHistory({
         </p>
       </div>
 
+        <CategoryDigest
+          rows={resumoExpenses}
+          periodLabel={rotuloPeriodo}
+          selectedKey={categoriaDigest}
+          onPick={(chave) => {
+            setCategoriaDigest(chave);
+            // Reaproveita o filtro REAL da tela: nada de lista paralela.
+            setCategoryId(findCategoryIdByKey(allRows, chave));
+          }}
+        />
+
+        {dia && (
+          <div className="flex flex-wrap items-center gap-2 rounded-lg border border-slate-200 bg-white px-3 py-2">
+            <span className="text-sm text-slate-600">
+              Dia selecionado: <b className="text-slate-900">{formatExpenseDate(dia)}</b>
+            </span>
+            <button
+              type="button"
+              onClick={() => setDia('')}
+              className="inline-flex items-center gap-1 rounded-md border border-slate-300 px-2 py-0.5 text-xs text-slate-600 hover:bg-slate-100"
+            >
+              <X className="w-3 h-3" /> Ver todos os dias
+            </button>
+          </div>
+        )}
+
       <div className="rounded-lg border border-slate-200 bg-white overflow-hidden">
         <div className="overflow-x-auto">
           <table className="w-full text-sm min-w-[1050px]">
@@ -286,7 +346,19 @@ export default function DailyExpenseHistory({
                   : '—';
                 return (
                   <tr key={row.id} className="hover:bg-slate-50">
-                    <td className="px-3 py-2.5 whitespace-nowrap">{formatExpenseDate(e.date)}</td>
+                    <td className="px-3 py-2.5 whitespace-nowrap">
+                      <button
+                        type="button"
+                        onClick={() => setDia(dia === e.date ? '' : e.date)}
+                        aria-pressed={dia === e.date}
+                        title="Filtrar o histórico por este dia"
+                        className={`underline decoration-dotted underline-offset-2 ${
+                          dia === e.date ? 'font-semibold text-slate-900' : 'text-slate-700 hover:text-slate-900'
+                        }`}
+                      >
+                        {formatExpenseDate(e.date)}
+                      </button>
+                    </td>
                     <td className="px-3 py-2.5 whitespace-nowrap text-slate-500 text-xs">{DATA_HORA(e.updated_date)}</td>
                     <td className="px-3 py-2.5 font-medium">{e.description || '—'}</td>
                     <td className="px-3 py-2.5">
@@ -329,4 +401,3 @@ export default function DailyExpenseHistory({
     </section>
   );
 }
-
