@@ -323,3 +323,37 @@ test('IC7 — nenhum "Carregando gastos..." novo durante o refresh de categoria'
   assert.doesNotMatch(linhaLista, /refreshing/, 'refreshing NÃO controla o texto de carregamento da lista');
   assert.match(painel, /\{refreshing &&/, 'refreshing vira indicador discreto, não tela de espera');
 });
+
+test('IC8 — CategoryDigest: todo setter chamado existe de fato', async () => {
+  // Bug real que existia na main: o botão "Fechar detalhamento" chamava
+  // `setAberto(null)`, que nunca foi declarado. Clicar quebrava com
+  // ReferenceError. Um teste que só casa string não pega isso; o que pega é
+  // cruzar todo `setX(` chamado com os setters realmente declarados.
+  const codigo = await ler('src/components/financeiro/CategoryDigest.jsx');
+
+  // 1. Setters declarados: o segundo elemento de cada destructuring de useState.
+  const declarados = new Set();
+  for (const m of codigo.matchAll(/const\s*\[\s*([A-Za-z_$][\w$]*)\s*,\s*([A-Za-z_$][\w$]*)\s*\]\s*=\s*useState\(/g)) {
+    declarados.add(m[2]);
+  }
+  assert.equal(declarados.size, 1, 'o componente tem um estado (grupoAberto)');
+  assert.equal(declarados.has('setGrupoAberto'), true, 'o setter declarado é setGrupoAberto');
+
+  // 2. Todo `setAlgo(` invocado precisa estar declarado.
+  const chamados = new Set([...codigo.matchAll(/\bset([A-Z][\w$]*)\s*\(/g)].map((m) => `set${m[1]}`));
+  const naoDeclarados = [...chamados].filter((s) => !declarados.has(s));
+  assert.deepEqual(naoDeclarados, [], `chamar setter inexistente quebra em runtime com ReferenceError: ${naoDeclarados.join(', ')}`);
+
+  // 3. specifically: `setAberto` não pode reaparecer.
+  assert.doesNotMatch(codigo, /\bsetAberto\b/, 'setAberto nunca foi declarado neste arquivo');
+
+  // 4. O "Fechar detalhamento" usa o setter real.
+  const linhaBotao = codigo.split('\n').find((l) => l.includes('setGrupoAberto(null)}') && l.includes('onClick'));
+  assert.ok(linhaBotao, 'o botão de fechar detalhamento chama setGrupoAberto(null)');
+  assert.equal(linhaBotao.includes('Fechar detalhamento') || codigo.includes('Fechar detalhamento'), true, 'o rótulo do botão existe');
+
+  // 5. Todos os pontos que fecham o grupo usam o mesmo setter (toggle,
+  //    limpar filtro e fechar detalhamento).
+  assert.equal((codigo.match(/setGrupoAberto\(null\)/g) || []).length, 2, 'toggle/limpar e fechar detalhamento usam o mesmo setter');
+  assert.match(codigo, /setGrupoAberto\(ativo \? null : grupo\)/, 'o toggle de abrir/fechar também usa o mesmo setter');
+});
