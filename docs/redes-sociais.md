@@ -761,12 +761,106 @@ requisição.
 
 #### Migration: revisável e NÃO aplicada
 
-`scripts/proposed-social-account-access.sql` cria **apenas** a tabela de acesso —
-não recria nada do schema social existente. Termina em `rollback`, não tem
-`insert`, não tem `grant` e não tem `create policy`: a tabela nasce **vazia**,
-e aplicar o arquivo não vincularia ninguém. RLS `enable` + `force` + `revoke all`
-para `public`/`anon`/`authenticated`, seguindo o padrão do resto do domínio
-social. `scripts/test-social-account-access.mjs` trava essas garantias.
+`scripts/proposed-social-account-access.sql` cria **apenas** as tabelas de
+acesso e auditoria — não recria nada do schema social existente. Termina em
+`rollback`, não tem `insert`, não tem `grant` e não tem `create policy`: as
+tabelas nascem **vazias**, e aplicar o arquivo não vincularia ninguém. RLS
+`enable` + `force` + `revoke all` para `public`/`anon`/`authenticated`,
+seguindo o padrão do resto do domínio social.
+
+## Gestão de acessos pela interface (Fase 7)
+
+O objetivo desta fase é **tirar o cadastro de vínculos do SQL manual**. O SQL
+continua necessário **uma vez**, para criar o schema; depois disso, conceder,
+editar, revogar e reativar é operação de tela.
+
+### Onde fica
+
+`Configurações → Redes Sociais`, uma nova aba dentro de
+`src/pages/Configuracoes.jsx` (`SocialAccessAdmin`). Usa os componentes que já
+existem — `Card`, `Dialog`, `Select`, `Checkbox`, `Button`, `Badge`, `Alert` —
+sem palette própria e sem tema paralelo: se o sistema ganhar dark mode, a tela
+acompanha junto.
+
+### O que a tela mostra
+
+Contas como **"Instagram — Ruy Caldo de Cana"**, com status, identificador
+externo **redigido** e quantas pessoas têm acesso. Nenhum UUID cru como
+elemento principal: `auth_user_id` viaja no `value` do `Select`, e o operador
+escolhe **por nome**. Nenhum campo de texto para digitar id.
+
+Ao abrir uma conta, a lista mostra, por pessoa: nome, situação no Auth, badge
+de acesso ativo/revogado e as permissões concedidas. Usuário inativo recebe
+badge próprio e fica desabilitado para nova concessão.
+
+### Hierarquia das permissões, em um lugar só
+
+`src/lib/social/accountAccess.js` é a **fonte única** das regras, consumida
+pela tela **e** pelo backend. `normalizeAccountPermissions()` reproduz as
+constraints do SQL: responder/aprovar/admin implica `can_view`; `can_admin`
+implica `can_reply`; vínculo inativo carrega zero permissões.
+
+A UI **não permite montar** uma combinação que o banco rejeitaria: o
+normalizador completa as permissões decorrentes e a tela mostra
+"Permissões ajustadas". Revogar e reativar exigem confirmação em dois passos.
+
+### Estados distintos, nunca enganosos
+
+| Situação | O que aparece |
+|---|---|
+| schema de acesso não aplicado | **"Configuração de acesso social ainda não foi ativada."** |
+| zero contas cadastradas | "Nenhuma conta cadastrada" — a tela **não cria** contas |
+| conta sem ninguém vinculado | "Ninguém tem acesso a esta conta" |
+| erro de banco | mensagem de erro, nunca lista vazia |
+
+A distinção importa: "tabela não existe" e "ninguém tem acesso" levariam o
+operador a conclusões opostas.
+
+### Operações do backend
+
+`server/social/accountAdmin.mjs` expõe operações **nomeadas**, não CRUD
+genérico: `listAccounts`, `listAccountAccess`, `listCandidates`,
+`grantAccountAccess`, `updateAccountAccess`, `revokeAccountAccess`,
+`reactivateAccountAccess`.
+
+Regras que valem para todas:
+
+- **duplicidade bloqueada** — vínculo existente (ativo ou revogado) é
+  reativado, nunca duplicado;
+- **revogar nunca apaga** — `active=false`, `revoked_at` e permissões zeradas;
+- **editar não reativa** — reativar é ação explícita, separada;
+- **conta precisa existir** antes de qualquer concessão;
+- **resposta malformada é falha**, não "vínculo inexistente" — senão uma
+  concessão seguinte recriaria a linha que existe;
+- **usuário inativo no Auth** não recebe nem recupera acesso.
+
+### Autorização da própria tela
+
+Exige as **duas** coisas: `configure` no `system_role` **e** `can_admin` na
+conta. Esconder o botão no frontend não é autorização — cada operação revalida
+no backend, e um admin sem vínculo `can_admin` é barrado mesmo que descubra o
+id da conta por outro caminho.
+
+### Auditoria
+
+`social_account_access_audit` (na mesma migration, **NÃO aplicada**) registra
+concessão, alteração, revogação e reativação com conta, usuário alvo, operador
+e instante. `details` guarda o antes/depois das permissões, limitado a 4 KB.
+**Nunca** guarda token, senha ou identificador de plataforma. A tabela é
+append-only (trigger rejeita `update`/`delete`) e com RLS no mesmo padrão do
+restante do domínio.
+
+Tabela **própria**, e não linhas em `social_events`: o CHECK de `action` dali é
+fechado para o ciclo de comentários e respostas, e forçar "acesso revogado" ali
+apagaria a distinção entre "comentário recebido" e "acesso revogado".
+
+### Verificação do schema (Fase 7)
+
+`scripts/check-social-access-schema.mjs` é **somente leitura**: 14 verificações
+(tabelas, RLS habilitada e forçada, constraints, índices, ausência de grant
+público, ausência de policy, ausência de duplicidade, revogados sem permissão
+sobrando). Sem connection string, ele imprime o SQL para colar no SQL Editor e
+sai sem tocar em nada. **Nada foi executado contra o banco nesta fase.**
 
 **Como ativar depois, nesta ordem:** (1) aplicar a migration em janela
 administrativa; (2) cadastrar os vínculos conta por conta, revisando cada linha;

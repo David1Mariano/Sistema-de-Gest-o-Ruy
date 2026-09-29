@@ -1,19 +1,29 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Save, Clock, ShieldCheck } from 'lucide-react';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
+import { useUserRole } from '@/lib/useUserRole';
+import SocialAccessAdmin from '@/components/social/SocialAccessAdmin';
+import { createSocialAccessClient } from '@/lib/social/aiClient';
 
 export default function Configuracoes() {
+  const { isAdmin } = useUserRole();
   const [settings, setSettings] = useState(null);
   const [tolerance, setTolerance] = useState(5);
   const [coverage, setCoverage] = useState('{}');
   const [saving, setSaving] = useState(false);
+  // Endpoint da API de acessos. Sem ele, o cliente falha fechado e a tela
+  // mostra erro controlado em vez de fingir que está tudo vazio.
+  const accessClient = useMemo(() => createSocialAccessClient({
+    endpoint: import.meta.env.VITE_SOCIAL_ADMIN_ENDPOINT,
+  }), []);
 
   const load = async () => {
     const list = await base44.entities.SystemSettings.list('-created_date', 10);
@@ -49,9 +59,29 @@ export default function Configuracoes() {
     <div className="space-y-5 max-w-3xl">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
-        <p className="text-sm text-slate-500">Parâmetros administrativos do sistema de jornada</p>
+        <p className="text-sm text-slate-500">Parâmetros administrativos do sistema</p>
       </div>
 
+      {/* A tela de acessos entra como uma SEÇÃO de Configurações, com os mesmos
+          Card/Alert/Badge do resto da tela. Sem palette própria e sem tema
+          paralelo: se o sistema ganhar dark mode, o componente acompanha. */}
+      <Tabs defaultValue="acesso">
+        <TabsList>
+          <TabsTrigger value="acesso">Redes Sociais</TabsTrigger>
+          <TabsTrigger value="jornada">Jornada</TabsTrigger>
+        </TabsList>
+        <TabsContent value="acesso" className="mt-4 space-y-4">
+          <SocialAccessAdmin
+            client={accessClient}
+            canConfigure={isAdmin}
+            canAdmin={isAdmin}
+          />
+          <p className="text-xs text-slate-500">
+            Conceder acesso aqui é a operação do dia a dia. Criar a estrutura de contas e acessos no banco é feito
+            uma única vez pelo administrador do sistema.
+          </p>
+        </TabsContent>
+        <TabsContent value="jornada" className="mt-4 space-y-5">
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base"><Clock className="w-4 h-4 text-amber-500" /> Tolerância de atraso</CardTitle>
@@ -91,6 +121,8 @@ export default function Configuracoes() {
           <Save className="w-4 h-4" /> {saving ? 'Salvando...' : 'Salvar configurações'}
         </Button>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }

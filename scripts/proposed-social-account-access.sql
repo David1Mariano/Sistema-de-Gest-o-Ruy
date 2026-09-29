@@ -124,6 +124,64 @@ revoke all on public.social_account_access from public, anon, authenticated;
 revoke all on function public.social_touch_updated_at() from public, anon, authenticated;
 
 -- ---------------------------------------------------------------------------
+-- REGISTRO DE AUDITORIA DAS OPERAÇÕES DE ACESSO (Fase 7).
+--
+-- A tela de Configurações concede, edita, revoga e reativa. Cada uma dessas
+-- ações precisa deixar rastro: quem fez, em qual conta, sobre quem e quando.
+--
+-- TABELA PRÓPRIA, e não uma linha em `social_events`: `social_events` tem CHECK
+-- de `action` fechado para o ciclo de comentários e respostas
+-- (`comment_received`, `human_approved`, `reply_sent`, ...), e esta fase é
+-- justamente sobre acesso administrativo. Forçar essas ações no CHECK de um
+-- histórico que já tem dono transformaria duas-importantas linhas em uma só —
+-- e apagar a distinção entre "comentário recebido" e "acesso revogado".
+--
+-- `details` guarda o antes/depois das permissões. NÃO guarda token, senha nem
+-- identificador de plataforma: esta tabela é consultável e pode ir para
+-- relatório.
+-- ---------------------------------------------------------------------------
+create table public.social_account_access_audit (
+  id uuid primary key default gen_random_uuid(),
+  account_id uuid not null,
+  provider text not null,
+  action text not null check (action in
+    ('access_granted','access_updated','access_revoked','access_reactivated')),
+  target_user_id uuid not null references auth.users(id),
+  operator_user_id uuid not null references auth.users(id),
+  details jsonb not null default '{}' check (octet_length(details::text) <= 4096),
+  created_at timestamptz not null default now(),
+  foreign key (account_id, provider) references public.social_accounts(id, provider),
+  -- Quem opera é informação obrigatória: sem ela o registro não serve para
+  -- auditoria, e permitir `null` tornaria o buraco silencioso.
+  check (operator_user_id is not null)
+);
+
+-- Consulta típica: "o que aconteceu nesta conta, em ordem".
+create index social_account_access_audit_recent
+  on public.social_account_access_audit (account_id, created_at desc);
+-- "Quem me mudou o acesso?": resposta rápida sem varrer a tabela inteira.
+create index social_account_access_audit_target
+  on public.social_account_access_audit (target_user_id, created_at desc);
+
+-- Histórico é imutável, como `social_events`: corrigir um registro de acesso
+-- seria reescrever a história de quem autorizou o quê.
+create or replace function public.social_reject_access_audit_mutation() returns trigger
+language plpgsql set search_path = public as $$ begin
+  raise exception 'social_account_access_audit e append-only';
+end $$;
+
+create trigger social_account_access_audit_immutable
+  before update or delete on public.social_account_access_audit
+  for each row execute function public.social_reject_access_audit_mutation();
+
+-- Mesmo padrão de RLS do restante do domínio: sem policy, acesso só pelo backend
+-- autenticado, que valida `configure` + `can_admin` a cada operação.
+alter table public.social_account_access_audit enable row level security;
+alter table public.social_account_access_audit force row level security;
+revoke all on public.social_account_access_audit from public, anon, authenticated;
+revoke all on function public.social_reject_access_audit_mutation() from public, anon, authenticated;
+
+-- ---------------------------------------------------------------------------
 -- NENHUM INSERT / NENHUM GRANT.
 --
 -- A tabela nasce VAZIA e inacessível por padrão. O backend só deve ler depois

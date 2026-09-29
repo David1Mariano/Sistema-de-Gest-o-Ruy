@@ -45,34 +45,34 @@ const call = async (base, path, { method = 'GET', body, token = 'token-valido', 
 };
 const withServer = async (server, fn) => { const base = await listen(server); try { return await fn(base); } finally { await new Promise((r) => server.close(r)); } };
 
-// 1-4. AutenticaÃ§Ã£o e permissÃµes.
-test('1. sem autenticaÃ§Ã£o â†’ 401 em health e draft', async () => {
+// 1-4. Autenticação e permissões.
+test('1. sem autenticação �  401 em health e draft', async () => {
   await withServer(backend(), async (base) => {
     assert.equal((await call(base, '/social-ai/health', { token: null })).status, 401);
     assert.equal((await call(base, '/social-ai/draft', { method: 'POST', token: null, body: { commentId: 'c1' } })).status, 401);
-    assert.equal((await call(base, '/social-ai/health', { token: 'token-errado' })).status, 401, 'token invÃ¡lido do Supabase tambÃ©m');
+    assert.equal((await call(base, '/social-ai/health', { token: 'token-errado' })).status, 401, 'token inválido do Supabase também');
   });
 });
-test('2. usuÃ¡rio inativo â†’ bloqueado', async () => {
+test('2. usuário inativo �  bloqueado', async () => {
   const request = supabaseStub({ profile: { id: 'leg-1', status: 'inativo' } });
   await withServer(backend({ request }), async (base) => {
     assert.equal((await call(base, '/social-ai/health')).status, 401);
   });
 });
-test('3. sem permissÃ£o approve_ai â†’ 403 no health', async () => {
+test('3. sem permissão approve_ai �  403 no health', async () => {
   const request = supabaseStub({ user: { id: 'auth-1', app_metadata: { legacy_auth_user_id: 'leg-1', system_role: 'manager' } } });
   await withServer(backend({ request }), async (base) => {
     assert.equal((await call(base, '/social-ai/health')).status, 403);
   });
 });
-test('4. sem permissÃ£o reply â†’ 403 no draft', async () => {
-  // viewer tem `view` mas nÃ£o `reply`: matrix real de socialPermissions.
+test('4. sem permissão reply �  403 no draft', async () => {
+  // viewer tem `view` mas não `reply`: matrix real de socialPermissions.
   const request = supabaseStub({ user: { id: 'auth-1', app_metadata: { legacy_auth_user_id: 'leg-1', system_role: 'viewer' } } });
   await withServer(backend({ request }), async (base) => {
     assert.equal((await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'c1' } })).status, 403);
   });
 });
-test('sem vÃ­nculo legado ou sem system_role â†’ identidade negada', async () => {
+test('sem vínculo legado ou sem system_role �  identidade negada', async () => {
   for (const app_metadata of [{}, { system_role: 'admin' }, { legacy_auth_user_id: 'leg-1' }]) {
     const verify = createSupabaseIdentityVerifier({ url: SUPA, anonKey: 'anon-chave', request: supabaseStub({ user: { id: 'auth-1', app_metadata } }) });
     assert.equal((await verify('Bearer token-valido')).id, null, `deveria negar ${JSON.stringify(app_metadata)}`);
@@ -80,24 +80,24 @@ test('sem vÃ­nculo legado ou sem system_role â†’ identidade negada', asyn
 });
 
 
-// 5-7. loadComment obrigatÃ³rio: inexistente, conta negada e texto forjado.
-test('5. comentÃ¡rio inexistente â†’ 404', async () => {
+// 5-7. loadComment obrigatório: inexistente, conta negada e texto forjado.
+test('5. comentário inexistente �  404', async () => {
   await withServer(backend(), async (base) => {
     assert.equal((await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'nao-existe' } })).status, 404);
   });
 });
-test('6. conta nÃ£o visÃ­vel â†’ 403 (fail-closed do isAccountVisible)', async () => {
+test('6. conta não visível �  403 (fail-closed do isAccountVisible)', async () => {
   // Usuário sem vínculo: o resolver real nega sem inventar permissão.
   const semVinculo = createAccountAccessResolver({ query: async () => [] });
   assert.equal(await semVinculo('leg-1', 'acc-1'), false);
-  const host = backend({ onComment: async () => { const e = new Error('Conta nÃ£o autorizada'); e.code = 'FORBIDDEN'; throw e; } });
+  const host = backend({ onComment: async () => { const e = new Error('Conta não autorizada'); e.code = 'FORBIDDEN'; throw e; } });
   await withServer(host, async (base) => {
     const r = await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'c1' } });
     assert.equal(r.status, 403);
     assert.equal(r.body.message, FALLBACK_MESSAGE);
   });
 });
-test('7. texto do body nÃ£o substitui o texto persistido', async () => {
+test('7. texto do body não substitui o texto persistido', async () => {
   const vistos = [];
   const service = new SocialAIService({ provider: { health: async () => ({ provider: 'ollama', state: 'ready' }), classifyComment: async (c) => { vistos.push(c.text); return { category: 'elogio', confidence: 0.5 }; }, draftReply: async (c) => { vistos.push(c.text); return { reply: 'ok', category: 'elogio', confidence: 0.5 }; } } });
   const host = backend({ service, onComment: async (id) => (id === 'c1' ? { id: 'c1', text: 'TEXTO PERSISTIDO do banco' } : null) });
@@ -107,13 +107,13 @@ test('7. texto do body nÃ£o substitui o texto persistido', async () => {
     assert.deepEqual([...new Set(vistos)], ['TEXTO PERSISTIDO do banco'], 'o backend precisa usar o texto do banco');
   });
 });
-test('sem loadComment nÃ£o hÃ¡ host possÃ­vel', () => {
+test('sem loadComment não há host possível', () => {
   assert.throws(() => requireLoadComment(null), /exige loadComment/);
   assert.equal(typeof requireLoadComment(async () => ({})), 'function');
 });
 
-// 8-9. Health sanitizado e draft vÃ¡lido.
-test('8. health sanitizado: sÃ³ status, provider, host redigido, model, ready', async () => {
+// 8-9. Health sanitizado e draft válido.
+test('8. health sanitizado: só status, provider, host redigido, model, ready', async () => {
   const service = new SocialAIService({ provider: { health: async () => ({ provider: 'ollama', state: 'ready', host: '127.0.0.1:11434', model: 'llama3', base_url: 'http://user:senha@10.0.0.5:11434', headers: { authorization: 'Bearer segredo' }, raw: 'conexao recusada' }) } });
   await withServer(backend({ service }), async (base) => {
     const r = await call(base, '/social-ai/health');
@@ -123,7 +123,7 @@ test('8. health sanitizado: sÃ³ status, provider, host redigido, model, ready'
     for (const segredo of ['senha', 'segredo', 'Bearer', '10.0.0.5', 'conexao recusada']) assert.ok(!s.includes(segredo), `health vazou ${segredo}`);
   });
 });
-test('9. draft vÃ¡lido devolve sÃ³ a estrutura segura', async () => {
+test('9. draft válido devolve só a estrutura segura', async () => {
   await withServer(backend(), async (base) => {
     const r = await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'c1' } });
     assert.equal(r.status, 200);
@@ -135,7 +135,7 @@ test('9. draft vÃ¡lido devolve sÃ³ a estrutura segura', async () => {
 });
 
 // 10-12. Timeout, offline e modelo ausente viram erro controlado.
-test('10. timeout â†’ resposta controlada, sem conexÃ£o pendurada', async () => {
+test('10. timeout �  resposta controlada, sem conexão pendurada', async () => {
   const service = new SocialAIService({ provider: { health: async () => ({ provider: 'ollama', state: 'ready' }), draftReply: async () => { throw Object.assign(new Error('timeout'), { code: 'AI_TIMEOUT' }); }, classifyComment: async () => ({ category: 'elogio', confidence: 0.5 }) } });
   await withServer(backend({ service }), async (base) => {
     const r = await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'c1' } });

@@ -1,3 +1,47 @@
+// Cliente da tela de gestão de acessos. Fala com o backend pelo mesmo padrão do
+// `createSocialAIClient`: sem endpoint configurado, falha fechado — o que é o
+// estado real enquanto o handler de administração não está hospedado.
+const FALLBACK = 'Não foi possível concluir a operação.';
+
+export function createSocialAccessClient({ endpoint, getToken, fetchImpl } = {}) {
+  const call = fetchImpl || (typeof fetch === 'function' ? fetch.bind(globalThis) : null);
+  const base = typeof endpoint === 'string' ? endpoint.replace(/\/+$/, '') : null;
+
+  async function request(path, { method = 'GET', body } = {}) {
+    if (!base || !call) { const e = new Error(FALLBACK); e.code = 'not_configured'; throw e; }
+    const token = await getToken?.();
+    const response = await call(`${base}${path}`, {
+      method,
+      headers: {
+        accept: 'application/json',
+        ...(token ? { authorization: `Bearer ${token}` } : {}),
+        ...(body ? { 'content-type': 'application/json' } : {}),
+      },
+      ...(body ? { body: JSON.stringify(body) } : {}),
+    });
+    let payload = null;
+    try { payload = await response.json(); } catch { payload = null; }
+    if (!response.ok || !payload) {
+      const e = new Error(payload?.message || FALLBACK);
+      // O código viaja para a tela diferenciar "schema pendente" de "negado".
+      e.code = payload?.error || `http_${response.status}`;
+      throw e;
+    }
+    return payload;
+  }
+
+  return Object.freeze({
+    listAccounts: () => request('/social-accounts'),
+    listAccountAccess: (accountId) => request(`/social-accounts/${encodeURIComponent(accountId)}/access`),
+    listCandidates: (accountId) => request(`/social-accounts/${encodeURIComponent(accountId)}/candidates`),
+    grant: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'grant', ...input } }),
+    saveAccess: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'update', ...input } }),
+    revoke: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'revoke', ...input } }),
+    reactivate: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'reactivate', ...input } }),
+  });
+}
+
+// ===========================================================================
 // Cliente da IA para a CENTRAL. Fala SO com o backend que monta
 // `createSocialAIHandler` — nunca com Ollama/Gemini/Groq direto, e nunca carrega
 // URL de provider, header ou segredo no bundle do navegador.
