@@ -215,7 +215,67 @@ O serviço é uma fundação não implantada. OAuth, repositório, transporte HT
 AI provider, retenção, revisão oficial pendente da Meta e validação Postgres são gates
 para outra fase. Não habilitar envio simplesmente removendo o bloqueio de fase um.
 
-## Sincronização main → agente-redes-sociais (29/09/2026)
+## Repository transacional (fase 2, 29/09/2026)
+
+`server/social/repository.mjs` substitui o double em memória por uma
+implementação sobre **Postgres/Supabase**. Continua na mesma camada: `SocialProvider`,
+`ManyChatProvider`, `SocialAIService`, `manychatIngress`, `outbox`, `channel` e
+`transport` **não mudaram**. Nenhuma arquitetura paralela foi criada.
+
+### Por que SQL dedicado
+
+A base social já é SQL (`proposed-social-schema.sql` + `proposed-social-manychat.sql`),
+com constraints e RLS. O `records` genérico do projeto **não** oferece unicidade nem
+transação, então o repository fala SQL direto — e só pode rodar com service role
+**no backend**.
+
+### Contrato
+
+`createSocialRepository({ withClient, isAccountVisible, now })`:
+
+- `transaction(work)` → entrega um `tx` com `claimReceipt`, `upsertContact`,
+  `upsertRecord('comment'|'message')`, `appendEvent`, `recordForUpdate`,
+  `canAccessAccount`, `insertOutboxOnce`;
+- leituras: `commentFor`, `snapshotFor`, `read`, `readMany`;
+- `appendDraftAndEvent` (rascunho + evento na mesma transação);
+- `recordFailure` (auditoria de falha em transação **própria**);
+- `resolveBinding`, `integrationStatus`.
+
+### Atomicidade
+
+`BEGIN`/`COMMIT`/`ROLLBACK` no **mesmo** client; `release()` devolve o pool
+inclusive no caminho do erro. Se qualquer etapa crítica falhar, o rollback
+impede registro parcial. Nada é uma sequência de escritas independentes.
+
+### Idempotência no banco (nunca SELECT-then-INSERT)
+
+| Domínio | Garantia |
+|---|---|
+| Evento de transporte | `insert ... on conflict (receipt_key) do nothing returning` |
+| Comentário | `unique (provider, account_id, external_comment_id)` |
+| Mensagem | `unique (account_id, channel, transport, external_message_id)` |
+| Aprovação/outbox | `unique (idempotency_key)` + comparação de `fingerprint` |
+
+Mesmo ID com corpo diferente é **conflito**, nunca sobrescrita. E reentrega
+**não** reseta `status`: um comentário já respondido não volta para `pending`.
+
+### Autorização
+
+`isAccountVisible(userId, accountId)` é obrigatório. Sem ele configurado, o
+repository **falha fechado** (`FORBIDDEN`) em vez de assumir permissão — não há
+autorização fraca. `recordForUpdate` usa `SELECT ... FOR UPDATE`, então versão e
+acesso são conferidos dentro da mesma transação (sem TOCTOU).
+
+### Não implementado nesta fase
+
+Sem PGlite no projeto, os testes usam um **executor semântico** que modela unique,
+`on conflict`, snapshot/rollback de verdade e `for update`. Isso prova a lógica
+transacional e o desenho das constraints — **não substitui um Postgres real**,
+que segue pré-requisito de deploy. Nenhuma dependência nova foi adicionada.
+
+O servidor de produção **não** foi transformado em host de integrações. O
+handler de ingress continua montável e não montado.
+
 
 As seções anteriores registram a primeira entrega sobre 8c5f426. Nesta sincronização,
 a main encontrada foi exatamente `cce30ecaf2370aa505d13eab76c1d65463e3a271`.
