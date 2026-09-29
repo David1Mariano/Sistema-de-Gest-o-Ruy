@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, UserCircle, Users, Briefcase, Clock, CalendarDays,
   FileX2, Wallet, ShoppingBag, AlertTriangle, BadgeDollarSign,
-  Landmark, ShoppingCart, Boxes, FileBarChart, Settings, Factory, Gauge, ShieldCheck,
+  Landmark, ShoppingCart, Boxes, FileBarChart, Settings, Factory, Gauge, ShieldCheck, MessageCircle,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -10,6 +10,7 @@ export const NAV_GROUPS = [
     items: [
       { key: 'inicio', label: 'Dashboard', path: '/', icon: LayoutDashboard, exact: true },
       { key: 'direcao', label: 'Direção', path: '/direcao', icon: Gauge, roles: ['admin', 'super_admin'] },
+      { key: 'redes-sociais', label: 'Redes Sociais', path: '/redes-sociais', icon: MessageCircle, roles: ['admin', 'super_admin', 'manager', 'gerente'] },
     ],
   },
   {
