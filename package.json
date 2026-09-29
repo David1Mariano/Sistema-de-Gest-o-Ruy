@@ -9,6 +9,7 @@
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
     "test:stock": "node scripts/test-stock.mjs",
+    "test:financeiro-estabilidade": "node scripts/test-financeiro-estabilidade.mjs",
     "check:stock": "node scripts/check-stock-integrity.mjs",
     "test:freelancer": "node scripts/test-financeiro-freelancer.mjs",
     "test:resumo-categorias": "node scripts/test-financeiro-resumo-categorias.mjs",

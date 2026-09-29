@@ -37,7 +37,13 @@ const METHOD_LABELS = { dinheiro:'Dinheiro', pix:'Pix', cartao_debito:'Cartão d
 export default function Financeiro() {
   const { isAdmin } = useUserRole();
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'visao');
-  const [loading, setLoading] = useState(true);
+  // Carga inicial e refresh são estados SEPARADOS de propósito. Antes, todo
+  // `load()` ligava `loading` e a lista exibia "Carregando gastos..." a cada
+  // save — inclusive ao criar categoria, que recarregava tudo. Era isso que
+  // produzia o piscar "lista → loading → lista".
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [failure, setFailure] = useState('');
   const [expenseOpenSignal, setExpenseOpenSignal] = useState(0);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentEditing, setPaymentEditing] = useState(null);
@@ -49,33 +55,108 @@ export default function Financeiro() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [consumptionOpen, setConsumptionOpen] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements, suppliers] = await Promise.all([
-        base44.entities.FinancialExpense.list('-date', 1000).catch(() => []),
-        base44.entities.EmployeePayment.list('-payment_date', 1000).catch(() => []),
-        base44.entities.Employee.list('name', 500).catch(() => []),
-        base44.entities.Vale.list('-date', 1000).catch(() => []),
-        base44.entities.Consumption.list('-date', 1000).catch(() => []),
-        base44.entities.ExpenseCategory.list('name', 300).catch(() => []),
-        base44.entities.CostCenter.list('name', 300).catch(() => []),
-        base44.entities.AccountsPayable.list('due_date', 1000).catch(() => []),
-        base44.entities.FinancialAccount.list('name', 200).catch(() => []),
-        base44.entities.RecurringExpense.list('next_due_date', 300).catch(() => []),
-        base44.entities.DailyFinancialClose.list('-date', 300).catch(() => []),
-        base44.entities.FechamentoCaixa.list('-date', 1000).catch(() => []),
-        base44.entities.Sangria.list('-date', 1000).catch(() => []),
-        isAdmin ? base44.entities.CashMovement.list('-date', 1500).catch(() => []) : Promise.resolve([]),
-        base44.entities.Supplier.list('name', 500).catch(() => []),
-      ]);
-      setData({ expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements, suppliers });
-    } finally { setLoading(false); }
+  // Toda carga recebe um número. Só a mais recente pode escrever: sem isso, uma
+  // requisição antiga que resolve por último sobrescreve dados mais novos.
+  const seqRef = useRef(0);
+  // Espelho do estado para decidir "primeira carga" e montar o próximo objeto
+  // sem depender de closure defasada.
+  const carregouRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  // FALHA NÃO pode virar lista vazia. O `catch(() => [])` antigo transformava
+  // uma queda de rede em "Nenhum gasto encontrado", apagando da tela gastos que
+  // já estavam corretos e sem deixar rastro do que aconteceu.
+  const safe = async fn => {
+    try { return { ok: true, value: await fn() }; }
+    catch { return { ok: false, value: null }; }
   };
+
+  const apply = (parcial, seq) => {
+    // Chegou uma carga antiga: ela não tem mais nada a dizer.
+    if (seq !== seqRef.current) return false;
+    setData(atual => ({ ...atual, ...parcial }));
+    return true;
+  };
+
+  const load = async () => {
+    const seq = ++seqRef.current;
+    if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
+    const fontes = [
+      ['expenses', base44.entities.FinancialExpense.list('-date', 1000)],
+      ['payments', base44.entities.EmployeePayment.list('-payment_date', 1000)],
+      ['employees', base44.entities.Employee.list('name', 500)],
+      ['vales', base44.entities.Vale.list('-date', 1000)],
+      ['consumptions', base44.entities.Consumption.list('-date', 1000)],
+      ['categories', base44.entities.ExpenseCategory.list('name', 300)],
+      ['centers', base44.entities.CostCenter.list('name', 300)],
+      ['payables', base44.entities.AccountsPayable.list('due_date', 1000)],
+      ['accounts', base44.entities.FinancialAccount.list('name', 200)],
+      ['recurrings', base44.entities.RecurringExpense.list('next_due_date', 300)],
+      ['closes', base44.entities.DailyFinancialClose.list('-date', 300)],
+      ['fechamentosCaixa', base44.entities.FechamentoCaixa.list('-date', 1000)],
+      ['sangrias', base44.entities.Sangria.list('-date', 1000)],
+      ['cashMovements', isAdmin ? base44.entities.CashMovement.list('-date', 1500) : Promise.resolve([])],
+      ['suppliers', base44.entities.Supplier.list('name', 500)],
+    ];
+    try {
+      const resultados = await Promise.all(fontes.map(([, p]) => safe(p)));
+      if (seq !== seqRef.current) return;
+      const parcial = {}; const falhas = [];
+      resultados.forEach((r, i) => { if (r.ok) parcial[fontes[i][0]] = r.value; else falhas.push(fontes[i][0]); });
+      apply(parcial, seq);
+      // Falha parcial mantém o último valor bom daquela coleção e avisa, em vez
+      // de esvaziar a tela.
+      setFailure(falhas.length ? `Não foi possível atualizar: ${falhas.join(', ')}. Exibindo os últimos dados carregados.` : '');
+      carregouRef.current = true;
+    } catch (e) {
+      if (seq === seqRef.current) setFailure('Não foi possível atualizar o Financeiro. Exibindo os últimos dados carregados.');
+    } finally {
+      if (seq === seqRef.current) { setInitialLoading(false); setRefreshing(false); }
+    }
+  };
+
+  // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
+  // pagamentos, colaboradores, sangrias e mais 11 entidades.
+  const reloadExpenses = async () => {
+    const seq = ++seqRef.current;
+    setRefreshing(true);
+    const r = await safe(base44.entities.FinancialExpense.list('-date', 1000));
+    // Na falha, `value` é null: aplicar assim TROCCARIA a lista boa por null e
+    // quebraria a tabela inteira. O último estado válido é mantido.
+    if (!apply({ expenses: r.ok ? r.value : dataRef.current.expenses }, seq)) return;
+    setFailure(r.ok ? '' : 'Não foi possível atualizar os gastos. Exibindo os últimos dados carregados.');
+    if (seq === seqRef.current) setRefreshing(false);
+  };
+
+  // Criar categoria é operação de cadastro, não de gasto: recarrega só as
+  // categorias e os gastos que dependem delas.
+  const reloadCategories = async () => {
+    const seq = ++seqRef.current;
+    setRefreshing(true);
+    const [cats, expenses] = await Promise.all([
+      safe(base44.entities.ExpenseCategory.list('name', 300)),
+      safe(base44.entities.FinancialExpense.list('-date', 1000)),
+    ]);
+    if (!apply({ categories: cats.value ?? dataRef.current.categories, expenses: expenses.value ?? dataRef.current.expenses }, seq)) return;
+    setFailure(cats.ok && expenses.ok ? '' : 'Não foi possível atualizar as categorias. Exibindo os últimos dados carregados.');
+    // O indicador é da OPERAÇÃO mais recente: se esta for a última, ela é quem
+    // desliga. Sem isso, uma carga de categorias superada deixava o "Atualizando"
+    // preso na tela para sempre.
+    if (seq === seqRef.current) setRefreshing(false);
+  };
+
   useEffect(() => { load(); }, [isAdmin]);
   useEffect(() => {
     if (!isAdmin) return undefined;
-    const unsubscribe = base44.entities.CashMovement.subscribe(() => load());
+    // A subscription de caixa não pode reconsultar as 15 entidades: só o que a
+    // tela de caixa realmente usa.
+    const unsubscribe = base44.entities.CashMovement.subscribe(async () => {
+      const seq = ++seqRef.current;
+      const r = await safe(base44.entities.CashMovement.list('-date', 1500));
+      if (!r.ok) return;
+      apply({ cashMovements: r.value }, seq);
+    });
     return unsubscribe;
   }, [isAdmin]);
 
@@ -135,8 +216,8 @@ export default function Financeiro() {
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={loading} data={data} onSaved={load} openSignal={expenseOpenSignal} />}
-    {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={loading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={loading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
     {tab==='fechamentocaixa' && <FechamentoCaixaPanel records={data.fechamentosCaixa} onSaved={load}/>} 
