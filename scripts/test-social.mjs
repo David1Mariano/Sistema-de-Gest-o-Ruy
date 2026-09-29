@@ -84,10 +84,13 @@ test('métricas não somam plataformas nem fabricam zeros', () => {
 });
 test('providers desconectados; TikTok nunca ganha comentários por inferência', async () => {
   for (const provider of Object.values(providers)) {
-    assert.equal(provider.status().connected, false);
-    await assert.rejects(provider.connect(), { code: 'NOT_CONFIGURED' });
-    await assert.rejects(provider.listPosts(), { code: 'NOT_CONFIGURED' });
-    await assert.rejects(provider.refresh(), { code: 'NOT_CONFIGURED' });
+    assert.equal(provider.status().connected, false, `${provider.name} começa desconectado`);
+    // A expectativa acompanha a CAPACIDADE declarada: operação suportada e
+    // desconectada é NOT_CONFIGURED; fora do escopo do canal é UNSUPPORTED.
+    for (const op of ['connect', 'listComments', 'replyComment', 'listPosts', 'getInsights', 'refresh']) {
+      const esperado = provider.capabilities[op] ? 'NOT_CONFIGURED' : 'UNSUPPORTED';
+      await assert.rejects(() => provider[op](), { code: esperado }, `${provider.name}.${op}`);
+    }
   }
   await assert.rejects(providers.tiktok.listComments(), { code: 'UNSUPPORTED' });
   await assert.rejects(providers.tiktok.replyComment(), { code: 'UNSUPPORTED' });

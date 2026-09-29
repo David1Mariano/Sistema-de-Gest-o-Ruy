@@ -50,7 +50,9 @@ function repo() {
 const handler = repository => createManyChatEventsHandler({ secrets: [secret], binding, repository, allowRequest: async () => true });
 test('ManyChatProvider extends SocialProvider without replacing channel providers', () => {
   assert.ok(transports.manychat instanceof SocialProvider);
-  assert.deepEqual(Object.keys(providers), ['instagram', 'facebook', 'tiktok']);
+  // `whatsapp` entra como provider DIRETO de canal: a nova direção torna o
+  // ManyChat opcional, então canal não pode depender dele.
+  assert.deepEqual(Object.keys(providers), ['instagram', 'facebook', 'whatsapp', 'tiktok']);
   assert.equal(transports.manychat.status().connected, false);
 });
 test('missing key: health not configured, no HTTP', async () => {

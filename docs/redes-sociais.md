@@ -383,7 +383,107 @@ assuntos sensíveis human-only. Não houve OAuth, conexão real, IA paga, envio,
 chamada de produção, Edge Function ou aplicação SQL. Persistem as limitações
 da fundação descritas acima e a ausência de validação visual em navegador.
 
-## ManyChat (transporte de integração)
+
+## IA local gratuita (Ollama) — provider principal
+
+> Fase 3, 29/09/2026. Prioridade mudou: a IA passa a ser **local, gratuita e
+> opcional**, via Ollama. O ManyChat continua existindo, mas virou **integração
+> opcional** (ver seção seguinte).
+
+### `SocialAIService` é o contrato
+
+`server/social/ai.mjs` é a única porta de entrada da IA. A UI e o restante do
+domínio **não sabem** se é Ollama, Gemini ou Groq. Trocar de provider é
+configuração de ambiente, não edição de componente.
+
+Fluxo completo, sem atalho:
+
+```
+Instagram / Facebook / WhatsApp
+  → provider oficial do canal
+  → backend do Sistema Ruy
+  → repository social
+  → SocialAIService
+  → Ollama local
+  → sugestão de resposta
+  → aprovação humana
+  → outbox
+```
+
+### Configuração (somente backend)
+
+```text
+SOCIAL_AI_PROVIDER=ollama
+OLLAMA_BASE_URL=http://127.0.0.1:11434
+OLLAMA_MODEL=<definido por ambiente>
+OLLAMA_TIMEOUT_MS=15000   (opcional)
+```
+
+Nenhum modelo é fixo no código — `OLLAMA_MODEL` é configuração, senão trocar de
+modelo seria um deploy. **Nenhum `VITE_OLLAMA_*`**: a URL nunca chega ao
+navegador. `assertSafeBaseUrl` valida a origem antes de qualquer fetch, e
+recusa credencial embutida, query e protocolo não-HTTP.
+
+### Health: quatro estados, não um booleano
+
+| Estado | Significado | Ação |
+|---|---|---|
+| `not_configured` | falta URL ou modelo | configurar ambiente |
+| `offline` | a máquina não respondeu | subir o Ollama |
+| `model_unavailable` | respondeu, mas o modelo não foi baixado | `ollama pull` |
+| `ready` | tudo verde | pode sugerir |
+
+Um booleão só esconderia a causa. O retorno traz apenas `host` redigido e
+`model` — **nunca** a URL completa, headers ou resposta crua.
+
+### O que a IA faz
+
+- `classifyComment` → categoria + `confidence` + `requiresHuman`, com a
+  resposta validada (JSON inválido, categoria fora da lista ou confiança fora de
+  0..1 são rejeitados com fallback seguro);
+- `draftReply` → texto sugerido, máximo de 2000 caracteres;
+- `moderationCheck` → marca casos sensíveis, **puro e local**, sem depender de
+  a IA estar de pé.
+
+A decisão de exigir humano é da **política**, não do modelo: `requiresHuman` do
+provider é informativo e não libera nada.
+
+### Casos obrigatoriamente humanos
+
+Reclamação, pedido errado, cobrança, pagamento, reembolso, ameaça, jurídico,
+dados pessoais, problema grave, conflito e conteúdo potencialmente ofensivo de
+alto risco. A IA pode classificar e sugerir internamente, mas sempre com
+`requires_human = true`.
+
+### Prompt e contexto centralizados
+
+Tom e instruções vivem em `SOCIAL_AI_POLICY` (`ai.mjs`) — não espalhados por
+arquivos. O contexto de negócio é **allowlist** em `SOCIAL_AI_CONTEXT`, campo a
+campo: `buildContext()` descarta qualquer chave fora da lista, então Financeiro,
+RH, salário, dados pessoais, bancário e credenciais **não chegam ao modelo**.
+
+### Timeout, fallback e segurança
+
+- Timeout configurável via `OLLAMA_TIMEOUT_MS`; estourou vira `AI_TIMEOUT` e a
+  UI segue para resposta manual — nada fica pendente;
+- Ollama offline, lento, sem modelo ou com resposta inválida →
+  **"Não foi possível gerar uma sugestão. Você pode responder manualmente."**;
+- **Nenhum fallback cloud automático.** `aiCloud.mjs` traz `GeminiAIProvider` e
+  `GroqAIProvider` como stubs desligados: sem as chaves explícitas
+  `cloudEnabled()` é `false`, e nenhuma chamada de rede é feita.
+
+### Automação continua OFF
+
+`SOCIAL_AUTOMATION.enabled = false` segue intacto e é **independente** de a IA
+poder sugerir rascunho. São dois eixos:
+
+- **rascunho** — a IA pode gerar texto;
+- **envio** — sempre humano, via outbox.
+
+O provider de IA não tem nenhum método de envio, não muda outbox para `sent` e
+não existe worker.
+
+## ManyChat (transporte de integração) — **OPCIONAL**
 
 > Estado em 29/09/2026. Fase de **recebimento e preparação de outbox**, sem
 > envio. Nenhuma conta real ManyChat foi conectada, nenhum segredo existe no
