@@ -15,7 +15,7 @@
 // ---------------------------------------------------------------------------
 import path from 'node:path';
 import { pathToFileURL } from 'node:url';
-import { createSupabaseIdentityVerifier, createDenyAllAccountAccess } from './aiAuth.mjs';
+import { createSupabaseIdentityVerifier, createAccountAccessResolver, createAccountPermissionResolver } from './aiAuth.mjs';
 import { socialAIFromEnvironment } from './ai.mjs';
 import { createSocialAIHandler } from './aiHandler.mjs';
 import { createSocialAIHost, createRateLimiter, createSafeLogger, parseOrigins } from './aiHost.mjs';
@@ -57,12 +57,24 @@ export function socialAIConfigFromEnvironment(env = process.env) {
  *        leitura de comentario, e o draft falha fechado com 503.
  * @param {Function} o.sink     destino do log seguro
  */
-export function buildSocialAIBackend({ config, service = null, request = fetch, withClient = null, sink = () => {}, now } = {}) {
+export function buildSocialAIBackend({ config, service = null, request = fetch, withClient = null, accountQuery = null, accountStatus = null, sink = () => {}, now } = {}) {
   const verifyIdentity = createSupabaseIdentityVerifier({ url: config.supabaseUrl, anonKey: config.supabaseAnonKey, request, ...(now ? { now } : {}) });
-  // `isAccountVisible` continua DENY-ALL: o schema social ainda nao foi aplicado
-  // e nao ha escopo por conta no app_metadata. Autorizar "admin ve tudo" seria
-  // a autorizacao fake que a fase 3 proibiu.
-  const isAccountVisible = createDenyAllAccountAccess();
+  // Autorização por conta, sobre o modelo REAL `social_account_access`
+  // (`scripts/proposed-social-account-access.sql`, MIGRATION NÃO APLICADA).
+  //
+  // `system_role` NÃO entra aqui: ele diz o que a pessoa faz no sistema, não em
+  // qual conta. Admins de uma filial não operam contas de outra — e é por isso
+  // que não existe atalho "admin vê tudo".
+  //
+  // Sem `accountQuery` (tabela ainda não aplicada, ou cliente Postgres ausente)
+  // a função é o deny-all explícito: devolve `false` para TODO mundo. Nada
+  // autoriza até o responsável cadastrar os vínculos, conta por conta.
+  const isAccountVisible = accountQuery
+    ? createAccountAccessResolver({ query: accountQuery, ...(accountStatus ? { accountStatuses: accountStatus } : {}) })
+    : async () => false;
+  const accountPermission = accountQuery
+    ? createAccountPermissionResolver({ query: accountQuery })
+    : async () => false;
   const repository = withClient ? createSocialRepository({ withClient, isAccountVisible }) : null;
   // O provider (Ollama) sai do AMBIENTE, nunca do corpo da requisicao.
   const ai = service || socialAIFromEnvironment({ OLLAMA_BASE_URL: config.ollamaBaseUrl, OLLAMA_MODEL: config.ollamaModel, OLLAMA_TIMEOUT_MS: String(config.ollamaTimeoutMs), SOCIAL_AI_PROVIDER: config.aiProvider });
@@ -70,14 +82,26 @@ export function buildSocialAIBackend({ config, service = null, request = fetch, 
   const limiter = createRateLimiter({ limit: config.draftLimit, windowMs: config.draftWindowMs, ...(now ? { now } : {}) });
   const log = createSafeLogger(sink, ...(now ? [now] : []));
 
-  // Sem Postgres configurado, nao inventamos leitura de comentario: o draft
-  // devolve 503 em vez de confiar no texto do navegador.
-  const loadComment = async (commentId) => {
+  // `commentId` -> comentario persistido -> `account_id` herdado do registro ->
+  // `isAccountVisible` -> texto persistido. O texto do body NUNCA entra.
+  // Sem Postgres configurado, não inventamos leitura: 503 em vez de confiar no
+  // navegador.
+  const loadComment = async (commentId, userId) => {
     if (!repository) { const e = new Error('COMMENT_STORE_NOT_CONFIGURED'); e.code = 'COMMENT_STORE_NOT_CONFIGURED'; throw e; }
-    return repository.commentFor(commentId);
+    const comment = await repository.commentFor(commentId);
+    if (!comment) return null;
+    // A autorização usa a conta do COMENTÁRIO PERSISTIDO, nunca uma enviada na
+    // requisição: sem isso, bastaria mandar o id de um comentário próprio para
+    // pedir sugestão sobre o texto de outra conta.
+    if (userId && comment.account_id && !await isAccountVisible(userId, comment.account_id)) {
+      const e = new Error('Conta não autorizada');
+      e.code = 'FORBIDDEN';
+      throw e;
+    }
+    return comment;
   };
 
-  const handler = createSocialAIHandler({ service: ai, verifyIdentity, loadComment, allowDraft: (userId) => limiter.check(`user:${userId}`) });
+  const handler = createSocialAIHandler({ service: ai, verifyIdentity, loadComment, allowDraft: (userId) => limiter.check(`user:${userId}`), ...(accountQuery ? { accountPermission } : {}) });
   return createSocialAIHost({ handler, origins: config.origins, log, limit: config.draftLimit, windowMs: config.draftWindowMs, enforceLocal: config.enforceLocal, maxBodyBytes: config.maxBodyBytes });
 
 // Bootstrap do processo. Nao roda ao ser importado nos testes: so quando

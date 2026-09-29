@@ -3,7 +3,7 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
 import { createSocialAIHost, parseOrigins, corsHeaders, createRateLimiter, createSafeLogger, requireLoadComment } from '../server/social/aiHost.mjs';
-import { createSupabaseIdentityVerifier, createDenyAllAccountAccess } from '../server/social/aiAuth.mjs';
+import { createSupabaseIdentityVerifier, createAccountAccessResolver } from '../server/social/aiAuth.mjs';
 import { createSocialAIHandler, FALLBACK_MESSAGE } from '../server/social/aiHandler.mjs';
 import { SocialAIService } from '../server/social/ai.mjs';
 import { socialAIConfigFromEnvironment, buildSocialAIBackend } from '../server/social/aiBackend.mjs';
@@ -87,8 +87,9 @@ test('5. comentÃ¡rio inexistente â†’ 404', async () => {
   });
 });
 test('6. conta nÃ£o visÃ­vel â†’ 403 (fail-closed do isAccountVisible)', async () => {
-  const negar = createDenyAllAccountAccess();
-  await assert.rejects(negar('leg-1', 'acc-1'), { code: 'SCHEMA_SOCIAL_NAO_APLICADO' });
+  // Usuário sem vínculo: o resolver real nega sem inventar permissão.
+  const semVinculo = createAccountAccessResolver({ query: async () => [] });
+  assert.equal(await semVinculo('leg-1', 'acc-1'), false);
   const host = backend({ onComment: async () => { const e = new Error('Conta nÃ£o autorizada'); e.code = 'FORBIDDEN'; throw e; } });
   await withServer(host, async (base) => {
     const r = await call(base, '/social-ai/draft', { method: 'POST', body: { commentId: 'c1' } });

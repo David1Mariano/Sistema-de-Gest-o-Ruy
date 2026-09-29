@@ -684,20 +684,95 @@ Sem `withClient` configurado, `loadComment` lança e a rota responde **503**, e
 não 403 — é misconfiguração do servidor, não falta de permissão do operador, e
 dizer 403 ali mandaria o usuário procurar um problema que não tem.
 
-### `isAccountVisible`: **deny-all explícito**
+### `isAccountVisible`: deny-all → **modelo real** (Fase 6)
 
-Auditei o modelo real. As tabelas `social_accounts`/`social_comments` existem
-**apenas como proposta** (`scripts/proposed-social-schema.sql`) e **não foram
-aplicadas**; e o `app_metadata` do sistema carrega `system_role`,
-`legacy_auth_user_id` e `employee_payment_access` — **nenhum escopo por conta,
-unidade ou loja**.
+A deny-all da Fase 5 existia por um motivo real: as tabelas sociais eram apenas
+proposta e o `app_metadata` não tem escopo por conta. A Fase 6 resolve isso com
+um **vínculo explícito usuário → conta**, sem inventar autorização.
 
-Não há, portanto, informação suficiente para autorizar conta→usuário. Autorizar
-"admin vê tudo" seria exatamente a autorização fake proibida. Mantive o
-`assertAccountAccess` do repository em **fail-closed** e criei
-`createDenyAllAccountAccess()`, que nega com código
-`SCHEMA_SOCIAL_NAO_APLICADO`. **Consequência honesta: o draft real continua
-indisponível até o schema existir** — e isso está registrado aqui, não escondido.
+#### Como uma conta social é representada
+
+Cada canal vira uma linha de `social_accounts` (já proposta, ainda **não
+aplicada**):
+
+| conta real | provider | `account_id` interno | `status` |
+|---|---|---|---|
+| Instagram @ruybolos | `instagram` | UUID | `connected` |
+| Facebook Página Ruy | `facebook` | UUID | `connected` |
+| WhatsApp número X | `whatsapp` | UUID | `disconnected` |
+
+O `account_id` é interno, e é ele que comentários, mensagens, métricas e eventos
+referenciam. O mesmo perfil pode estar em várias contas: Instagram e Facebook da
+mesma marca são contas distintas, com vínculos distintos.
+
+#### Vínculo e permissões
+
+`social_account_access` liga `(account_id, auth_user_id)` com **quatro dimensões
+separadas**, não uma flag genérica:
+
+| dimensão | significa |
+|---|---|
+| `can_view` | ver comentários, mensagens e métricas da conta (**piso**) |
+| `can_reply` | preparar e aprovar resposta |
+| `can_approve_ai` | aprovar sugestão da IA |
+| `can_admin` | configurar a integração |
+
+Um operador de atendimento tem `can_view` + `can_reply` e **não** `can_admin`.
+As dimensões são independentes: responder não arrasta administrar.
+
+`auth_user_id` referencia `auth.users(id)` — não o `legacy_auth_user_id`. O id
+legado é do inventário local (`records`); guardar os dois permitiria trocar o
+vínculo de um usuário pelo de outro. Revogar é `UPDATE` (o vínculo fica no
+histórico para auditoria), não uma segunda linha.
+
+#### Autorização é a INTERSEÇÃO
+
+```text
+permissão funcional (system_role, via socialPermissions)
+   E
+vínculo com a conta (can_view / can_reply / can_approve_ai)
+```
+
+`reply` sem acesso à conta → **403**. Acesso à conta sem `reply` → **403**.
+`system_role` **não** aparece em `isAccountVisible`, e não existe atalho "admin
+vê tudo": admin de uma filial não opera contas de outra. Há teste específico
+para impedir que essa regra reapareça.
+
+#### Fail-closed
+
+`createAccountAccessResolver` nega em **todo** caminho que não seja sucesso
+explícito: sem usuário, sem `accountId`, vínculo ausente, vínculo inativo,
+`can_view` falso, linhas duplicadas, resposta malformada, erro de banco, erro ao
+ler o status da conta. Erro de banco vira `false` — devolver `true` ali
+transformaria uma falha de rede em vazamento entre contas.
+
+#### Status da conta
+
+Com `accountStatuses` injetado, a conta precisa estar `connected`. Uma conta
+`disconnected`/`expired`/`error` não sustenta operação normal, mesmo com
+vínculo válido: o token OAuth já morreu.
+
+#### `loadComment`
+
+`commentId` → comentário persistido → `account_id` **herdado do registro** →
+`isAccountVisible` → `can_reply` → texto persistido → IA. O texto do body é
+ignorado, e a conta verificada é a do comentário, nunca uma enviada na
+requisição.
+
+#### Migration: revisável e NÃO aplicada
+
+`scripts/proposed-social-account-access.sql` cria **apenas** a tabela de acesso —
+não recria nada do schema social existente. Termina em `rollback`, não tem
+`insert`, não tem `grant` e não tem `create policy`: a tabela nasce **vazia**,
+e aplicar o arquivo não vincularia ninguém. RLS `enable` + `force` + `revoke all`
+para `public`/`anon`/`authenticated`, seguindo o padrão do resto do domínio
+social. `scripts/test-social-account-access.mjs` trava essas garantias.
+
+**Como ativar depois, nesta ordem:** (1) aplicar a migration em janela
+administrativa; (2) cadastrar os vínculos conta por conta, revisando cada linha;
+(3) só então injetar `accountQuery`/`accountStatus` em `buildSocialAIBackend`.
+Enquanto o passo 2 não acontecer, o deny-all permanece — agora por decisão de
+cadastro, não por falta de modelo.
 
 ### CORS
 

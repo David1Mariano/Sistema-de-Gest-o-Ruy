@@ -74,7 +74,7 @@ const publicStatus = (code) => ({
 }[code] || [503, 'error']);
 
 
-export function createSocialAIHandler({ service, verifyIdentity, loadComment = null, allowDraft = null }) {
+export function createSocialAIHandler({ service, verifyIdentity, loadComment = null, allowDraft = null, accountPermission = null }) {
   return async request => {
     const url = new URL(request.url);
     const route = url.pathname.replace(/\/+$/, '');
@@ -137,7 +137,7 @@ export function createSocialAIHandler({ service, verifyIdentity, loadComment = n
       if (typeof loadComment === 'function' && payload?.commentId) {
         let stored;
         try {
-          stored = await loadComment(payload.commentId);
+          stored = await loadComment(payload.commentId, identity.id);
         } catch (error) {
           // Store social nao configurado e' MISCONFIGURACAO do servidor (503),
           // nao falta de permissao do usuario (403). Dizer 403 ali faria o
@@ -146,6 +146,13 @@ export function createSocialAIHandler({ service, verifyIdentity, loadComment = n
           return reply(403, { error: 'forbidden' });
         }
         if (!stored) return reply(404, { error: 'not_found' });
+        // A conta vem do COMENTÁRIO PERSISTIDO. Além de `isAccountVisible` (ver
+        // no `loadComment`), exigimos a DIMENSÃO `can_reply` do vínculo: ter
+        // `reply` funcional sem `can_reply` na conta não abre a porta. A
+        // autorização é a interseção das duas, nunca uma ou outra.
+        if (accountPermission && stored.account_id && !await accountPermission(identity.id, stored.account_id, 'can_reply')) {
+          return reply(403, { error: 'forbidden' });
+        }
         comment = { text: String(stored.text || ''), category: stored.category };
       }
 
