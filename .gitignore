@@ -38,3 +38,6 @@ base44/.app.jsonc
 /wf-body.txt
 /wf-payload.json
 /*.ps1
+
+# Artefato gerado pelos checks (regerado a cada execução)
+/scripts/*.out.txt
