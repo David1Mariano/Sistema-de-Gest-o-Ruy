@@ -321,6 +321,10 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
       </p>
     )}
 
+    {/* Falha de refresh é aviso, não tela vazia: fica acima das visões para
+        aparecer também no histórico, e os gastos já carregados continuam. */}
+    {failure && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{failure}</p>}
+
     {view === 'categorias' && <ExpenseCategoryManager
       categories={data.categories}
       onSaved={onCategoriesChanged || onSaved}
@@ -336,8 +340,6 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     />}
 
     {view !== 'historico' && <>
-    {failure && <p role="alert" className="rounded-lg border border-amber-200 bg-amber-50 px-3 py-2 text-sm text-amber-800">{failure}</p>}
-
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
         hint={indicators.todayCount ? `${indicators.todayCount} lançamento(s)` : 'Nenhum lançamento hoje'} />
