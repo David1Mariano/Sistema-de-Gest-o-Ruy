@@ -142,7 +142,9 @@ function SearchAndFilters({
     </div>}
     <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
       <label className="text-xs">Categoria
-        <select className={`${inputCls} mt-1`} value={categoryId} onChange={(event) => setCategoryId(event.target.value)}>
+        {/* `|| ''` é defesa no ponto de consumo: mesmo que algum chamador
+            escrevesse `undefined` no estado, o select continuaria controlado. */}
+        <select className={`${inputCls} mt-1`} value={categoryId || ''} onChange={(event) => setCategoryId(event.target.value)}>
           <option value="">Todas as categorias</option>
           {categories.map((category) => <option key={category.id} value={category.id}>{category.name}</option>)}
         </select>
