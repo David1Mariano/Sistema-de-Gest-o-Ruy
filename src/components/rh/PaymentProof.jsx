@@ -14,4 +14,3 @@ export default function PaymentProof({ payment = {}, label = 'Ver comprovante' }
     />
   );
 }
-

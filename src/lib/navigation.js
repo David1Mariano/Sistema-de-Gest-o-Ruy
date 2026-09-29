@@ -38,6 +38,7 @@ export const NAV_GROUPS = [
   {
     label: 'OPERAÇÃO',
     items: [
+      { key: 'delivery', label: 'Central de Delivery', path: '/delivery', icon: ShoppingBag },
       { key: 'estoque', label: 'Estoque', path: '/estoque', icon: Boxes },
       { key: 'producao', label: 'Produção', path: '/producao', icon: Factory, roles: ['admin', 'super_admin', 'gerente', 'manager', 'producao'] },
     ],
