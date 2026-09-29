@@ -232,7 +232,8 @@
 .dark .bg-sky-100 { background-color: hsl(200 40% 19%); }
 .dark .bg-sky-500 { background-color: hsl(200 70% 48%); }
 .dark .text-sky-600,
-.dark .text-sky-700 { color: hsl(200 80% 75%); }
+.dark .text-sky-700,
+.dark .text-sky-900 { color: hsl(200 80% 75%); }
 .dark .border-sky-200 { border-color: hsl(200 45% 28%); }
 
 .dark .bg-violet-50 { background-color: hsl(270 40% 15%); }
