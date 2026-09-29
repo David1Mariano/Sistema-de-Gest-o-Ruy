@@ -83,7 +83,7 @@ export default function EscalaPadrao({ onGenerate }) {
               {rows.map((r) => (
                 <div key={r.weekday} className="grid grid-cols-12 gap-2 items-center px-3 py-2">
                   <div className="col-span-2 text-sm font-medium text-slate-700">{WEEKDAY_FULL[r.weekday]}</div>
-                  <select className="col-span-2 h-8 rounded-md border border-slate-300 bg-white px-2 text-xs" value={r.day_type} onChange={(e) => setRow(r.weekday, 'day_type', e.target.value)}>
+                  <select className="col-span-2 h-8 rounded-md border border-slate-300 bg-background px-2 text-xs" value={r.day_type} onChange={(e) => setRow(r.weekday, 'day_type', e.target.value)}>
                     {DAY_TYPES.map((t) => <option key={t.value} value={t.value}>{t.label}</option>)}
                   </select>
                   <Input type="time" className="col-span-2 h-8 text-xs" value={r.start_time} onChange={(e) => setRow(r.weekday, 'start_time', e.target.value)} disabled={r.day_type !== 'trabalho' && r.day_type !== 'compensacao'} />

@@ -67,7 +67,7 @@ export default function Ponto() {
             type="date"
             value={date}
             onChange={(e) => setDate(e.target.value)}
-            className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm"
+            className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm"
           />
         </div>
       </div>
@@ -77,15 +77,15 @@ export default function Ponto() {
       {/* Filtros */}
       <div className="flex flex-wrap items-center gap-2 bg-white border border-slate-200 rounded-xl p-3">
         <div className="flex items-center gap-1.5 text-slate-500 text-sm mr-2"><Filter className="w-4 h-4" /> Filtros</div>
-        <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+        <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
           <option value="">Todos os setores</option>
           {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
         </select>
-        <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+        <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
           <option value="">Todas as unidades</option>
           {units.map((u) => <option key={u} value={u}>{u}</option>)}
         </select>
-        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+        <select value={fStatus} onChange={(e) => setFStatus(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
           <option value="">Todos os status</option>
           <option value="presente">Presente</option>
           <option value="atrasado">Atrasado</option>

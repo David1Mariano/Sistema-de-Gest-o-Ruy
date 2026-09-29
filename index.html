@@ -5,6 +5,22 @@
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
     <link rel="manifest" href="/manifest.json" />
     <title>Gestão Ruy</title>
+    <!--
+      Tema aplicado ANTES da primeira pintura. Se o React só decidisse o tema no
+      primeiro render, o navegador já teria desenhado o fundo claro e o usuário
+      veria um clarão branco antes do dark entrar. Este script roda de forma
+      síncrona, no <head>, e por isso não existe quadro branco intermediário.
+    -->
+    <script>
+      (function () {
+        try {
+          var saved = localStorage.getItem('ruy-theme');
+          // Só 'dark' liga o dark. Qualquer outra coisa — ausente, lixo, valor
+          // de outra versão — fica no claro, que é o padrão do sistema.
+          if (saved === 'dark') document.documentElement.classList.add('dark');
+        } catch (e) { /* localStorage bloqueado: segue no claro, sem quebrar */ }
+      })();
+    </script>
   </head>
   <body>
     <div id="root"></div>

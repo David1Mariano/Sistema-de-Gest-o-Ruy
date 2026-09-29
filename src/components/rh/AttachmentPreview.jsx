@@ -74,9 +74,21 @@ export default function AttachmentPreview({
           </DialogHeader>
           {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
           {!preview && !error && <p role="status">Carregando comprovante...</p>}
-          {open && preview && !error && (preview.type === 'application/pdf'
-            ? <iframe title="Comprovante PDF" src={preview.url} className="w-full h-[70vh] border-0" onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })} onError={() => previewFailed('O navegador não conseguiu exibir o PDF.')} />
-            : <img alt="Comprovante" src={preview.url} className="max-h-[70vh] max-w-full object-contain mx-auto" onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })} onError={() => previewFailed('O navegador não conseguiu decodificar a imagem do comprovante.')} />)}
+          {/* A superfície de mídia é a ÚNICA parte light-only. O título, o erro e
+              os controles acima ficam no tema: pintar o Dialog inteiro de branco
+              deixaria texto claro sobre claro. `theme-static-light-surface` é
+              cirúrgica de propósito — não pinta os descendentes, só a caixa.
+              O `color-scheme: light` vem da própria regra CSS porque o
+              visualizador nativo de PDF do browser se orienta por ele. */}
+          {open && preview && !error && (
+            preview.type === 'application/pdf'
+              ? <div className="theme-static-light-surface rounded-md p-2">
+                  <iframe title="Comprovante PDF" src={preview.url} className="w-full h-[70vh] border-0" onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })} onError={() => previewFailed('O navegador não conseguiu exibir o PDF.')} />
+                </div>
+              : <div className="theme-static-light-surface rounded-md p-2">
+                  <img alt="Comprovante" src={preview.url} className="max-h-[70vh] max-w-full object-contain mx-auto" onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })} onError={() => previewFailed('O navegador não conseguiu decodificar a imagem do comprovante.')} />
+                </div>
+          )}
         </DialogContent>
       </Dialog>
     </>
