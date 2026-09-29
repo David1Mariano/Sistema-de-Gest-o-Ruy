@@ -91,6 +91,25 @@
     --sidebar-accent-foreground: 240 5% 92%;
     --sidebar-border: 240 4% 20%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* A família `cash` é a exceção que faltava: ela é usada em HEX, não em
+       HSL, e por isso ESCAPAVA do remapeamento central — que só alcança
+       utilitários do Tailwind (slate, white, emerald...). Sem esta redefinição,
+       todo o bloco Caixas & Delivery continuava com `--cash-card: #FFFFFF` e
+       `--cash-text: #0F172A`: cards brancos com texto quase preto no escuro.
+
+       Aqui a hierarquia é a mesma do resto do tema: surface mais escura, card
+       um tom acima, texto claro, borda discreta. E as cores semânticas
+       continuam sendo as mesmas famílias, só mais claras para ter contraste
+       sobre superfície escura — verde segue sucesso, vermelho segue alerta. */
+    --cash-primary: #818CF8;
+    --cash-positive: #34D399;
+    --cash-alert: #F87171;
+    --cash-surface: #0F1115;
+    --cash-card: #171A21;
+    --cash-text: #E8EAED;
+    --cash-secondary: #9AA0AA;
+    --cash-border: #2A2E38;
   }
 }
 
@@ -222,6 +241,16 @@
     --input: 0 0% 89.8%;
     --sidebar-background: 0 0% 100%;
     --sidebar-border: 0 0% 89.8%;
+    /* A família `cash` volta ao claro junto: sem isso, o relatório do bloco
+       Caixas & Delivery sairia com card cinza-escuro no papel. */
+    --cash-primary: #4F46E5;
+    --cash-positive: #059669;
+    --cash-alert: #DC2626;
+    --cash-surface: #F8FAFC;
+    --cash-card: #FFFFFF;
+    --cash-text: #0F172A;
+    --cash-secondary: #64748B;
+    --cash-border: #E2E8F0;
   }
   /* O `!important` AQUI é justificado e não é "em massa": é o único lugar do
      projeto que usa a força, e só dentro de `@media print`. A folha de estilo
