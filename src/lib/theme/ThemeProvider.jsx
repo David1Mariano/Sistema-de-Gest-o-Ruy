@@ -74,9 +74,15 @@ export function ThemeProvider({ children }) {
 
   const alternar = useCallback(() => setTema(t => (t === ESCURO ? CLARO : ESCURO)), []);
 
+  // O setter que SAI do contexto precisa ser o de verdade: normaliza o valor e
+  // então chama o `setTema` do `useState`. Expor `normalizarTema` aqui — que é
+  // uma função pura, devolve o valor e não guarda nada — fazia o clique em
+  // Configurações parecer funcionar e não mudar tema nenhum.
+  const definirTema = useCallback((valor) => setTema(normalizarTema(valor)), []);
+
   const valor = useMemo(
-    () => ({ tema, isDark: tema === ESCURO, setTema: normalizarTema, alternar, toggle: setTema }),
-    [tema, alternar],
+    () => ({ tema, isDark: tema === ESCURO, setTema: definirTema, alternar }),
+    [tema, definirTema, alternar],
   );
 
   return <ThemeContext.Provider value={valor}>{children}</ThemeContext.Provider>;
