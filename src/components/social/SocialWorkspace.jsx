@@ -11,6 +11,7 @@ import SocialMessages from '@/components/social/SocialMessages';
 import { originLabel } from '@/lib/social/integrations';
 import { PLATFORMS, METRICS, STATUS, CATEGORIES, periodRange, previousPeriod, filterComments, commentSummary } from '@/lib/social/domain';
 import { emptySocialSnapshot, socialClient } from '@/lib/social/client';
+import { createSocialAIClient } from '@/lib/social/aiClient';
 
 function Choice({ label, value, onChange, options, disabled = false }) {
   return <label className="flex flex-col gap-1 text-xs text-slate-600">{label}<select className="h-10 rounded-md border bg-white px-3 text-sm text-slate-900 disabled:opacity-60" value={value} onChange={e => onChange(e.target.value)} disabled={disabled}>{Object.entries(options).map(([key, title]) => <option key={key} value={key}>{title}</option>)}</select></label>;
@@ -20,6 +21,13 @@ function Summary({ comments, provider, range }) {
   return <div className="grid grid-cols-2 gap-3 xl:grid-cols-4">{Object.entries(METRICS).map(([key, label]) => <StatCard key={key} label={label} value={summary[key] == null ? '—' : summary[key]} hint="Integração não configurada" icon={MessageCircle}/>)}</div>;
 }
 export default function SocialWorkspace({ permissions, client = socialClient, initialTab = 'dashboard' }) {
+  // A IA fala com o backend por HTTP; o endpoint é o mesmo do app e não carrega
+  // nada de Ollama. Sem endpoint configurado o cliente falha fechado e o painel
+  // segue em escrita manual — nenhuma URL de provider chega ao navegador.
+  const aiClient = useMemo(() => createSocialAIClient({
+    endpoint: import.meta.env.VITE_SOCIAL_AI_ENDPOINT,
+    getToken: async () => client.accessToken?.() ?? null,
+  }), [client]);
   const [data, setData] = useState(emptySocialSnapshot);
   const [error, setError] = useState('');
   const [loading, setLoading] = useState(true);
@@ -66,6 +74,6 @@ export default function SocialWorkspace({ permissions, client = socialClient, in
       {permissions.report && <TabsContent value="reports" className="space-y-5"><h2 className="text-lg font-semibold">Relatórios</h2><Summary comments={data.comments} provider={provider} range={range}/><Choice label="Métrica do relatório" value={metric} onChange={setMetric} options={METRICS}/><SocialChart metrics={data.metrics} provider={provider} metric={metric} range={range}/><div className="grid gap-4 lg:grid-cols-2"><section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">Comparação por período</h3><p className="my-2 text-xs text-slate-500">Atual: {range ? `${range.start} a ${range.end}` : 'Inválido'}<br/>Anterior: {previous ? `${previous.start} a ${previous.end}` : 'Inválido'}</p><p className="text-sm">Integração não configurada</p></section><section className="rounded-xl border bg-white p-5"><h3 className="font-semibold">Posts com melhor desempenho</h3><p className="mt-2 text-sm text-slate-500">Integração não configurada</p><p className="mt-2 text-xs text-slate-500">Comparação restrita à mesma plataforma e definição de métrica.</p></section></div><p className="text-xs text-slate-500">Taxa de resposta = comentários do período com resposta confirmada ÷ comentários recebidos no período × 100. Sem comentários, a taxa fica indisponível. Alcance único e seguidores não são somados entre dias ou plataformas. Contadores de vídeos não equivalem a comentários importados.</p></TabsContent>}
       <TabsContent value="integrations" className="space-y-4"><ManyChatCard health={data.manychat} canConfigure={permissions.configure}/><h2 className="text-lg font-semibold">Integrações</h2><div className="grid gap-4 md:grid-cols-3">{Object.entries(PLATFORMS).map(([key, label]) => <section key={key} className="rounded-xl border bg-white p-5 space-y-3"><h3 className="font-semibold">{label}</h3><p className="text-sm text-slate-500">Não conectado</p><p className="min-h-16 text-sm">{key === 'tiktok' ? 'Perfil e vídeos pela Display API. Comentários e respostas: Funcionalidade ainda não disponível nesta integração.' : 'Comentários, publicações e métricas dependem da conta elegível e das permissões oficiais.'}</p><Button variant="outline" disabled>Conectar {label}</Button><p className="text-xs text-slate-500">{permissions.configure ? 'Conexão OAuth será habilitada após revisão da fundação.' : 'Configuração restrita a administradores.'}</p></section>)}</div><section className="rounded-xl border bg-white p-5 space-y-3"><h3 className="font-semibold">IA · Não configurada</h3><p className="text-sm">Tom previsto: cordial, profissional, simpático e curto; português brasileiro, emojis moderados, sem discutir com o cliente.</p><p className="text-sm">Comentário → sugestão → revisão humana → aprovação → envio.</p><p className="text-sm text-amber-800">Reclamações e assuntos sensíveis exigem atenção humana. Respostas automáticas: DESATIVADO.</p></section></TabsContent>
     </Tabs>
-    {selected && <CommentPanel key={selected.id} comment={selected} onClose={() => setSelected(null)} replies={data.replies} drafts={data.drafts} permissions={permissions} aiConfigured={data.aiConfigured} client={client}/>}
+    {selected && <CommentPanel key={selected.id} comment={selected} onClose={() => setSelected(null)} replies={data.replies} drafts={data.drafts} permissions={permissions} aiClient={aiClient} client={client}/>}
   </div>;
 }

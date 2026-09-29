@@ -21,6 +21,12 @@ export const SOCIAL_AI_POLICY = Object.freeze({
   humanOnly: Object.freeze(['devolução de dinheiro', 'compensação financeira', 'descontos não autorizados', 'dados pessoais', 'informações de colaboradores', 'salário', 'RH', 'senha', 'dados bancários', 'questões jurídicas', 'ameaça', 'conteúdo ofensivo de alto risco']),
 });
 
+// Allowlist de categorias e normalização vivem em `src/lib/social/aiCategories.js`
+// para que backend e UI compartilhem UMA fonte. Reexportados aqui porque
+// `SocialAIService` é o contrato da IA e seus testes importam daqui.
+import { SOCIAL_AI_CATEGORIES, normalizeCategory } from '../../src/lib/social/aiCategories.js';
+export { SOCIAL_AI_CATEGORIES, normalizeCategory };
+
 // Contexto de negocio que a IA PODE ver, declarado campo a campo. O sistema
 // NAO le o banco para montar prompt: puxar cadastro, salario ou dado de
 // funcionario para um modelo seria vazamento silencioso. Campo que nao esta
@@ -84,16 +90,23 @@ export class SocialAIService {
 
   async classifyComment(comment = {}) {
     if (!this.provider) throw new SocialError('AI_NOT_CONFIGURED', 'IA não configurada');
-    const categorias = Array.isArray(comment.categories) && comment.categories.length
-      ? comment.categories
-      : [...SOCIAL_AI_POLICY.attention, ...SOCIAL_AI_POLICY.humanOnly];
     const result = await this.provider.classifyComment({
-      text: String(comment.text || ''), categories: categorias.slice(0, 50), context: this.context,
+      text: String(comment.text || ''), categories: SOCIAL_AI_CATEGORIES.slice(), context: this.context,
     });
+    // A CATEGORIA do modelo nao entra crua: normalizada contra a allowlist da
+    // Central. `categoryRecognized:false` deixa o rastro de que o modelo inventou.
+    const { category, recognized } = normalizeCategory(result?.category);
     // A politica decide o que exige humano, nao o modelo. `requiresHuman` do
     // provider e informativo e nao libera nada.
-    const safety = moderationCheck(comment.text, result?.category);
-    return { ...result, safety, requiresHuman: true, automaticAllowed: false };
+    const safety = moderationCheck(comment.text, category);
+    return {
+      category,
+      categoryRecognized: recognized,
+      confidence: Number.isFinite(result?.confidence) ? Math.min(1, Math.max(0, result.confidence)) : 0,
+      requiresHuman: true,
+      automaticAllowed: false,
+      safety,
+    };
   }
 
   async draftReply(comment = {}) {
@@ -101,10 +114,22 @@ export class SocialAIService {
     const result = await this.provider.draftReply({
       text: String(comment.text || ''), context: this.context, tone: SOCIAL_AI_POLICY.tone,
     });
-    // Rascunho e RASCUNHO: a moderacao roda sobre o texto sugerido antes de
-    // qualquer coisa, e caso sensivel nunca sai daqui como resposta pronta.
+    // Validação tambem no serviço: a fronteira nao pode depender de um unico provider.
+    const reply = typeof result?.reply === 'string' ? result.reply.trim() : '';
+    if (!reply) throw new SocialError('AI_INVALID_RESPONSE', 'Resposta inválida da IA local');
+    if (reply.length > 2000) throw new SocialError('AI_UNSAFE_OUTPUT', 'Resposta da IA reprovada na validação');
+    // Rascunho e RASCUNHO: a moderacao roda antes de qualquer coisa, e caso
+    // sensivel nunca sai daqui como resposta pronta.
     const safety = moderationCheck(comment.text, comment.category);
-    return { ...result, safety, requiresHuman: true, automaticAllowed: false, status: 'draft' };
+    return {
+      reply,
+      category: normalizeCategory(result?.category).category,
+      confidence: Number.isFinite(result?.confidence) ? Math.min(1, Math.max(0, result.confidence)) : 0,
+      requiresHuman: true,
+      automaticAllowed: false,
+      status: 'draft',
+      safety,
+    };
   }
 
   async moderationCheck(text, category) { return moderationCheck(text, category); }

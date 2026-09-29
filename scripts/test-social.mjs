@@ -188,7 +188,14 @@ test('proposta SQL mantém chave única, RLS, histórico append-only e rollback'
 test('frontend social não importa backend nem contém credenciais ou chamadas a plataformas', async () => {
   const files = ['src/pages/RedesSociais.jsx'];
   for (const dir of ['src/lib/social', 'src/components/social']) for (const name of await readdir(abs(dir))) files.push(`${dir}/${name}`);
-  for (const file of files) assert.doesNotMatch(await read(file), /VITE_.*(?:TOKEN|SECRET|AI_KEY)|service_role|graph\.facebook|graph\.instagram|open\.tiktokapis|server\/social|sk-[a-zA-Z0-9]{20}/, file);
+  // O invariante é sobre CÓDIGO, não prosa: um comentário que cite um caminho de
+  // backend não é um import. Removemos comentários e checamos o import real,
+  // que é o que realmente quebraria o bundle do navegador.
+  for (const file of files) {
+    const code = (await read(file)).replace(/\/\*[\s\S]*?\*\//g, '').replace(/^\s*\/\/.*$/gm, '');
+    assert.doesNotMatch(code, /VITE_.*(?:TOKEN|SECRET|AI_KEY)|service_role|graph\.facebook|graph\.instagram|open\.tiktokapis|sk-[a-zA-Z0-9]{20}/, file);
+    assert.doesNotMatch(code, /(?:from|import|require)\s*\(?\s*['"`][^'"`]*server\/social/, file);
+  }
 });
 test('renderização real de dashboard, relatório e integrações vazios', async () => {
   const { createServer } = await import('vite');

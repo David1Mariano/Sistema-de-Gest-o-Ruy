@@ -483,6 +483,122 @@ poder sugerir rascunho. São dois eixos:
 O provider de IA não tem nenhum método de envio, não muda outbox para `sent` e
 não existe worker.
 
+> Fase 4, 29/09/2026. A IA deixou de existir só no backend: ela ficou
+> utilizável pela CENTRAL, com health visível, botão ligado e rascunho validado.
+> Ainda **sem envio automático**, **sem worker** e **com aprovação humana**.
+
+### Onde a IA está montada (e onde NÃO está)
+
+`server/social/aiHandler.mjs` exporta `createSocialAIHandler`, um Fetch handler
+**chamável e NÃO montado**, no mesmo desenho de `createManyChatEventsHandler`.
+O handler está pronto, testado e documentado; **quem o hospeda é decisão de
+infra, não deste arquivo**.
+
+Onde deve ser montado:
+
+- **Supabase Edge Function (Deno)** — caminho natural do projeto; ou
+- **API Node do Ruy**, ao lado dos outros módulos de `server/social/`.
+
+`server.mjs` **não** foi transformado em host de integração/IA. Ele serve
+artefatos estáticos e continua só isso: improvisar um backend dentro do
+servidor de estáticos criaria uma rota sem identidade, sem permissão e sem
+auditoria. Enquanto o handler não for hospedado, `createSocialAIClient` sem
+`endpoint` **falha fechado** — a UI mostra "IA não configurada" e o operador
+escreve a resposta manualmente.
+
+`verifyIdentity` é **obrigatório**: sem ele, todas as rotas respondem 503. Não
+existe montagem que vire porta aberta.
+
+### Endpoints
+
+| Rota | Método | Permissão | Devolve |
+|---|---|---|---|
+| `/social-ai/health` | `GET` | `approve_ai` | estado seguro da IA |
+| `/social-ai/draft` | `POST` | `reply` | sugestão **em memória** |
+
+Nenhuma das duas envia mensagem, grava rascunho no banco ou cria worker. A
+sugestão vive no estado do painel até o humano decidir.
+
+A resposta é montada por **allowlist de campos** (`safeHealth`, `safeSuggestion`),
+mesmo que um provider futuro comece a devolver campos novos. Não existe campo
+para URL completa, porta interna, header, token ou resposta crua do Ollama.
+Erros do provider viram HTTP honesto + a frase de fallback; a mensagem original
+— que pode conter path ou trecho da resposta — **nunca** vai para o corpo.
+
+Com `loadComment` injetado, o **texto vem do conteúdo persistido**: o corpo da
+requisição só fornece `commentId`, e um `commentId` que o carregador não
+resolve devolve 404; exceção no carregador devolve 403.
+
+### Estados na UI
+
+O painel (`CommentPanel`) mostra o estado do health com texto próprio, sem
+expor host ou modelo:
+
+| Estado | O que o operador lê |
+|---|---|
+| `ready` | IA local pronta |
+| `not_configured` | IA local não configurada no servidor |
+| `offline` | IA local indisponível — suba o Ollama |
+| `model_unavailable` | Modelo da IA local ausente no servidor |
+| `error` | Não foi possível verificar a IA local |
+
+O botão fica **desabilitado** enquanto o health não é `ready`: pedir sugestão
+para uma IA fora do ar só geraria espera e erro.
+
+Durante a geração, o rótulo vira **"Gerando sugestão..."**. O loading é local
+ao bloco de IA — o resto do painel (histórico, texto, aprovação) continua
+interativo.
+
+### Validação de categoria
+
+`src/lib/social/aiCategories.js` é a **fonte única** da allowlist, importada
+pelo backend e pela UI, para não existirem duas listas divergentes:
+
+```text
+elogio · duvida · preco · horario · delivery · produto
+reclamacao · problema_pedido · disponibilidade · outro
+```
+
+A categoria devolvida pelo modelo **não entra crua**. `normalizeCategory()`
+compara sem acento, caixa e separador — `"Dúvida"`, `"DUVIDA"` e `"duvida"`
+caem na mesma chave, então erro de digitação do modelo não vira categoria nova.
+Fora da allowlist, vira **`outro`** com `categoryRecognized: false`, e a UI
+mostra "categoria não reconhecida, revisão humana". A mesma normalização roda
+na entrada do serviço **e** na saída do handler: a UI nunca recebe string livre.
+
+`confidence` é limitada a 0..1 em todas as camadas.
+
+### `requires_human` continua sendo política
+
+`requiresHuman` e `automaticAllowed: false` são fixos na política local. Se o
+provider responder `requiresHuman: false`, o valor é **descartado** — o modelo
+não libera caso sensível. Reclamação, cobrança, reembolso, ameaça, jurídico,
+conflito e dados pessoais seguem exigindo humano, mesmo classificados como
+elogio pelo modelo.
+
+### Aprovação e concorrência
+
+Os três botões são **Editar**, **Aprovar** e **Gerar novamente**. Não existe
+"Enviar". A aprovação continua o fluxo transacional da fase anterior: versão
+esperada, usuário autenticado, texto final, auditoria e outbox `pending`.
+
+Duas proteções de concorrência:
+
+1. **clique duplo** — `createLatestRequest()` serializa por contador monotônico
+   e `AbortController`; o segundo clique não dispara segunda requisição;
+2. **latest-wins** — "Gerar novamente" antes da resposta anterior invalida a
+   antiga por token, e a resposta velha é descartada mesmo que o servidor já
+   tenha respondido.
+
+A resposta antiga vira no-op silencioso, não erro visível ao operador.
+
+### Nada é persistido sem regra
+
+A rota de sugestão **não grava**. O rascunho existe no estado do painel até o
+humano aprovar; o que é persistido continua sendo o registro de auditoria da
+fase anterior, com a aprovação humana. Não existe caminho no handler que
+persista rascunho parcial ou inválido.
+
 ## ManyChat (transporte de integração) — **OPCIONAL**
 
 > Estado em 29/09/2026. Fase de **recebimento e preparação de outbox**, sem
