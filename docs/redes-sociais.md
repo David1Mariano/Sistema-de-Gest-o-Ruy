@@ -599,6 +599,156 @@ humano aprovar; o que é persistido continua sendo o registro de auditoria da
 fase anterior, com a aprovação humana. Não existe caminho no handler que
 persista rascunho parcial ou inválido.
 
+> Fase 5, 29/09/2026. O caminho deixou de ser teórico: existe um **backend Node
+> real** com autenticação Supabase, CORS restrito, rate limit e limites de
+> payload. Ainda **sem envio automático**, **sem worker** e **sem Ollama
+> instalado** — o provider foi exercitado com stub.
+
+### Auditoria da infraestrutura (antes de escolher o host)
+
+O que já existia no projeto, e o que isso descartou como opção:
+
+| achado | consequência |
+|---|---|
+| `supabase/` tem só `migrations/`, sem `functions/` | não existe Edge Function no projeto |
+| `scripts/production/server.mjs` aceita **só GET/HEAD** (`405` em POST) | não serve como API sem mudar o filtro de método |
+| o mesmo servidor **bloqueia `/api`** explicitamente | `/social-ai/*` seria barrado por desenho |
+| produção lê arquivos por **manifesto com hash** e roda de uma **cópia** em `%LOCALAPPDATA%\GestaoRuy\producao\runtime` | adicionar rota exigiria mexer em manifesto, instalador de runtime e filtro |
+| `docs/producao-local.md`: *"Não faz proxy de APIs, autenticação ou banco"* | o contrato do servidor está declarado como arquivos estáticos |
+| `localPeer()` já restringe a loopback + sub-rede IPv4 privada | a política de rede **existe** e foi reutilizada |
+| `authAdapter.me()` já valida vínculo e perfil ativo | o mecanismo real de identidade **existe** no cliente e foi portado |
+
+### Opção A — Supabase Edge Function: **descartada**
+
+Edge Function roda em **Deno na nuvem do Supabase**. O `OLLAMA_BASE_URL` aponta
+para `127.0.0.1:11434` na máquina **ADM-RUY**. Da nuvem esse endereço **não
+existe**: a função responderia `offline` para sempre, e o dono perderia tempo
+depurando um problema de rede que nenhuma configuração de app resolve.
+
+O caminho que a nuvem tornaria possível — expor o Ollama da rede local para a
+internet — foi **rejeitado**: exigiria VPN, túnel ou porta aberta no
+roteador, o oposto de "IA local e gratuita, sem sair da empresa".
+
+### Opção B — API Node separada: **escolhida**
+
+`server/social/aiBackend.mjs`, processo próprio na porta **8788**, na mesma
+máquina do Ollama. Reaproveita `localPeer()` para a mesma política de rede do
+servidor de produção, sem alterar um byte do servidor de estáticos.
+
+### Opção C — outro backend existente: **não havia**
+
+Não existe API Node nem BFF no repositório. O único processo Node de produção é
+o servidor de estáticos.
+
+### Topologia
+
+```text
+navegador (localhost:5173 em DEV, ADM-RUY:8080 em produção)
+  → API Node da IA :8788  (autenticado, CORS restrito, rate limit)
+    → SocialAIService
+      → Ollama 127.0.0.1:11434   (só o backend alcança)
+```
+
+O Ollama **nunca** é alcançado pelo navegador. Não há rota para escolher modelo,
+prompt ou URL: tudo vem do ambiente do processo.
+
+### `verifyIdentity`
+
+`createSupabaseIdentityVerifier` revalida o token **no servidor**, usando o
+mecanismo real do projeto:
+
+1. `GET {SUPABASE_URL}/auth/v1/user` com o bearer do usuário — o Supabase valida
+   a assinatura e devolve o `app_metadata`, que só o painel administrativo
+   escreve;
+2. `GET {SUPABASE_URL}/rest/v1/records?entity=eq.AuthUser...` com o **mesmo
+   token do usuário**, espelhando `authAdapter.me()`, exigindo o vínculo legado
+   e recusando perfil inativo.
+
+`user_metadata` **nunca** é lido: é editável pelo próprio usuário. Sem
+`legacy_auth_user_id` ou sem `system_role`, a identidade é negada — o teste cobre
+os três casos parciais.
+
+Usa-se a **anon key** (pública), não a service role: o processo valida o usuário
+com o token **dele**, e nada aqui exige privilégio de administrador do banco.
+
+### Permissões
+
+Matriz real e já existente (`socialPermissions` em `src/lib/social/domain.js`),
+não inventada: `approve_ai` no health, `reply` no draft, ambos `admin`. Os nomes
+existem no modelo atual e foram preservados.
+
+### `loadComment` obrigatório
+
+O host aceita **apenas `commentId`**. O corpo do navegador nunca carrega texto.
+Sem `withClient` configurado, `loadComment` lança e a rota responde **503**, e
+não 403 — é misconfiguração do servidor, não falta de permissão do operador, e
+dizer 403 ali mandaria o usuário procurar um problema que não tem.
+
+### `isAccountVisible`: **deny-all explícito**
+
+Auditei o modelo real. As tabelas `social_accounts`/`social_comments` existem
+**apenas como proposta** (`scripts/proposed-social-schema.sql`) e **não foram
+aplicadas**; e o `app_metadata` do sistema carrega `system_role`,
+`legacy_auth_user_id` e `employee_payment_access` — **nenhum escopo por conta,
+unidade ou loja**.
+
+Não há, portanto, informação suficiente para autorizar conta→usuário. Autorizar
+"admin vê tudo" seria exatamente a autorização fake proibida. Mantive o
+`assertAccountAccess` do repository em **fail-closed** e criei
+`createDenyAllAccountAccess()`, que nega com código
+`SCHEMA_SOCIAL_NAO_APLICADO`. **Consequência honesta: o draft real continua
+indisponível até o schema existir** — e isso está registrado aqui, não escondido.
+
+### CORS
+
+Allowlist por ambiente, **nunca `*`**: com bearer token, `*` transformaria
+qualquer página aberta num cliente autorizado. `parseOrigins` **rejeita** `*` e
+origens malformadas no boot. Origem desconhecida recebe 403 sem cabeçalho de
+autorização; a mesma função é reutilizada no preflight.
+
+### Rate limit
+
+Dois níveis, porque cada um cobre um buraco diferente:
+
+- **por usuário**, dentro do handler, onde a identidade real já foi resolvida —
+  trocar de IP não fura;
+- **por IP**, no host, antes de qualquer inferência — segura abuso anônimo.
+
+Padrão: 10 drafts por 60 s, configurável. Resposta 429 com `retry-after`.
+
+### Limites de payload
+
+Corpo máximo **8 KB** (`SOCIAL_AI_MAX_BODY_BYTES`), `commentId` validado contra
+`/^[\w:.-]{1,200}$/`, JSON inválido → 400, corpo maior → **413**. Texto do
+comentário nunca é aceito do navegador.
+
+### Timeout
+
+`OLLAMA_TIMEOUT_MS` preservado na config; estourado vira `AI_TIMEOUT` e a rota
+responde erro controlado com a frase de fallback. `server.requestTimeout` e
+`headersTimeout` evitam conexão pendurada.
+
+### Logs
+
+`createSafeLogger` é uma **allowlist de campos**: `event`, `status`,
+`duration_ms`, `provider`, `model`, `error_code`, `user`, `route`. Qualquer
+outro campo é **descartado** antes de escrever. Nunca entram prompt, comentário,
+texto, dado pessoal, `Authorization`, token ou secret. `status` e `duration_ms`
+ficam numéricos, para o log ser filtrável.
+
+### Ambientes
+
+Nada hardcoded. `socialAIConfigFromEnvironment` separa:
+
+| variável | DEV | produção |
+|---|---|---|
+| `SOCIAL_AI_ALLOWED_ORIGINS` | `http://localhost:5173` | `http://ADM-RUY:8080` |
+| `VITE_SOCIAL_AI_ENDPOINT` | `http://127.0.0.1:8788` | `http://ADM-RUY:8788` |
+| `OLLAMA_BASE_URL` | `http://127.0.0.1:11434` | `http://127.0.0.1:11434` |
+
+`VITE_SOCIAL_AI_ENDPOINT` aponta para a **API**, nunca para o Ollama, e não
+carrega segredo. O Ollama continua local nos dois ambientes.
+
 ## ManyChat (transporte de integração) — **OPCIONAL**
 
 > Estado em 29/09/2026. Fase de **recebimento e preparação de outbox**, sem

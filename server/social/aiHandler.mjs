@@ -17,22 +17,29 @@ import { normalizeCategory } from './ai.mjs';
 // sozinho. Este handler so LE a saude da IA e produz SUGESTAO em memoria.
 // ---------------------------------------------------------------------------
 
-const HEALTH_STATES = Object.freeze(['not_configured', 'offline', 'model_unavailable', 'ready', 'error']);
-const NO_STORE = { 'cache-control': 'no-store' };
-const FALLBACK_MESSAGE = 'Não foi possível gerar uma sugestão. Você pode responder manualmente.';
-
 // Allowlist de SAIDA. Mesmo que um provider futuro comece a devolver campo novo,
 // ele nao vaza: a resposta e' montada aqui, campo a campo.
+//
+// ATENCAO: o contrato real do provider e' `state` (ver OllamaAIProvider.health),
+// nao `status`. Ler `status` apenas devolveria `error` para sempre e o painel
+// nunca mostraria "IA pronta". Aceitamos os dois nomes de proposito.
+const HEALTH_STATES = Object.freeze(['not_configured', 'offline', 'model_unavailable', 'ready', 'error']);
+const NO_STORE = { 'cache-control': 'no-store' };
+// Frase unica de recuperacao. Exportada para que host e testes comparem a MESMA
+// string, em vez de duas copias que divergem por acento ou encoding.
+export const FALLBACK_MESSAGE = 'Não foi possível gerar uma sugestão. Você pode responder manualmente.';
+
 const safeHealth = (health) => {
-  const state = HEALTH_STATES.includes(health?.status) ? health.status : 'error';
+  const raw = health?.state ?? health?.status;
+  const status = HEALTH_STATES.includes(raw) ? raw : 'error';
   return {
-    status: state,
+    status,
     provider: typeof health?.provider === 'string' ? health.provider.slice(0, 40) : null,
     // `host` ja vem redigido do provider. URL completa, porta interna, headers,
     // token e resposta crua do Ollama NAO tem campo aqui.
     host: typeof health?.host === 'string' ? health.host.slice(0, 120) : null,
     model: typeof health?.model === 'string' ? health.model.slice(0, 80) : null,
-    ready: state === 'ready',
+    ready: status === 'ready',
   };
 };
 
@@ -67,7 +74,7 @@ const publicStatus = (code) => ({
 }[code] || [503, 'error']);
 
 
-export function createSocialAIHandler({ service, verifyIdentity, loadComment = null }) {
+export function createSocialAIHandler({ service, verifyIdentity, loadComment = null, allowDraft = null }) {
   return async request => {
     const url = new URL(request.url);
     const route = url.pathname.replace(/\/+$/, '');
@@ -100,6 +107,15 @@ export function createSocialAIHandler({ service, verifyIdentity, loadComment = n
     if (route.endsWith('/draft')) {
       if (request.method !== 'POST') return reply(405, { error: 'method_not_allowed' });
       if (!socialPermissions(identity.app_metadata?.system_role).reply) return reply(403, { error: 'forbidden' });
+      // Rate limit POR USUARIO, aqui dentro: e' o unico ponto onde a identidade
+      // real ja foi resolvida, entao nao da para um usuario trocar de IP para
+      // furar o limite. Chave e' o id interno, nunca email ou token.
+      if (allowDraft) {
+        const verdict = allowDraft(identity.id);
+        if (!verdict.allowed) {
+          return Response.json({ error: 'rate_limited', message: FALLBACK_MESSAGE }, { status: 429, headers: { ...NO_STORE, 'retry-after': String(Math.ceil(verdict.retryAfterMs / 1000)) } });
+        }
+      }
       if (!request.headers.get('content-type')?.startsWith('application/json')) return reply(415, { error: 'invalid_content_type' });
       let payload;
       try {
@@ -107,10 +123,13 @@ export function createSocialAIHandler({ service, verifyIdentity, loadComment = n
       } catch {
         return reply(400, { error: 'invalid_payload' });
       }
-      // Texto do comentario vem do CENTRAL; aqui so interessa para classificar e
-      // moderar. Recusamos na entrada o que nao e' comentario utilizavel.
+      // O TEXTO NUNCA vem do navegador na hospedagem real. Com `loadComment`
+      // configurado, o corpo só precisa do `commentId` e o backend busca o
+      // texto persistido. Sem `loadComment` (uso legado/testes), aceitamos o
+      // `text` do corpo — mas só porque não existe leitura de dado social.
+      const temLoja = typeof loadComment === 'function' && typeof payload?.commentId === 'string' && payload.commentId.trim();
       const text = typeof payload?.text === 'string' ? payload.text.trim() : '';
-      if (!text || text.length > 5000) return reply(400, { error: 'invalid_payload' });
+      if (!temLoja && (!text || text.length > 5000)) return reply(400, { error: 'invalid_payload' });
 
       // Se houver carregador de comentario, ele e' a fonte do TEXTO. O corpo
       // nunca substitui conteudo persistido; so o comentario_id e' aceito.
@@ -119,7 +138,11 @@ export function createSocialAIHandler({ service, verifyIdentity, loadComment = n
         let stored;
         try {
           stored = await loadComment(payload.commentId);
-        } catch {
+        } catch (error) {
+          // Store social nao configurado e' MISCONFIGURACAO do servidor (503),
+          // nao falta de permissao do usuario (403). Dizer 403 ali faria o
+          // operador achar que perdeu acesso quando o problema e' outro.
+          if (error?.code === 'COMMENT_STORE_NOT_CONFIGURED') return reply(503, { error: 'not_configured', message: FALLBACK_MESSAGE });
           return reply(403, { error: 'forbidden' });
         }
         if (!stored) return reply(404, { error: 'not_found' });
