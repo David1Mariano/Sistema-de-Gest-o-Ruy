@@ -5,15 +5,19 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
-import { Save, Clock, ShieldCheck } from 'lucide-react';
+import { Save, Clock, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
+import { useTheme } from '@/lib/theme/ThemeProvider';
 
 export default function Configuracoes() {
   const [settings, setSettings] = useState(null);
   const [tolerance, setTolerance] = useState(5);
   const [coverage, setCoverage] = useState('{}');
   const [saving, setSaving] = useState(false);
+  // O tema NÃO é estado desta página: vem do contexto. Assim Configurações e o
+  // layout nunca discordam sobre qual tema está ativo.
+  const { tema, setTema } = useTheme();
 
   const load = async () => {
     const list = await base44.entities.SystemSettings.list('-created_date', 10);
@@ -51,6 +55,54 @@ export default function Configuracoes() {
         <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
         <p className="text-sm text-slate-500">Parâmetros administrativos do sistema de jornada</p>
       </div>
+
+      <Card>
+        <CardHeader>
+          <CardTitle className="flex items-center gap-2 text-base">
+            <Sun className="w-4 h-4 text-amber-500" /> Aparência
+          </CardTitle>
+        </CardHeader>
+        <CardContent className="space-y-3">
+          <p className="text-sm text-slate-500">
+            Vale para este navegador. A preferência fica salva aqui, no seu
+            dispositivo — não é uma configuração do sistema e não muda o que
+            outras pessoas veem.
+          </p>
+          <div
+            role="radiogroup"
+            aria-label="Tema da interface"
+            className="grid gap-3 sm:grid-cols-2 max-w-md"
+          >
+            {[
+              { valor: 'light', titulo: 'Modo Claro', descricao: 'Fundo claro, padrão do sistema', Icon: Sun },
+              { valor: 'dark', titulo: 'Modo Escuro', descricao: 'Fundo escuro, mais confortável à noite', Icon: Moon },
+            ].map(({ valor, titulo, descricao, Icon }) => {
+              const ativo = tema === valor;
+              return (
+                <button
+                  key={valor}
+                  type="button"
+                  role="radio"
+                  aria-checked={ativo}
+                  onClick={() => setTema(valor)}
+                  className={[
+                    'flex items-start gap-3 rounded-lg border p-3 text-left transition-colors',
+                    ativo
+                      ? 'border-foreground bg-accent'
+                      : 'border-border bg-card hover:bg-accent',
+                  ].join(' ')}
+                >
+                  <Icon className={ativo ? 'w-5 h-5 mt-0.5 shrink-0' : 'w-5 h-5 mt-0.5 shrink-0 text-slate-500'} />
+                  <span>
+                    <span className="block text-sm font-medium text-foreground">{titulo}</span>
+                    <span className="block text-xs text-slate-500">{descricao}</span>
+                  </span>
+                </button>
+              );
+            })}
+          </div>
+        </CardContent>
+      </Card>
 
       <Card>
         <CardHeader>

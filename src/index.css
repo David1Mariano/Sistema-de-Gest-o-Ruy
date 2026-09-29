@@ -54,37 +54,42 @@
   }
 
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
+    /* Paleta escura: cinza-carvão, NÃO preto puro. O preto absoluto cansa a
+       vista em tela longa e faz as bordas sumirem. A hierarquia vem de três
+       planos: fundo (mais escuro) -> card -> superfície interna. */
+    --background: 240 6% 7%;
+    --foreground: 0 0% 96%;
+    --card: 240 5% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 6% 12%;
+    --popover-foreground: 0 0% 96%;
     --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --primary-foreground: 240 6% 10%;
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 5% 18%;
+    --accent-foreground: 0 0% 96%;
+    /* Destrutivo mais claro que no claro: no escuro, um vermelho fundo-escurado
+       some. O matiz continua sendo vermelho — quem lê o aviso continua lendo. */
+    --destructive: 0 63% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
+    --border: 240 4% 20%;
+    --input: 240 4% 20%;
+    --ring: 240 5% 60%;
+    --chart-1: 220 70% 55%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 240 6% 9%;
+    --sidebar-foreground: 240 5% 92%;
+    --sidebar-primary: 224.3 76.3% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 240 4% 17%;
+    --sidebar-accent-foreground: 240 5% 92%;
+    --sidebar-border: 240 4% 20%;
     --sidebar-ring: 217.2 91.2% 59.8%;
   }
 }
@@ -99,4 +104,145 @@
   body {
     @apply bg-background text-foreground font-body;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   COMPATIBILIDADE DE TEMA — o remapeamento central.
+
+   Por que existe: o sistema tem ~1100 usos de `bg-white` / `text-slate-*` /
+   `border-slate-*` escritos direto no JSX, espalhados por 53 arquivos. Reescrever
+   isso com variantes `dark:` uma a uma seria hundreds de edições frágeis — e
+   qualquer tela nova voltaria a quebrar. Em vez disso, os tokens acima viram a
+   ÚNICA fonte de verdade e este bloco traduz as classes literais para eles.
+
+   REGRAS que este bloco respeita:
+   - Só existe dentro de `.dark`. O modo claro não é tocado em lugar nenhum.
+   - NENHUM `!important`: este bloco é CSS sem `@layer`, e CSS sem camada vence
+     `@layer utilities` do Tailwind na cascata. A especificidade faz o trabalho.
+   - Só os tons que o projeto realmente usa entram aqui. Não é remapeamento
+     cego: se amanhã aparecer `text-teal-700`, ele NÃO é convertido, e isso é
+     intencional — quem conhecesse o código veria o que mudou.
+   - `theme-static-light` é a saída para superfície que precisa ficar clara
+     (papel, comprovante, imagem): a regra de escape vem DEPOIS e vence.
+   --------------------------------------------------------------------------- */
+.dark .bg-white { background-color: hsl(var(--card)); }
+.dark .bg-slate-50 { background-color: hsl(var(--muted)); }
+.dark .bg-slate-100 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-200 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-300 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-800 { background-color: hsl(var(--secondary)); }
+.dark .bg-slate-900 { background-color: hsl(var(--card)); }
+.dark .bg-slate-950 { background-color: hsl(var(--background)); }
+
+.dark .text-slate-100,
+.dark .text-slate-200,
+.dark .text-slate-700,
+.dark .text-slate-800,
+.dark .text-slate-900 { color: hsl(var(--foreground)); }
+.dark .text-slate-300,
+.dark .text-slate-400,
+.dark .text-slate-500,
+.dark .text-slate-600 { color: hsl(var(--muted-foreground)); }
+
+.dark .border-slate-50,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-slate-400,
+.dark .border-slate-800,
+.dark .border-slate-900 { border-color: hsl(var(--border)); }
+
+/* Cores semânticas: o MATIZ é preservado (vermelho continua erro, verde
+   sucesso, âmbar aviso, azul informação). Só a superfície e o nível do texto
+   mudam, porque `text-red-700` sobre fundo escuro some. */
+.dark .bg-red-50 { background-color: hsl(0 40% 14%); }
+.dark .bg-red-600 { background-color: hsl(var(--destructive)); }
+.dark .bg-red-700 { background-color: hsl(var(--destructive)); }
+.dark .text-red-600,
+.dark .text-red-700 { color: hsl(0 75% 72%); }
+.dark .text-red-300 { color: hsl(0 70% 78%); }
+.dark .border-red-200 { border-color: hsl(0 45% 28%); }
+
+.dark .bg-emerald-50 { background-color: hsl(160 40% 13%); }
+.dark .bg-emerald-100 { background-color: hsl(160 35% 17%); }
+.dark .bg-emerald-500,
+.dark .bg-emerald-600,
+.dark .bg-emerald-700 { background-color: hsl(160 60% 38%); }
+.dark .text-emerald-400 { color: hsl(160 55% 65%); }
+.dark .text-emerald-500,
+.dark .text-emerald-600,
+.dark .text-emerald-700 { color: hsl(160 50% 72%); }
+.dark .border-emerald-200 { border-color: hsl(160 40% 26%); }
+
+.dark .bg-amber-50 { background-color: hsl(38 45% 13%); }
+.dark .bg-amber-100 { background-color: hsl(38 40% 17%); }
+.dark .bg-amber-400,
+.dark .bg-amber-500 { background-color: hsl(38 70% 40%); }
+.dark .text-amber-300,
+.dark .text-amber-400 { color: hsl(40 80% 68%); }
+.dark .text-amber-500,
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900 { color: hsl(40 75% 72%); }
+.dark .border-amber-200 { border-color: hsl(38 45% 28%); }
+.dark .border-amber-300 { border-color: hsl(38 45% 32%); }
+.dark .border-amber-500 { border-color: hsl(38 60% 42%); }
+
+.dark .bg-blue-50 { background-color: hsl(214 45% 16%); }
+.dark .text-blue-600,
+.dark .text-blue-700 { color: hsl(213 85% 76%); }
+
+/* SAÍDA DE EMERGÊNCIA: superfície que precisa continuar clara no dark.
+   Comprovante, imagem, papel, logo sobre fundo escuro, preview. A regra vem
+   depois das remapeamentos e é mais específica, então vence sem `!important`. */
+.dark .theme-static-light,
+.dark .theme-static-light * {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+/* Impressão é papel, não tela: o documento sai claro mesmo com o dark ligado.
+   Força os tokens de volta e neutraliza a remapagem, senão o relatório sairia
+   com fundo cinza escuro e gastaria tinta. */
+@media print {
+  .dark {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-border: 0 0% 89.8%;
+  }
+  /* O `!important` AQUI é justificado e não é "em massa": é o único lugar do
+     projeto que usa a força, e só dentro de `@media print`. A folha de estilo
+     do navegador de impressão (renderizadores PDF headless, "Salvar como PDF")
+     pode carregar as classes utilitárias depois deste arquivo, e sem a força o
+     relatório sairia em fundo escuro. Tela não é afetada. */
+  .dark body,
+  .dark .bg-white,
+  .dark .bg-slate-50,
+  .dark .bg-slate-100 { background-color: #ffffff !important; }
+  .dark .text-slate-100,
+  .dark .text-slate-200,
+  .dark .text-slate-700,
+  .dark .text-slate-800,
+  .dark .text-slate-900 { color: #0f172a !important; }
+  .dark .text-slate-300,
+  .dark .text-slate-400,
+  .dark .text-slate-500,
+  .dark .text-slate-600 { color: #475569 !important; }
+  .dark .border-slate-50,
+  .dark .border-slate-100,
+  .dark .border-slate-200,
+  .dark .border-slate-300 { border-color: #e2e8f0 !important; }
 }
