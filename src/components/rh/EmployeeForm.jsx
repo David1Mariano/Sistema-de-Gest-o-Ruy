@@ -3,10 +3,14 @@ import { base44 } from '@/api/base44Client';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { useUserRole } from '@/lib/useUserRole';
+import { usePersistentDraft } from '@/lib/usePersistentDraft';
+import { hasDraftChanged } from '@/lib/draftStore';
+import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, draftEditKey } from '@/lib/draftConfig';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
+import DraftNotice from '@/components/shared/DraftNotice';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
 import { HIRE_TYPE_LABELS } from '@/lib/rhUtils';
 import { activeSectorOptions, sectorLinkWarning } from '@/lib/sectorUtils';
@@ -20,6 +24,17 @@ const empty = {
   default_start_time: '', default_end_time: '', work_days: '', day_off: '', salary: null, vale_value: null,
   responsible: '', experience_start: '', experience_end: '', pix_key: '', bank: '', observations: '', uniforms_delivered: '',
 };
+
+// Campos que NUNCA vão para o rascunho.
+//
+// São dados sensíveis de pessoa (CPF/RG, chave Pix, banco, salário) e a foto,
+// que é artefato de upload. O rascunho existe para não perder a digitação,
+// não para ser um arquivo de dados pessoais do colaborador no disco do
+// navegador de um computador compartilhado. Restaurar o formulário traz o
+// preenchimento comum; estes campos precisam ser digitados de novo e a tela
+// avisa isso explicitamente.
+const CAMPOS_SENSIVEIS = ['cpf', 'rg', 'pix_key', 'bank', 'salary', 'vale_value', 'photo_url'];
+const AVISO_SENSIVEIS = 'Documentos, valores e foto não são guardados no rascunho — digite-os novamente.';
 
 function Section({ icon: Icon, title, children }) {
   return (
@@ -48,11 +63,23 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
   const [form, setForm] = useState(empty);
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState(false);
+  const [saveError, setSaveError] = useState('');
   const fileRef = useRef(null);
 
+  const draft = usePersistentDraft({
+    formKey: draftEditKey(DRAFT_FORM_KEYS.RH_COLABORADOR_NOVO, employee?.id),
+    enabled: open,
+    value: form,
+    excludeFields: CAMPOS_SENSIVEIS,
+    recordUpdatedAt: employee?.updated_at,
+  });
+
   useEffect(() => {
-    if (open) setForm({ ...empty, ...(employee || {}) });
-  }, [open, employee]);
+    if (open) {
+      setForm(draft.restoreInto({ ...empty, ...(employee || {}) }));
+      setSaveError('');
+    }
+  }, [open, employee, draft.restoreInto]);
 
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v }));
 
@@ -99,12 +126,31 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
         });
         onSaved?.(created);
       }
+      // Backend confirmou. Só agora o rascunho é descartado. Qualquer
+      // exceção antes deste ponto deixa o rascunho intacto — é a única cópia
+      // do que foi digitado.
+      draft.markSaved();
       onOpenChange?.(false);
+    } catch (err) {
+      draft.markFailed();
+      setSaveError(err?.message || 'Não foi possível salvar o colaborador. Tente novamente.');
     } finally { setSaving(false); }
   };
 
+  // Fechar o modal NÃO apaga o rascunho. Com preenchimento, a decisão é de
+  // quem está na frente da tela; sem preenchimento, é só um fechar.
+  const requestClose = () => {
+    if (saving) return;
+    if (hasDraftChanged(form, { ...empty, ...(employee || {}) }) && window.confirm(DRAFT_CANCEL_CONFIRM)) {
+      draft.discard();
+    } else {
+      draft.keep();
+    }
+    onOpenChange?.(false);
+  };
+
   return (
-    <Dialog open={open} onOpenChange={onOpenChange}>
+    <Dialog open={open} onOpenChange={(next) => { if (!next) requestClose(); }}>
       <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto">
         <DialogHeader>
           <DialogTitle>{employee ? 'Editar colaborador' : 'Novo colaborador'}</DialogTitle>
@@ -218,8 +264,15 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
           )}
         </div>
 
+        <DraftNotice
+          status={draft.status}
+          message={draft.message}
+          hint={AVISO_SENSIVEIS}
+          onDiscard={draft.discard}
+          onDismiss={draft.dismissNotice} />
         <DialogFooter>
-          <Button variant="outline" onClick={() => onOpenChange?.(false)}>Cancelar</Button>
+          {saveError && <p role="alert" className="mr-auto text-sm text-red-600">{saveError}</p>}
+          <Button variant="outline" onClick={requestClose} disabled={saving}>Cancelar</Button>
           <Button onClick={save} disabled={saving || !form.name?.trim()}>
             {saving ? 'Salvando...' : 'Salvar colaborador'}
           </Button>
