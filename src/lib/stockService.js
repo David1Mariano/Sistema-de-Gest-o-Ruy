@@ -248,3 +248,96 @@ export function registrarEntradaDeCompra(args) {
   return aplicarMovimentacao({ ...args, type: MOVEMENT_TYPES.ENTRADA_COMPRA, originType: 'compra' });
 }
 
+/**
+ * Cria um item de estoque e, se ele nascer com saldo, registra a MOVIMENTAÇÃO
+ * de saldo inicial.
+ *
+ * Antes, a tela fazia `InventoryItem.create({ current_stock: 50 })`: o item
+ * passava a existir com 50 unidades e o histórico ficava vazio. Respondendo
+ * "por que este produto está com saldo 50?" só se consultasse o cadastro —
+ * não havia lançamento explicando a entrada. Isso quebra a rastreabilidade
+ * que o resto do serviço promete.
+ *
+ * Decisões:
+ * - Saldo zero (ou vazio) NÃO gera movimentação: um lançamento de 0 só polui
+ *   o histórico. O item nasce em 0, como sempre.
+ * - O item é SEMPRE criado começando em 0, e o saldo entra pelo mesmo caminho
+ *   de qualquer outra entrada (`aplicarMovimentacao`). Assim o saldo inicial
+ *   passa pelo mesmo compare-and-swap, gera o mesmo formato de histórico e
+ *   respeita a mesma proteção de saldo insuficiente.
+ * - O movimento usa `AJUSTE_ENTRADA` (entrada de ajuste) com
+ *   `origin_type: 'saldo_inicial'`. O vocabulário é o que já existe no
+ *   projeto: nenhum tipo novo foi inventado.
+ *
+ * FALHA PARCIAL — leia antes de usar:
+ * Não existe transação entre duas entidades. Se o item for criado e a
+ * movimentação falhar, o item fica sem histórico. Preferimos isso a deletar
+ * o item: perder o cadastro do usuário seria pior, e o serviço DEVOLVE o erro
+ * (com `codigo: 'saldo_inicial_sem_historico'`) para a tela avisar, em vez de
+ * fingir sucesso. A correção definitiva é a RPC transacional preparada em
+ * `supabase/migrations/` — ainda não aplicada.
+ */
+export async function criarItemComEstoqueInicial({
+  item,
+  openingQty = 0,
+  unitCost = 0,
+  date,
+  responsibleUser = '',
+  observation = '',
+  clientToken = '',
+  retries = 6,
+}) {
+  if (!item || !item.name) throw new StockError('Informe o nome do item de estoque.', 'item_obrigatorio');
+
+  const abertura = roundQty(openingQty);
+  if (openingQty !== '' && openingQty !== null && openingQty !== undefined && !Number.isFinite(abertura)) {
+    throw new StockError('Estoque inicial inválido.', 'quantidade_invalida');
+  }
+  const qty = Number.isFinite(abertura) ? abertura : 0;
+  if (qty < 0) throw new StockError('O estoque inicial não pode ser negativo.', 'saldo_invalido');
+
+  // Nasce sempre em zero. O saldo entra como movimentação logo abaixo.
+  const criado = await InventoryItem.create({ ...item, current_stock: 0 });
+
+  if (qty === 0) {
+    return { item: criado, movement: null, itemId: criado.id, openingQty: 0 };
+  }
+
+  // Token estável para o mesmo item: reenviar a mesma criação não duplica a
+  // entrada. O prefixo `abertura:` é exclusivo deste fluxo.
+  const token = clientToken || `abertura:${criado.id}`;
+
+  try {
+    const r = await aplicarMovimentacao({
+      item: criado,
+      type: MOVEMENT_TYPES.AJUSTE_ENTRADA,
+      quantity: qty,
+      unitCost: Number.isFinite(roundMoney(unitCost)) ? roundMoney(unitCost) : 0,
+      date,
+      originType: 'saldo_inicial',
+      originId: criado.id,
+      observation: observation || 'Estoque inicial no cadastro do item',
+      // `responsibleUser` só é repassado se existir de verdade: inventar um
+      // responsável no histórico seria pior do que deixá-lo vazio.
+      responsibleUser: responsibleUser || '',
+      clientToken: token,
+      retries,
+    });
+    // `duplicated` vem do `aplicarMovimentacao`: um reenvio com o mesmo token
+    // não mexe no saldo e devolve o movimento já existente.
+    return {
+      item: r.item,
+      movement: r.movement,
+      itemId: criado.id,
+      openingQty: qty,
+      duplicated: r.duplicated === true,
+    };
+  } catch (err) {
+    throw new StockError(
+      `O item "${criado.name}" foi criado, mas o lançamento de estoque inicial não pôde ser gravado (${err.message || err}). `
+      + 'Abra o ajuste de inventário para registrar a entrada.',
+      'saldo_inicial_sem_historico'
+    );
+  }
+}
+

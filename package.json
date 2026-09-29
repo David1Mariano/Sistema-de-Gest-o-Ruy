@@ -8,6 +8,8 @@
     "build": "vite build",
     "lint": "eslint . --quiet",
     "lint:fix": "eslint . --fix",
+    "test:stock": "node scripts/test-stock.mjs",
+    "check:stock": "node scripts/check-stock-integrity.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
     "preview": "vite preview",
     "test:delivery": "node --test scripts/test-delivery-integrations.mjs scripts/delivery-central.test.mjs scripts/delivery-contacts.test.mjs scripts/delivery-attendance.test.mjs",
