@@ -34,9 +34,12 @@ import {
   todayISO,
   validateMovement,
 } from '@/lib/stockRules';
+import { DELETE_MODE, itemDecision, itemDeletePatch } from '@/lib/stockItemUtils';
 
 const InventoryItem = base44.entities.InventoryItem;
 const StockMovement = base44.entities.StockMovement;
+const PurchaseItem = base44.entities.PurchaseItem;
+const RecipeIngredient = base44.entities.RecipeIngredient;
 
 /**
  * Token de idempotência. Um duplo clique (ou um reenvio) do mesmo lançamento
@@ -339,5 +342,97 @@ export async function criarItemComEstoqueInicial({
       'saldo_inicial_sem_historico'
     );
   }
+}
+
+// ---------------------------------------------------------------------------
+// Exclusão, desativação e reativação de item de estoque.
+//
+// A mutação de `status` mora AQUI, e não na tela, por dois motivos:
+//
+// 1. `check:stock` (scripts/check-stock-integrity.mjs) proíbe `InventoryItem.
+//    update(...)` fora deste arquivo. A regra existe porque o update sem
+//    condição reescreve a linha inteira e, com `current_stock` junto, destrói
+//    saldo. Passar por aqui mantém o saldo sob `transact`.
+// 2. A decisão de apagar ou desativar precisa ser reavaliada contra o banco no
+//    momento da escrita, não contra a linha que a tela tinha em memória. Entre
+//    abrir o modal e clicar em confirmar, alguém pode ter registrado uma
+//    movimentação. A tela decide para dar o feedback certo; aqui decide de novo
+//    para não confiar na tela.
+//
+// `StockMovement` nunca é apagado e nada é apagado em cascata, em nenhum
+// caminho. A única chamada de `delete` é a do próprio `InventoryItem`, e
+// apenas quando o item é comprovadamente descartável.
+// ---------------------------------------------------------------------------
+
+/**
+ * Vínculos queREFERENCIAM um item: histórico de movimentação, itens de compra e
+ * ingredientes de ficha técnica.
+ *
+ * Sem `.catch`: se a consulta falhar, o erro sobe e a operação é abortada.
+ * Tratar falha como "sem vínculos" liberaria exclusão física de um item que
+ * talvez tenha histórico — o pior resultado possível aqui.
+ */
+export async function buscarVinculosDoItem(itemId) {
+  const [movements, purchaseItems, recipeIngredient] = await Promise.all([
+    StockMovement.filter({ inventory_item_id: itemId }),
+    PurchaseItem.filter({ inventory_item_id: itemId }),
+    RecipeIngredient.filter({ inventory_item_id: itemId }),
+  ]);
+  return {
+    movements: movements || [],
+    purchaseItems: purchaseItems || [],
+    recipeIngredient: recipeIngredient || [],
+  };
+}
+
+/** Relê o item do banco: a decisão de apagar nunca usa a linha da tela. */
+async function relerItem(item) {
+  if (!item || !item.id) throw new StockError('Selecione o item de estoque.', 'item_obrigatorio');
+  if (typeof InventoryItem.get === 'function') {
+    const atual = await InventoryItem.get(item.id);
+    if (atual) return atual;
+  }
+  const linhas = await InventoryItem.filter({ id: item.id });
+  return (linhas && linhas[0]) || item;
+}
+
+/**
+ * Executa a decisão de exclusão, revalidando tudo no banco.
+ *
+ * @param {object} mode  `DELETE_MODE.DELETE` ou `DELETE_MODE.DEACTIVATE`.
+ * @throws {StockError} se a revalidação não sustentar o caminho pedido.
+ */
+export async function excluirOuDesativarItem({ item, mode }) {
+  const atual = await relerItem(item);
+  const vinculos = await buscarVinculosDoItem(atual.id);
+  const esperado = itemDecision(atual, vinculos);
+
+  // O caminho pedido precisa ser exatamente o que o banco autoriza agora. Se
+  // qualquer um dos dois for `blocked`, não há nada a fazer.
+  if (esperado.mode === DELETE_MODE.BLOCKED || esperado.mode !== mode) {
+    throw new StockError(
+      esperado.blocker || 'Não é possível concluir a operação com o estado atual do item.',
+      'exclusao_bloqueada'
+    );
+  }
+
+  if (mode === DELETE_MODE.DELETE) {
+    await InventoryItem.delete(atual.id);
+    return { itemId: atual.id, mode: DELETE_MODE.DELETE, name: atual.name };
+  }
+
+  const patch = itemDeletePatch();
+  await InventoryItem.update(atual.id, patch);
+  return { itemId: atual.id, mode: DELETE_MODE.DEACTIVATE, name: atual.name, status: patch.status };
+}
+
+/**
+ * Reativa o MESMO registro — nenhum item novo é criado e o histórico é mantido.
+ * Só o `status` volta a `ativo`; o saldo não é tocado.
+ */
+export async function reativarItem({ item }) {
+  const atual = await relerItem(item);
+  await InventoryItem.update(atual.id, { status: 'ativo' });
+  return { itemId: atual.id, status: 'ativo', name: atual.name };
 }
 
