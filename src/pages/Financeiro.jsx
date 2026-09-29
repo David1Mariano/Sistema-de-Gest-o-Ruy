@@ -110,15 +110,19 @@ export default function Financeiro() {
 
     const { valores, falhas } = await executarFontes(fontes);
 
-    // A sessão pode ter expirado com a tela aberta. Uma falha de sessão atinge
-    // as 15 entities de uma vez porque o cabeçalho é compartilhado: antes disso
-    // a tela ficava zerada para sempre, sem nenhuma nova tentativa. Renovamos
-    // a sessão UMA vez e repetimos a carga; se voltar a falhar, o aviso passa a
-    // trazer status e causa de verdade.
-    if (falhas.length && tentativa === 0 && ehFalhaDeSessao(falhas)) {
-      await renovarSessao();
-      if (seq === seqRef.current) { setInitialLoading(false); setRefreshing(false); }
-      return load({ tentativa: 1 });
+    // Recuperação. A tela chamava `load()` UMA vez, ao montar, e nunca mais:
+    // uma falha naquele instante deixava as collections quebradas vazias para
+    // sempre, sem botão e sem nova tentativa. Agora há (a) uma renovação de
+    // sessão quando a causa é 401, e (b) um número pequeno de repetições para
+    // falha transitória. É limitado de propósito — se o problema persistir, o
+    // aviso tem que dizer a verdade, não ficar tentando para sempre.
+    if (falhas.length && tentativa < MAX_TENTATIVAS) {
+      if (ehFalhaDeSessao(falhas)) await renovarSessao();
+      // Pausa curta: dá tempo de uma renovação de sessão que já estava em
+      // curso de terminar antes de uma nova tentativa.
+      await new Promise((r) => { setTimeout(r, PAUSA_ENTRE_TENTATIVAS_MS); });
+      if (seq !== seqRef.current) return;
+      return load({ tentativa: tentativa + 1 });
     }
 
     if (seq !== seqRef.current) return;
@@ -228,7 +232,16 @@ export default function Financeiro() {
       </div>
     </>}
 
-    <div className="flex gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</div>
+    <div className="flex items-center gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}
+      {/* Recarregar é a saída quando a carga falha. Antes não existia nenhuma:
+          sem este botão, uma sessão vencida no momento da montagem deixava a
+          tela vazia até o usuário sair e voltar por conta própria. */}
+      <button onClick={() => load()} disabled={initialLoading || refreshing}
+        title="Recarregar os dados do Financeiro"
+        className="ml-auto whitespace-nowrap px-3 py-2 rounded-lg text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed">
+        {refreshing ? 'Atualizando…' : 'Atualizar'}
+      </button>
+    </div>
 
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
@@ -248,6 +261,9 @@ export default function Financeiro() {
     <ValeFinanceDialog vale={valeSelected} open={Boolean(valeSelected)} onClose={()=>setValeSelected(null)} onSaved={load} data={data}/>
   </div>;
 }
+
+const MAX_TENTATIVAS = 2;
+const PAUSA_ENTRE_TENTATIVAS_MS = 1500;
 
 function Stat({label,value,icon:Icon,danger}) { return <div className={`rounded-xl border p-4 ${danger?'border-rose-200 bg-rose-50':'border-slate-200 bg-white'}`}><div className="flex justify-between"><div><p className={`text-xs ${danger?'text-rose-600':'text-slate-500'}`}>{label}</p><p className={`text-xl font-semibold mt-1 ${danger?'text-rose-700':'text-slate-900'}`}>{value}</p></div><Icon className={`w-5 h-5 ${danger?'text-rose-500':'text-amber-600'}`}/></div></div> }
 function SearchBox({value,setValue}) { return <div className="relative max-w-md"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><Input className="pl-9" placeholder="Buscar..." value={value} onChange={e=>setValue(e.target.value)}/></div> }

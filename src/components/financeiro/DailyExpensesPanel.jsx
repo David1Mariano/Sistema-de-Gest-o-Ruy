@@ -416,7 +416,17 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
                 antigos continuam visíveis: nada de "Carregando gastos..."
                 derrubando a lista e os totais (era o bug de instabilidade). */}
             {loading && <tr><td colSpan={8} className="p-10 text-center text-slate-400">Carregando gastos...</td></tr>}
-            {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
+            {!loading && !visible.length && periodRows.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <p>
+          <strong>{periodRows.length} lançamento(s) existem</strong> no período selecionado, mas
+          nenhum corresponde aos filtros de busca, categoria, forma de pagamento ou situação.
+        </p>
+        <button onClick={clearFilters} className="mt-1 underline text-slate-900">Limpar filtros</button>
+      </div>
+    )}
+
+    {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
               <p className="font-medium text-slate-700">Nenhum gasto encontrado.</p>
               <p className="text-sm mt-1">Ajuste a busca ou os filtros, ou registre um novo gasto.</p>
               <Button className="mt-4 gap-2" onClick={openCreate}><Plus className="w-4 h-4" /> Novo gasto</Button>
