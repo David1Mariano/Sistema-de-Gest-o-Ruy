@@ -33,12 +33,12 @@ export default function DuplicarEscala({ open, onOpenChange, existingForDest, on
         <div className="space-y-4 py-2">
           <div className="space-y-1.5">
             <Label>Semana de origem (domingo)</Label>
-            <input type="date" value={src} onChange={(e) => setSrc(e.target.value)} className="w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm" />
+            <input type="date" value={src} onChange={(e) => setSrc(e.target.value)} className="w-full h-9 rounded-md border border-slate-300 bg-background px-3 text-sm" />
             <p className="text-xs text-slate-500">De {formatBR(src)} a {formatBR(addDays(src, 6))}</p>
           </div>
           <div className="space-y-1.5">
             <Label>Semana de destino (domingo)</Label>
-            <input type="date" value={dst} onChange={(e) => setDst(e.target.value)} className="w-full h-9 rounded-md border border-slate-300 bg-white px-3 text-sm" />
+            <input type="date" value={dst} onChange={(e) => setDst(e.target.value)} className="w-full h-9 rounded-md border border-slate-300 bg-background px-3 text-sm" />
             <p className="text-xs text-slate-500">De {formatBR(dst)} a {formatBR(addDays(dst, 6))}</p>
           </div>
           <p className="text-xs text-amber-600 bg-amber-50 border border-amber-200 rounded-lg px-3 py-2">

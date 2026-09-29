@@ -42,7 +42,7 @@ export default function RegistroRapido({ date, tolerance = 5 }) {
       </div>
 
       <select
-        className="w-full h-12 rounded-xl border border-slate-300 bg-white px-4 text-base font-medium"
+        className="w-full h-12 rounded-xl border border-slate-300 bg-background px-4 text-base font-medium"
         value={selected}
         onChange={(e) => setSelected(e.target.value)}
       >

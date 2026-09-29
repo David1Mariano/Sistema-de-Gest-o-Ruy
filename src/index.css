@@ -54,38 +54,62 @@
   }
 
   .dark {
-    --background: 0 0% 3.9%;
-    --foreground: 0 0% 98%;
-    --card: 0 0% 3.9%;
-    --card-foreground: 0 0% 98%;
-    --popover: 0 0% 3.9%;
-    --popover-foreground: 0 0% 98%;
+    /* Paleta escura: cinza-carvão, NÃO preto puro. O preto absoluto cansa a
+       vista em tela longa e faz as bordas sumirem. A hierarquia vem de três
+       planos: fundo (mais escuro) -> card -> superfície interna. */
+    --background: 240 6% 7%;
+    --foreground: 0 0% 96%;
+    --card: 240 5% 10%;
+    --card-foreground: 0 0% 96%;
+    --popover: 240 6% 12%;
+    --popover-foreground: 0 0% 96%;
     --primary: 0 0% 98%;
-    --primary-foreground: 0 0% 9%;
-    --secondary: 0 0% 14.9%;
-    --secondary-foreground: 0 0% 98%;
-    --muted: 0 0% 14.9%;
-    --muted-foreground: 0 0% 63.9%;
-    --accent: 0 0% 14.9%;
-    --accent-foreground: 0 0% 98%;
-    --destructive: 0 62.8% 30.6%;
+    --primary-foreground: 240 6% 10%;
+    --secondary: 240 5% 16%;
+    --secondary-foreground: 0 0% 96%;
+    --muted: 240 5% 15%;
+    --muted-foreground: 240 5% 65%;
+    --accent: 240 5% 18%;
+    --accent-foreground: 0 0% 96%;
+    /* Destrutivo mais claro que no claro: no escuro, um vermelho fundo-escurado
+       some. O matiz continua sendo vermelho — quem lê o aviso continua lendo. */
+    --destructive: 0 63% 45%;
     --destructive-foreground: 0 0% 98%;
-    --border: 0 0% 14.9%;
-    --input: 0 0% 14.9%;
-    --ring: 0 0% 83.1%;
-    --chart-1: 220 70% 50%;
+    --border: 240 4% 20%;
+    --input: 240 4% 20%;
+    --ring: 240 5% 60%;
+    --chart-1: 220 70% 55%;
     --chart-2: 160 60% 45%;
     --chart-3: 30 80% 55%;
     --chart-4: 280 65% 60%;
     --chart-5: 340 75% 55%;
-    --sidebar-background: 240 5.9% 10%;
-    --sidebar-foreground: 240 4.8% 95.9%;
-    --sidebar-primary: 224.3 76.3% 48%;
+    --sidebar-background: 240 6% 9%;
+    --sidebar-foreground: 240 5% 92%;
+    --sidebar-primary: 224.3 76.3% 55%;
     --sidebar-primary-foreground: 0 0% 100%;
-    --sidebar-accent: 240 3.7% 15.9%;
-    --sidebar-accent-foreground: 240 4.8% 95.9%;
-    --sidebar-border: 240 3.7% 15.9%;
+    --sidebar-accent: 240 4% 17%;
+    --sidebar-accent-foreground: 240 5% 92%;
+    --sidebar-border: 240 4% 20%;
     --sidebar-ring: 217.2 91.2% 59.8%;
+
+    /* A família `cash` é a exceção que faltava: ela é usada em HEX, não em
+       HSL, e por isso ESCAPAVA do remapeamento central — que só alcança
+       utilitários do Tailwind (slate, white, emerald...). Sem esta redefinição,
+       todo o bloco Caixas & Delivery continuava com `--cash-card: #FFFFFF` e
+       `--cash-text: #0F172A`: cards brancos com texto quase preto no escuro.
+
+       Aqui a hierarquia é a mesma do resto do tema: surface mais escura, card
+       um tom acima, texto claro, borda discreta. E as cores semânticas
+       continuam sendo as mesmas famílias, só mais claras para ter contraste
+       sobre superfície escura — verde segue sucesso, vermelho segue alerta. */
+    --cash-primary: #818CF8;
+    --cash-positive: #34D399;
+    --cash-alert: #F87171;
+    --cash-surface: #0F1115;
+    --cash-card: #171A21;
+    --cash-text: #E8EAED;
+    --cash-secondary: #9AA0AA;
+    --cash-border: #2A2E38;
   }
 }
 
@@ -99,4 +123,235 @@
   body {
     @apply bg-background text-foreground font-body;
   }
+}
+
+/* ---------------------------------------------------------------------------
+   COMPATIBILIDADE DE TEMA — o remapeamento central.
+
+   Por que existe: o sistema tem ~1100 usos de `bg-white` / `text-slate-*` /
+   `border-slate-*` escritos direto no JSX, espalhados por 53 arquivos. Reescrever
+   isso com variantes `dark:` uma a uma seria hundreds de edições frágeis — e
+   qualquer tela nova voltaria a quebrar. Em vez disso, os tokens acima viram a
+   ÚNICA fonte de verdade e este bloco traduz as classes literais para eles.
+
+   REGRAS que este bloco respeita:
+   - Só existe dentro de `.dark`. O modo claro não é tocado em lugar nenhum.
+   - NENHUM `!important`: este bloco é CSS sem `@layer`, e CSS sem camada vence
+     `@layer utilities` do Tailwind na cascata. A especificidade faz o trabalho.
+   - Só os tons que o projeto realmente usa entram aqui. Não é remapeamento
+     cego: se amanhã aparecer `text-teal-700`, ele NÃO é convertido, e isso é
+     intencional — quem conhecesse o código veria o que mudou.
+   - `theme-static-light` é a saída para superfície que precisa ficar clara
+     (papel, comprovante, imagem): a regra de escape vem DEPOIS e vence.
+   --------------------------------------------------------------------------- */
+.dark .bg-white { background-color: hsl(var(--card)); }
+.dark .bg-slate-50 { background-color: hsl(var(--muted)); }
+.dark .bg-slate-100 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-200 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-300 { background-color: hsl(var(--accent)); }
+.dark .bg-slate-800 { background-color: hsl(var(--secondary)); }
+.dark .bg-slate-900 { background-color: hsl(var(--card)); }
+.dark .bg-slate-950 { background-color: hsl(var(--background)); }
+
+.dark .text-slate-100,
+.dark .text-slate-200,
+.dark .text-slate-700,
+.dark .text-slate-800,
+.dark .text-slate-900 { color: hsl(var(--foreground)); }
+.dark .text-slate-300,
+.dark .text-slate-400,
+.dark .text-slate-500,
+.dark .text-slate-600 { color: hsl(var(--muted-foreground)); }
+
+.dark .border-slate-50,
+.dark .border-slate-100,
+.dark .border-slate-200,
+.dark .border-slate-300,
+.dark .border-slate-400,
+.dark .border-slate-800,
+.dark .border-slate-900 { border-color: hsl(var(--border)); }
+
+/* Cores semânticas: o MATIZ é preservado (vermelho continua erro, verde
+   sucesso, âmbar aviso, azul informação). Só a superfície e o nível do texto
+   mudam, porque `text-red-700` sobre fundo escuro some. */
+.dark .bg-red-50 { background-color: hsl(0 40% 14%); }
+.dark .bg-red-600 { background-color: hsl(var(--destructive)); }
+.dark .bg-red-700 { background-color: hsl(var(--destructive)); }
+.dark .text-red-600,
+.dark .text-red-700 { color: hsl(0 75% 72%); }
+.dark .text-red-300 { color: hsl(0 70% 78%); }
+.dark .border-red-200 { border-color: hsl(0 45% 28%); }
+
+.dark .bg-emerald-50 { background-color: hsl(160 40% 13%); }
+.dark .bg-emerald-100 { background-color: hsl(160 35% 17%); }
+.dark .bg-emerald-500,
+.dark .bg-emerald-600,
+.dark .bg-emerald-700 { background-color: hsl(160 60% 38%); }
+.dark .text-emerald-400 { color: hsl(160 55% 65%); }
+.dark .text-emerald-500,
+.dark .text-emerald-600,
+.dark .text-emerald-700 { color: hsl(160 50% 72%); }
+.dark .border-emerald-200 { border-color: hsl(160 40% 26%); }
+
+.dark .bg-amber-50 { background-color: hsl(38 45% 13%); }
+.dark .bg-amber-100 { background-color: hsl(38 40% 17%); }
+.dark .bg-amber-400,
+.dark .bg-amber-500 { background-color: hsl(38 70% 40%); }
+.dark .text-amber-300,
+.dark .text-amber-400 { color: hsl(40 80% 68%); }
+.dark .text-amber-500,
+.dark .text-amber-600,
+.dark .text-amber-700,
+.dark .text-amber-800,
+.dark .text-amber-900 { color: hsl(40 75% 72%); }
+.dark .border-amber-200 { border-color: hsl(38 45% 28%); }
+.dark .border-amber-300 { border-color: hsl(38 45% 32%); }
+.dark .border-amber-500 { border-color: hsl(38 60% 42%); }
+
+.dark .bg-blue-50 { background-color: hsl(214 45% 16%); }
+.dark .text-blue-600,
+.dark .text-blue-700 { color: hsl(213 85% 76%); }
+.dark .bg-indigo-50 { background-color: hsl(240 40% 16%); }
+
+/* Famílias que faltavam: rose, sky, violet, orange e indigo. Elas aparecem em
+   badges de status (escala de folga/férias/ausência/compensação, fechamento de
+   caixa com falta/sobra) e, sem variante, deixavam bandeirolas claras flutuando
+   dentro do dark. O matiz de cada uma é preservado — rose segue "problema",
+   sky segue informativo, violet segue férias, orange segue aviso. */
+.dark .bg-rose-50,
+.dark .bg-rose-50\/40 { background-color: hsl(350 40% 14%); }
+.dark .bg-rose-100 { background-color: hsl(350 35% 18%); }
+.dark .bg-rose-500 { background-color: hsl(350 65% 50%); }
+.dark .text-rose-400 { color: hsl(350 70% 78%); }
+.dark .text-rose-500,
+.dark .text-rose-600,
+.dark .text-rose-700 { color: hsl(350 70% 75%); }
+.dark .border-rose-200 { border-color: hsl(350 45% 28%); }
+
+.dark .bg-sky-50 { background-color: hsl(200 45% 15%); }
+.dark .bg-sky-100 { background-color: hsl(200 40% 19%); }
+.dark .bg-sky-500 { background-color: hsl(200 70% 48%); }
+.dark .text-sky-600,
+.dark .text-sky-700,
+.dark .text-sky-900 { color: hsl(200 80% 75%); }
+.dark .border-sky-200 { border-color: hsl(200 45% 28%); }
+
+.dark .bg-violet-50 { background-color: hsl(270 40% 15%); }
+.dark .bg-violet-100 { background-color: hsl(270 35% 19%); }
+.dark .text-violet-600,
+.dark .text-violet-700 { color: hsl(270 75% 78%); }
+.dark .border-violet-200 { border-color: hsl(270 40% 28%); }
+
+.dark .bg-orange-100 { background-color: hsl(25 45% 16%); }
+.dark .bg-orange-400 { background-color: hsl(25 75% 50%); }
+.dark .text-orange-600,
+.dark .text-orange-700 { color: hsl(25 80% 72%); }
+.dark .border-orange-200 { border-color: hsl(25 45% 28%); }
+
+/* Classes com modificador de opacidade. O `bg-amber-50/50` compila para um nome
+   de classe PRÓPRIO (a barra vira parte do nome), então a regra `.bg-amber-50`
+   não a alcança: sem isto, todo card `bg-*-50/50` ficava claro no dark. O alpha
+   é mantido, porque ele é o que dava a leveza do card sobre fundo claro.
+
+   `bg-white\/80` não tem consumidor hoje, mas fica de propósito: ele é a
+   MESMA armadilha das outras (nome de classe próprio) e a regra custa uma
+   linha. Sem ela, o primeiro uso futuro escaparia do dark em silêncio. */
+.dark .bg-white\/80,
+.dark .bg-white\/90 { background-color: hsl(var(--card) / 0.9); }
+.dark .bg-slate-50\/60 { background-color: hsl(var(--muted) / 0.6); }
+.dark .bg-slate-950\/45 { background-color: hsl(var(--background) / 0.45); }
+.dark .bg-amber-50\/50,
+.dark .bg-amber-50\/40 { background-color: hsl(38 45% 13% / 0.5); }
+.dark .bg-amber-500\/15 { background-color: hsl(38 70% 40% / 0.2); }
+
+/* SAÍDA DE EMERGÊNCIA: superfície 100% papel.
+   Só para algo que é fisicamente branco por definição — folha impressa, PDF.
+   A regra vem DEPOIS dos remapeamentos e é mais específica, então vence sem
+   `!important`. Pinta TUDO dentro, incluindo descendentes: use com cuidado. */
+.dark .theme-static-light,
+.dark .theme-static-light * {
+  background-color: #ffffff;
+  color: #0f172a;
+  border-color: #e2e8f0;
+}
+
+/* SAÍDA CIRÚRGICA: só a SUPERFÍCIE de mídia/documento.
+   Usada no preview de comprovante, onde o papel precisa ficar claro mas o
+   título, a mensagem de erro e os controles do modal têm que acompanhar o tema.
+   Diferente da regra acima, esta NÃO pinta os descendentes: apenas a caixa que
+   segura o documento. O `color-scheme: light` acompanha porque o visualizador
+   nativo de PDF do browser se orienta por ele, não pelas classes. */
+.dark .theme-static-light-surface {
+  background-color: #ffffff;
+  color-scheme: light;
+}
+
+/* Superfície escura NÃO deve "vazar" para dentro da área de mídia: sem isto, um
+   pai com `bg-card` escuroueria o espaço em volta da foto do comprovante. */
+.dark .theme-static-light-surface img,
+.dark .theme-static-light-surface iframe {
+  background-color: #ffffff;
+  color-scheme: light;
+}
+
+/* Impressão é papel, não tela: o documento sai claro mesmo com o dark ligado.
+   Força os tokens de volta e neutraliza a remapagem, senão o relatório sairia
+   com fundo cinza escuro e gastaria tinta. */
+@media print {
+  .dark {
+    --background: 0 0% 100%;
+    --foreground: 0 0% 3.9%;
+    --card: 0 0% 100%;
+    --card-foreground: 0 0% 3.9%;
+    --popover: 0 0% 100%;
+    --popover-foreground: 0 0% 3.9%;
+    --muted: 0 0% 96.1%;
+    --muted-foreground: 0 0% 45.1%;
+    --accent: 0 0% 96.1%;
+    --accent-foreground: 0 0% 9%;
+    --border: 0 0% 89.8%;
+    --input: 0 0% 89.8%;
+    --sidebar-background: 0 0% 100%;
+    --sidebar-border: 0 0% 89.8%;
+    /* A paleta dos gráficos também é tema. Sem esta volta, um relatório com
+       gráfico impresso com o dark ligado sairia com as séries em azul/verde
+       escuros — bons na tela, ilegíveis no papel. Volta a ser a paleta clara. */
+    --chart-1: 12 76% 61%;
+    --chart-2: 173 58% 39%;
+    --chart-3: 197 37% 24%;
+    --chart-4: 43 74% 66%;
+    --chart-5: 27 87% 67%;
+    /* A família `cash` volta ao claro junto: sem isso, o relatório do bloco
+       Caixas & Delivery sairia com card cinza-escuro no papel. */
+    --cash-primary: #4F46E5;
+    --cash-positive: #059669;
+    --cash-alert: #DC2626;
+    --cash-surface: #F8FAFC;
+    --cash-card: #FFFFFF;
+    --cash-text: #0F172A;
+    --cash-secondary: #64748B;
+    --cash-border: #E2E8F0;
+  }
+  /* O `!important` AQUI é justificado e não é "em massa": é o único lugar do
+     projeto que usa a força, e só dentro de `@media print`. A folha de estilo
+     do navegador de impressão (renderizadores PDF headless, "Salvar como PDF")
+     pode carregar as classes utilitárias depois deste arquivo, e sem a força o
+     relatório sairia em fundo escuro. Tela não é afetada. */
+  .dark body,
+  .dark .bg-white,
+  .dark .bg-slate-50,
+  .dark .bg-slate-100 { background-color: #ffffff !important; }
+  .dark .text-slate-100,
+  .dark .text-slate-200,
+  .dark .text-slate-700,
+  .dark .text-slate-800,
+  .dark .text-slate-900 { color: #0f172a !important; }
+  .dark .text-slate-300,
+  .dark .text-slate-400,
+  .dark .text-slate-500,
+  .dark .text-slate-600 { color: #475569 !important; }
+  .dark .border-slate-50,
+  .dark .border-slate-100,
+  .dark .border-slate-200,
+  .dark .border-slate-300 { border-color: #e2e8f0 !important; }
 }
