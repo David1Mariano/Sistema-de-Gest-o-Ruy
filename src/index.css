@@ -211,6 +211,53 @@
 .dark .bg-blue-50 { background-color: hsl(214 45% 16%); }
 .dark .text-blue-600,
 .dark .text-blue-700 { color: hsl(213 85% 76%); }
+.dark .bg-indigo-50 { background-color: hsl(240 40% 16%); }
+
+/* Famílias que faltavam: rose, sky, violet, orange e indigo. Elas aparecem em
+   badges de status (escala de folga/férias/ausência/compensação, fechamento de
+   caixa com falta/sobra) e, sem variante, deixavam bandeirolas claras flutuando
+   dentro do dark. O matiz de cada uma é preservado — rose segue "problema",
+   sky segue informativo, violet segue férias, orange segue aviso. */
+.dark .bg-rose-50,
+.dark .bg-rose-50\/40 { background-color: hsl(350 40% 14%); }
+.dark .bg-rose-100 { background-color: hsl(350 35% 18%); }
+.dark .bg-rose-500 { background-color: hsl(350 65% 50%); }
+.dark .text-rose-400 { color: hsl(350 70% 78%); }
+.dark .text-rose-500,
+.dark .text-rose-600,
+.dark .text-rose-700 { color: hsl(350 70% 75%); }
+.dark .border-rose-200 { border-color: hsl(350 45% 28%); }
+
+.dark .bg-sky-50 { background-color: hsl(200 45% 15%); }
+.dark .bg-sky-100 { background-color: hsl(200 40% 19%); }
+.dark .bg-sky-500 { background-color: hsl(200 70% 48%); }
+.dark .text-sky-600,
+.dark .text-sky-700 { color: hsl(200 80% 75%); }
+.dark .border-sky-200 { border-color: hsl(200 45% 28%); }
+
+.dark .bg-violet-50 { background-color: hsl(270 40% 15%); }
+.dark .bg-violet-100 { background-color: hsl(270 35% 19%); }
+.dark .text-violet-600,
+.dark .text-violet-700 { color: hsl(270 75% 78%); }
+.dark .border-violet-200 { border-color: hsl(270 40% 28%); }
+
+.dark .bg-orange-100 { background-color: hsl(25 45% 16%); }
+.dark .bg-orange-400 { background-color: hsl(25 75% 50%); }
+.dark .text-orange-600,
+.dark .text-orange-700 { color: hsl(25 80% 72%); }
+.dark .border-orange-200 { border-color: hsl(25 45% 28%); }
+
+/* Classes com modificador de opacidade. O `bg-amber-50/50` compila para um nome
+   de classe PRÓPRIO (a barra vira parte do nome), então a regra `.bg-amber-50`
+   não a alcança: sem isto, todo card `bg-*-50/50` ficava claro no dark. O alpha
+   é mantido, porque ele é o que dava a leveza do card sobre fundo claro. */
+.dark .bg-white\/80,
+.dark .bg-white\/90 { background-color: hsl(var(--card) / 0.9); }
+.dark .bg-slate-50\/60 { background-color: hsl(var(--muted) / 0.6); }
+.dark .bg-slate-950\/45 { background-color: hsl(var(--background) / 0.45); }
+.dark .bg-amber-50\/50,
+.dark .bg-amber-50\/40 { background-color: hsl(38 45% 13% / 0.5); }
+.dark .bg-amber-500\/15 { background-color: hsl(38 70% 40% / 0.2); }
 
 /* SAÍDA DE EMERGÊNCIA: superfície que precisa continuar clara no dark.
    Comprovante, imagem, papel, logo sobre fundo escuro, preview. A regra vem
