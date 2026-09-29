@@ -2,7 +2,8 @@ import { useState } from 'react';
 import { Sheet, SheetContent, SheetHeader, SheetTitle, SheetDescription } from '@/components/ui/sheet';
 import { Button } from '@/components/ui/button';
 import { Textarea } from '@/components/ui/textarea';
-import { PLATFORMS, STATUS, safePermalink } from '@/lib/social/domain';
+import { STATUS, safePermalink } from '@/lib/social/domain';
+import { originLabel } from '@/lib/social/integrations';
 
 export default function CommentPanel({ comment, onClose, replies, drafts, permissions, aiConfigured, client }) {
   const [text, setText] = useState('');
@@ -18,11 +19,11 @@ export default function CommentPanel({ comment, onClose, replies, drafts, permis
   // Phase one has no configured send transport. Preserve explicit human confirmation.
   async function approve() {
     setBusy(true); setError('');
-    try { await client.approveAndReply({ commentId: comment.id, text, draftId: draft?.id, confirmHuman: reviewed, expectedVersion: comment.version }); }
+    try { await client.approveAndReply({ commentId: comment.id, transport: comment.transport, text, draftId: draft?.id, confirmHuman: reviewed, expectedVersion: comment.version }); }
     catch (e) { setError(e.message); } finally { setBusy(false); }
   }
   return <Sheet open onOpenChange={open => { if (!open) onClose(); }}><SheetContent className="w-full sm:max-w-xl overflow-y-auto">
-    <SheetHeader><SheetTitle>Comentário · {PLATFORMS[comment.provider]}</SheetTitle><SheetDescription>{comment.author_name} · {new Date(comment.created_at).toLocaleString('pt-BR')} · {STATUS[comment.status]}</SheetDescription></SheetHeader>
+    <SheetHeader><SheetTitle>Comentário · {originLabel(comment)}</SheetTitle><SheetDescription>{comment.author_name} · {new Date(comment.created_at).toLocaleString('pt-BR')} · {STATUS[comment.status]}</SheetDescription></SheetHeader>
     <div className="mt-5 space-y-5">
       {comment.requires_attention && <p className="rounded-lg bg-amber-50 p-3 text-amber-900">Requer atenção · revisão humana</p>}
       <p className="whitespace-pre-wrap break-words">{comment.text}</p>

@@ -322,3 +322,189 @@ automaticReplies=false, automaticAllowed=false, revisão humana obrigatória e
 assuntos sensíveis human-only. Não houve OAuth, conexão real, IA paga, envio,
 chamada de produção, Edge Function ou aplicação SQL. Persistem as limitações
 da fundação descritas acima e a ausência de validação visual em navegador.
+
+## ManyChat (transporte de integração)
+
+> Estado em 29/09/2026. Fase de **recebimento e preparação de outbox**, sem
+> envio. Nenhuma conta real ManyChat foi conectada, nenhum segredo existe no
+> repositório e nenhum SQL foi aplicado.
+
+### Papel na arquitetura
+
+A **Central de Redes Sociais é o sistema principal**. O ManyChat é apenas um
+**transporte/provider**: entra como ponte, não como dono dos dados nem da IA.
+
+- Canal real (`instagram`, `facebook`, `whatsapp`) continua sendo a verdade.
+- `transport = 'manychat'` registra **como** o dado chegou.
+- A IA **não pertence ao ManyChat**: permanece em `server/social/ai.mjs`
+  (`SocialAIService`). Não existe `ManyChatAIService` nem arquitetura paralela.
+
+### Canal x transport
+
+| Conceito | Valor | Exemplo |
+|---|---|---|
+| `channel` | canal real do usuário | `instagram` |
+| `transport` | como o evento chegou | `manychat` |
+| `provider` (tabela de comentários) | **sempre o canal**, nunca `manychat` | `instagram` |
+
+A Central exibe `Instagram · via ManyChat`, `Facebook · via ManyChat` e
+`WhatsApp · via ManyChat` (`originLabel` em `src/lib/social/integrations.js`).
+
+### Mensagem privada x comentário público
+
+Domínios separados, nunca misturados. `SocialMessages` lista mensagens privadas
+(DM, Messenger, WhatsApp) e `CommentPanel` lista comentários públicos; uma DM
+**nunca** vira comentário. Cada um carrega `kind`, `channel`, `transport`,
+`external_message_id` ou `external_comment_id` e `external_contact_id`.
+
+### `ManyChatProvider`
+
+`server/social/manychat.mjs`. Estende o `SocialProvider` de
+`server/social/providerBase.mjs` — **não substitui** os providers de canal
+(`providers` continua `instagram`/`facebook`/`tiktok`; `transports.manychat` é
+separado).
+
+Capacidades atuais:
+
+| Operação | Estado |
+|---|---|
+| `getContact` | **habilitada** (leitura de contato) |
+| `connect` | `false` |
+| `listComments` | `false` |
+| `replyComment` | `false` |
+| `listPosts` | `false` |
+| `getInsights` | `false` |
+| `refresh` | `false` |
+
+`replyComment()` lança `UNSUPPORTED_CHANNEL`. A UI **nunca** chama ManyChat
+diretamente: passa pelo `socialClient` e pelo serviço.
+
+### Client ManyChat (backend)
+
+`createManyChatClient` só faz GET de leitura, em endpoints conferidos na
+OpenAPI oficial do Page_API:
+
+- **timeout** com `AbortController` + `Promise.race` (cobre headers *e* corpo);
+- **401** → `AUTHENTICATION_FAILED`, **403** → `FORBIDDEN` (sem retry);
+- **429** → `RATE_LIMITED` com backoff exponencial limitado (máx. 3 tentativas);
+- **`Retry-After`** respeitado; pausa longa (>5s) **não** é antecipada;
+- **5xx** → `PROVIDER_FAILURE` com retry limitado; nunca há loop infinito;
+- erro de rede nunca expõe header nem chave.
+
+**Rate limit:** não há número oficial confirmado, então **nenhum limite foi
+inventado** — apenas tratamento genérico de 429 e retry limitado.
+
+### Health
+
+`connectionCheck()` devolve apenas `configured`, `reachable`, `authenticated`,
+`status` e `error_code`. **Nunca** devolve `Authorization`, API key ou resposta
+bruta. Sem chave: `configured:false` e **nenhuma chamada HTTP é feita**. A UI
+mapeia para 5 estados reais: Não configurado, Configurado, Conectado, Erro de
+autenticação e Atenção.
+
+
+### Ingress (recebimento ManyChat → sistema)
+
+`server/social/manychatIngress.mjs`, handler Fetch **montável, não montado**:
+
+```
+POST → autenticação → content-type → limite de tamanho (64 KiB)
+     → normalização → transação → ACK
+```
+
+- **Autenticação fail-closed**: header `x-ruy-integration-secret`, comparação
+  com `timingSafeEqual` sobre SHA-256, segredos com no mínimo 32 caracteres.
+  Segredo vem de configuração segura do backend, **nunca do body**.
+- **Account mapping** (`binding`) vem da configuração do backend:
+  `manychat_account_id` + `channel` + `account_id`, com `native_ids_verified`.
+  Conta **nunca** é inferida por nome.
+- **Comentário público exige** ID nativo real (`external_comment_id`) **e**
+  mapping validado; sem qualquer um dos dois é **recusado** (fail-closed). Não
+  se gera ID falso nem hash do texto. Comentário de WhatsApp é recusado.
+- **Mensagem privada** exige `external_message_id` e é normalizada separadamente.
+- **Idempotência** por `channel + account + external_comment_id` para
+  comentários, `channel + account + external_message_id` para mensagens e
+  `manychat + external_event_id` para eventos. Mesmo ID com corpo diferente é
+  **conflito**, não sobrescrita.
+- **Não há deduplicação por texto, nome ou timestamp.** Dois comentários com o
+  mesmo texto e autor, mas IDs nativos diferentes, são dois registros.
+- Falha em qualquer etapa crítica **não persiste registro parcial**: a transação
+  faz rollback e a auditoria de falha vai em transação separada, sem dado bruto
+  nem segredo.
+
+### Outbox e aprovação humana
+
+Fluxo implementado: `comentário/mensagem → IA sugere → humano aprova → outbox
+pending`. E **para aí**.
+
+- Estados: `pending`, `sent`, `failed`, `retrying`, `cancelled`.
+- Nesta fase **só** `pending` é criado, sempre com `blocked_reason:
+  'SEND_DISABLED'`.
+- `SOCIAL_AUTOMATION = { enabled: false, manychat: false }`.
+- Aprovação exige `confirmHuman`, texto, `expectedVersion` e
+  `idempotencyKey`; registra `approved_by`, `approved_at`, canal, destino,
+  origem, transport, referência ao registro e o outbox.
+- `dispatchSocialOutbox()` existe **apenas para lançar `SEND_DISABLED`**.
+
+### Segredos
+
+`MANYCHAT_API_KEY` aparece **apenas** em `manyChatFromEnvironment(env)`, no
+servidor. Zero ocorrências em `src/`, zero `VITE_*`, zero chave em bundle, zero
+segredo em log ou resposta. Sem infraestrutura de secret, a integração fica em
+**`NOT_CONFIGURED`** — nada é improvisado no browser.
+
+### Proposta SQL (NÃO aplicada)
+
+`scripts/proposed-social-manychat.sql` complementa `proposed-social-schema.sql`
+e termina em **`ROLLBACK`**. Cobre `social_integrations`, `social_contacts`,
+`social_messages`, `social_ingress_receipts`, `social_outbox` e o CHECK de
+provider das `social_accounts`. **Nada foi aplicado**: sem `db push`, sem
+`migration up`, sem `psql`, sem SQL Editor.
+
+### Implementado agora
+
+- `ManyChatProvider` estendendo o contrato social, com `getContact` habilitado;
+- distinção `channel` x `transport` em toda a cadeia;
+- mensagens privadas separadas de comentários públicos;
+- ingress fail-closed com `timingSafeEqual`, mapping obrigatório e ID nativo
+  obrigatório para comentários;
+- idempotência por ID nativo, sem deduplicação por conteúdo;
+- client com timeout, 401/403/429/5xx e retry limitado;
+- health conceitual sem segredo, com 5 estados na UI;
+- outbox somente `pending` + aprovação humana rastreável;
+- card ManyChat com estado real, sem campo de segredo;
+- proposta SQL com rollback, não aplicada.
+
+### Preparado para fase futura
+
+- repository real com `UNIQUE`, locks e rollback (hoje há apenas um double de
+  teste; **permanece pré-requisito de deploy**);
+- binding de conta ManyChat por ambiente;
+- montagem do handler em um host de integrações (o servidor de produção atual
+  serve estáticos e **não** deve virar servidor de integrações implícito);
+- idempotência de transporte por chave composta na tabela de migração.
+
+### Deliberadamente NÃO implementado
+
+- **worker de outbox NÃO existe**;
+- **nenhum envio real foi habilitado** — nada é disparado no ManyChat;
+- nenhuma resposta automática, disparo de fluxo, tag ou custom field;
+- nenhum sync ativo nem worker de retry de outbox;
+- nenhuma conta ManyChat real conectada;
+- nenhuma chamada de escrita (POST) na API.
+
+### Possíveis capacidades futuras (somente auditoria, sem código)
+
+Pela documentação pública do ManyChat, candidatas para fase posterior —
+**nenhuma implementada aqui**: envio de mensagem, disparo de fluxo, tags, custom
+fields, exportação e sincronização incremental. Cada uma exigiria verificação de
+API oficial e nova revisão de segurança antes de entrar.
+
+### Duplicidade Meta x ManyChat
+
+Reconciliação só quando os IDs realmente permitem: o comentário recebe a mesma
+chave `commentKey({ provider: canal, account_id, external_comment_id })` usada
+pelo caminho direto da Meta, então o mesmo comentário **reconcilia em um
+registro só**. Quando não é possível afirmar equivalência entre o ID da Meta e o
+do ManyChat, o registro **não** é reconciliado — não há heurística por conteúdo,
+por nome ou por timestamp.

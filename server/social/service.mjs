@@ -1,6 +1,7 @@
 import { socialPermissions } from '../../src/lib/social/domain.js';
 import { SocialError } from './providers.mjs';
 import { moderationCheck } from './ai.mjs';
+import { prepareManyChatAction } from './outbox.mjs';
 
 // verifyIdentity MUST validate Supabase bearer token with Auth getUser and the active
 // legacy profile. Never accept role, approver, account access or claims from request JSON.
@@ -14,6 +15,12 @@ export function createSocialService({ verifyIdentity, repository, ai, providers 
     return identity;
   }
   return Object.freeze({
+    async prepareManyChatAction(token, request) {
+      const actor = await authorize(token, 'reply');
+      // Applies to all preparations, including AI-edited text. No caller-supplied approver.
+      await authorize(token, 'approve_ai');
+      return prepareManyChatAction({ repository, actor, request });
+    },
     async read(token, report = false) {
       const actor = await authorize(token, report ? 'report' : 'view');
       return repository.snapshotFor(actor.id);
