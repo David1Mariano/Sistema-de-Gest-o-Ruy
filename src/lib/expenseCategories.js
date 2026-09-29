@@ -33,6 +33,25 @@ export function normalizeCategoryName(name) {
   return String(name ?? '').replace(/\s+/g, ' ').trim();
 }
 
+/**
+ * A chave normalizada ("limpeza") de volta para o `category_id` persistido.
+ *
+ * O resumo agrupa por NOME normalizado — é o que sobrevive a categoria
+ * renomeada ou desativada. O filtro da tela, porém, compara por ID. Esta função
+ * faz a ponte: encontra, nos gastos reais, o id de uma categoria equivalente.
+ * Devolve '' quando não há nenhuma (gasto sem categoria).
+ */
+export function findCategoryIdByKey(rows = [], key) {
+  if (!key) return '';
+  for (const row of rows || []) {
+    const expense = row?.expense || row;
+    if (!expense) continue;
+    const nome = String(expense.category_name || '').trim() || 'Sem categoria';
+    if (categoryKey(nome) === key) return expense.category_id || '';
+  }
+  return '';
+}
+
 // Categorias que o usuário pode escolher: ativas primeiro, sem repetir nomes
 // equivalentes (protege contra duplicatas antigas já gravadas no banco).
 export function selectableCategories(categories = []) {
@@ -52,7 +71,13 @@ export function selectableCategories(categories = []) {
 
 // Soma por categoria a partir dos gastos REAIS. Cancelados nunca entram.
 // Retorna [{ chave, nome, total, quantidade }] ordenado pelo maior total.
-export function summarizeByCategory(rows = []) {
+//
+// `gastos` (opcional) carrega os lançamentos de cada grupo, para o detalhamento
+// ao clicar na categoria. É uma REFERÊNCIA aos mesmos objetos de `rows` — não é
+// cópia nem consulta nova — então o resumo continua sendo um agrupamento local,
+// sem "N categorias = N queries". Por padrão fica de fora, para o chamador
+// existente (`CategorySummary`) continuar recebendo a mesma estrutura enxuta.
+export function summarizeByCategory(rows = [], { incluirGastos = false } = {}) {
   const byKey = new Map();
   for (const expense of rows || []) {
     if (isCancelledExpense(expense)) continue;
@@ -61,10 +86,15 @@ export function summarizeByCategory(rows = []) {
     const atual = byKey.get(key) || { chave: key, nome, total: 0, quantidade: 0 };
     atual.total += Number(expense.amount) || 0;
     atual.quantidade += 1;
+    if (incluirGastos) (atual.gastos ||= []).push(expense);
     byKey.set(key, atual);
   }
   return [...byKey.values()]
-    .map((row) => ({ ...row, total: Math.round(row.total * 100) / 100 }))
+    .map((row) => {
+      const base = { ...row, total: Math.round(row.total * 100) / 100 };
+      if (!incluirGastos) delete base.gastos;
+      return base;
+    })
     .sort((a, b) => b.total - a.total || a.nome.localeCompare(b.nome, 'pt-BR'));
 }
 
