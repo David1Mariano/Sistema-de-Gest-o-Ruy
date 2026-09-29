@@ -641,3 +641,66 @@ test('I23 — storage indisponível: o formulário abre e funciona igual', () =>
   assert.equal(sessao.discard(), false, 'descartar é no-op');
   assert.equal(sessao.saved(), false, 'salvar é no-op');
 });
+
+// ---------------------------------------------------------------------------
+// Auditoria do `catch` adicionado em Pagamento e Conta a Pagar.
+//
+// Antes These diálogos eram `try/finally` sem `catch`: uma falha no
+// `onSaved()` (releitura da tela depois de salvar) era engolida em silêncio.
+// O `catch` foi adicionado para proteger o rascunho e mostrar o erro — mas ele
+// não pode passar a tratar "releitura falhou" como "não foi possível salvar",
+// senão o usuário recebe um aviso de falha depois de o registro já existir.
+// ---------------------------------------------------------------------------
+
+const CATCH_ALVO = [
+  {
+    nome: 'Pagamento',
+    arquivo: 'src/pages/Financeiro.jsx',
+    componente: 'function PaymentDialog(',
+    mensagem: 'Não foi possível registrar o pagamento.',
+  },
+  {
+    nome: 'Conta a Pagar',
+    arquivo: 'src/pages/Financeiro.jsx',
+    componente: 'function PayableCreateDialog(',
+    mensagem: 'Não foi possível salvar a conta.',
+  },
+];
+
+for (const alvo of CATCH_ALVO) {
+  test(`I24 — ${alvo.nome}: o catch distingue falha de gravação de falha de releitura`, async () => {
+    const codigo = recortar(await ler(alvo.arquivo), alvo.componente);
+
+    // Um `catch` por caminho de gravação (lote e avulso no Pagamento).
+    const catches = [...codigo.matchAll(/\}\s*catch\s*\(e\)\s*\{/g)];
+    assert.equal(catches.length >= 1, true, `${alvo.nome}: precisa existir catch de erro`);
+    for (const c of catches) {
+      // Só o CORPO do catch: da chave até o `return`. Ver além disso
+      // pegaria o caminho de sucesso, que é justamente o oposto do que
+      // estamos checando.
+      const corpo = codigo.slice(c.index, codigo.indexOf('return', c.index) + 'return'.length);
+      assert.match(corpo, /draft\.markFailed\(\)/, `${alvo.nome}: falha de gravação tem que manter o rascunho`);
+      assert.match(corpo, new RegExp(alvo.mensagem.replace(/[.*+?^${}()|[\]\\]/g, '\\$&')), `${alvo.nome}: a falha precisa virar mensagem visível, não exceção engolida`);
+      assert.doesNotMatch(corpo, /draft\.markSaved\(\)/, `${alvo.nome}: o caminho de falha NUNCA limpa o rascunho`);
+      assert.doesNotMatch(corpo, /onClose\(\)|onSaved\(\)/, `${alvo.nome}: o caminho de falha não fecha o modal nem recarrega`);
+      assert.doesNotMatch(corpo, /await\s+base44/, `${alvo.nome}: o caminho de falha não grava nada no banco`);
+    }
+
+    // E o caminho de sucesso continua depois do try, não dentro dele.
+    assert.match(
+      codigo,
+      /draft\.markSaved\(\);[^\n]*setSaving\(false\);onClose\(\);await onSaved\(\)/,
+      `${alvo.nome}: sucesso = marca salvo, solta o botão, fecha e recarrega`,
+    );
+  });
+
+  test(`I25 — ${alvo.nome}: o catch não mexe em regra financeira`, async () => {
+    const codigo = recortar(await ler(alvo.arquivo), alvo.componente);
+    for (const c of codigo.matchAll(/\}\s*catch\s*\(e\)\s*\{/g)) {
+      const corpo = codigo.slice(c.index, codigo.indexOf('}', c.index + 30));
+      assert.doesNotMatch(corpo, /entities\.\w+\./, `${alvo.nome}: o catch não grava nada no banco`);
+      assert.doesNotMatch(corpo, /payment_type|net_amount|discount_amount|classification|origin_type/, `${alvo.nome}: o catch não altera cálculo nem classificação do lançamento`);
+      assert.doesNotMatch(corpo, /\.create\(|\.update\(|\.delete\(|\.transact\(/, `${alvo.nome}: o catch não dispara operação`);
+    }
+  });
+}
