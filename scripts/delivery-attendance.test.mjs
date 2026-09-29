@@ -30,7 +30,7 @@ async function open() {
   if (!db) {
     db = new PGlite();
     await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-    for (const file of ['202609290001_delivery_conversations.sql', '202609300001_delivery_attendance_ops.sql']) {
+    for (const file of ['20260929000100_delivery_conversations.sql', '20260930000100_delivery_attendance_ops.sql']) {
       await db.exec(await readFile(new URL(`../supabase/migrations/${file}`, import.meta.url), 'utf8'));
     }
     await db.exec('set role service_role');

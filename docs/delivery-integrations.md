@@ -61,7 +61,7 @@ Componentes: `src/components/integrations/{DeliverySettings,DeliveryAccess,Deliv
 Cliente, estados e cálculos: `src/lib/integrations/{deliveryClient,deliveryStatus,deliverySummary}.js`.
 Backend: `supabase/functions/delivery-api/index.ts`, `ifood-webhook/index.ts` (bloqueado),
 `_shared/{handlers,ifood,provider-http,repository,delivery-domain}.mjs`.
-Infraestrutura: `supabase/config.toml`, migration `202609250001_delivery_integrations.sql`,
+Infraestrutura: `supabase/config.toml`, migration `20260925000100_delivery_integrations.sql`,
 script opcional `supabase/ops/enable-delivery-worker.sql`, não executado.
 Testes: `scripts/test-delivery-integrations.mjs`, mocks e banco em memória.
 Montagens existentes: Configuracoes, CashMovementPanel, DirectionCashFlow.

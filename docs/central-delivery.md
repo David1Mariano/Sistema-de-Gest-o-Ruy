@@ -158,7 +158,7 @@ garantia de cancelamento de mensagem entregue. Hoje nenhuma mensagem é enviada.
 ## Atendimento persistido (migration preparada, não aplicada)
 
 Fecha a infraestrutura de atendimento: clientes, conversas, mensagens e handoff humano.
-A migration 202609290001_delivery_conversations.sql está versionada apenas para revisão:
+A migration 20260929000100_delivery_conversations.sql está versionada apenas para revisão:
 nada foi aplicado no Supabase, nenhuma policy foi criada e não houve deploy. Os testes
 executam a migration real em PostgreSQL na memória (PGlite).
 
@@ -222,7 +222,7 @@ acesso e o status dos canais continuam no topo, com `deliveryStatus` e o
 Auditoria do modelo anterior: `mode`, `version` e `assigned_to` não registram
 **quem leu** nem **quando** — era impossível derivar "não lidas" entre múltiplos
 atendentes sem inventar estado, e um contador só no navegador falharia para dois
-operadores ao mesmo tempo. A migration `202609300001_delivery_attendance_ops.sql`
+operadores ao mesmo tempo. A migration `20260930000100_delivery_attendance_ops.sql`
 cria `delivery_conversation_reads`, marcador por (usuário, conversa) com chave
 composta provider/loja. NÃO aplicada.
 
@@ -326,8 +326,8 @@ Referência: [orientação ANPD](https://www.gov.br/anpd/pt-br/assuntos/noticias
    autorização/webhook/envio e requisitos comerciais antes de implementar.
 5. Escolher provedor IA, política de dados/custos e revisão de ferramentas; chave
    somente no servidor. Implementar grounding, validação e avaliação antes de envio.
-6. Revisar e autorizar as migrations de atendimento (202609290001: clientes,
-   conversas, mensagens, rascunhos e auditoria de handoff; 202609300001: marcador
+6. Revisar e autorizar as migrations de atendimento (20260929000100: clientes,
+   conversas, mensagens, rascunhos e auditoria de handoff; 20260930000100: marcador
    de não lidas, eventos de atendimento e outbox) e definir quem popula
    delivery_operator_scopes em homologação. Nada foi aplicado; catálogo segue
    apenas projetado.
@@ -347,7 +347,7 @@ IA, autorização de operador e RLS/grants com a migration real em PGlite.
 delivery-attendance.test.mjs cobre a central de atendimento: enriquecimento e
 não lidas no servidor, filtros/ordenação/seleção da interface, handoff e avisos,
 auditoria, marcador de leitura, rascunho local sem rede, ausência de operação de
-envio e a migration 202609300001 em PGlite (constraints, RLS e grants), sempre com
+envio e a migration 20260930000100 em PGlite (constraints, RLS e grants), sempre com
 fetch bloqueado.
 Sem credenciais reais, sem SQL remoto ou mensagens. Regressões locais existentes
 continuam necessárias. Nenhuma mudança em Financeiro.jsx, Auth, estoque ou produção.

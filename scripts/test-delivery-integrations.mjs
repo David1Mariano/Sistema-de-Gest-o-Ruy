@@ -210,7 +210,7 @@ test('PostgreSQL: migration real, RLS/grants, idempotência, atualização, canc
   const db = new PGlite();
   try {
     await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-    await db.exec(await readFile(new URL('../supabase/migrations/202609250001_delivery_integrations.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/20260925000100_delivery_integrations.sql', import.meta.url), 'utf8'));
     for (const role of ['anon','authenticated']) {
       await db.exec(`set role ${role}`);
       for (const table of ['delivery_integrations','delivery_merchants','delivery_orders','delivery_events']) await assert.rejects(db.query(`select * from ${table}`), /permission denied/);

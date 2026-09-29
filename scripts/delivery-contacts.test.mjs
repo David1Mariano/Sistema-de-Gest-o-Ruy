@@ -23,7 +23,7 @@ async function open() {
   if (!db) {
     db = new PGlite();
     await db.exec('create role anon; create role authenticated; create role service_role bypassrls;');
-    await db.exec(await readFile(new URL('../supabase/migrations/202609290001_delivery_conversations.sql', import.meta.url), 'utf8'));
+    await db.exec(await readFile(new URL('../supabase/migrations/20260929000100_delivery_conversations.sql', import.meta.url), 'utf8'));
     await db.exec('set role service_role');
   }
   return db;
