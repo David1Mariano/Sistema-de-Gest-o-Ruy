@@ -188,7 +188,7 @@ function SearchAndFilters({
   </div>;
 }
 
-export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', data, onSaved, onCategoriesChanged, openSignal = 0 }) {
+export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', semDadosConfirmados = true, data, onSaved, onCategoriesChanged, openSignal = 0 }) {
   // A auditoria de FinancialExpense é sensível (mostra valores e favorecidos de
   // todo mundo). Só quem já pode administer o Financeiro acessa o histórico,
   // com o MESMO critério de acesso da tela global de Auditoria.
@@ -342,6 +342,19 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     />}
 
     {view !== 'historico' && <>
+    {/* "R$ 0,00" e "não consegui ler" são coisas diferentes. Quando a
+        collection de gastos não foi lida, mostrar zero seria afirmar que não
+        existe gasto nenhum — o que é uma mentira bem mais perigosa que um
+        aviso. Nestes cards, zero só aparece quando os dados foram lidos. */}
+    {!semDadosConfirmados ? (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-semibold">Valores indisponíveis — os gastos não foram carregados.</p>
+        <p className="mt-1">
+          Os números abaixo ficam ocultos de propósito: sem conseguir ler a lista, qualquer total
+          seria uma estimativa inventada. Tente atualizar ou entre novamente.
+        </p>
+      </div>
+    ) : (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
         hint={indicators.todayCount ? `${indicators.todayCount} lançamento(s)` : 'Nenhum lançamento hoje'} />
@@ -351,6 +364,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
       <Indicator label="Pagos sem comprovante" value={indicators.noProofCount} icon={AlertTriangle}
         danger={indicators.noProofCount > 0} hint="Pendentes de anexo" />
     </div>
+    )}
 
     <SearchAndFilters
       search={search} setSearch={setSearch}

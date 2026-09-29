@@ -3,6 +3,15 @@ import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { usePersistentDraft } from '@/lib/usePersistentDraft';
 import { hasDraftChanged } from '@/lib/draftStore';
+import {
+  FONTE_FINANCEIRO,
+  aliasesInvalidos,
+  ehFalhaDeSessao,
+  executarFontes,
+  mesclarPreservando,
+  resumirFalhas,
+} from '@/lib/financeiroLoad';
+import { renovarSessao } from '@/lib/supabaseClient';
 import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
 import DraftNotice from '@/components/shared/DraftNotice';
 import { Button } from '@/components/ui/button';
@@ -67,6 +76,10 @@ export default function Financeiro() {
   const carregouRef = useRef(false);
   const dataRef = useRef(data);
   dataRef.current = data;
+  // Quais collections NÃO foram lidas na última carga. Um card alimentado por
+  // uma delas não pode mostrar um número como se fosse verdade: "R$ 0,00" e
+  // "não consegui ler" precisam ser coisas diferentes na tela.
+  const [invalidAliases, setInvalidAliases] = useState(() => new Set());
 
   // FALHA NÃO pode virar lista vazia. O `catch(() => [])` antigo transformava
   // uma queda de rede em "Nenhum gasto encontrado", apagando da tela gastos que
@@ -83,41 +96,41 @@ export default function Financeiro() {
     return true;
   };
 
-  const load = async () => {
+  const load = async ({ tentativa = 0 } = {}) => {
     const seq = ++seqRef.current;
     if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
-    const fontes = [
-      ['expenses', base44.entities.FinancialExpense.list('-date', 1000)],
-      ['payments', base44.entities.EmployeePayment.list('-payment_date', 1000)],
-      ['employees', base44.entities.Employee.list('name', 500)],
-      ['vales', base44.entities.Vale.list('-date', 1000)],
-      ['consumptions', base44.entities.Consumption.list('-date', 1000)],
-      ['categories', base44.entities.ExpenseCategory.list('name', 300)],
-      ['centers', base44.entities.CostCenter.list('name', 300)],
-      ['payables', base44.entities.AccountsPayable.list('due_date', 1000)],
-      ['accounts', base44.entities.FinancialAccount.list('name', 200)],
-      ['recurrings', base44.entities.RecurringExpense.list('next_due_date', 300)],
-      ['closes', base44.entities.DailyFinancialClose.list('-date', 300)],
-      ['fechamentosCaixa', base44.entities.FechamentoCaixa.list('-date', 1000)],
-      ['sangrias', base44.entities.Sangria.list('-date', 1000)],
-      ['cashMovements', isAdmin ? base44.entities.CashMovement.list('-date', 1500) : Promise.resolve([])],
-      ['suppliers', base44.entities.Supplier.list('name', 500)],
-    ];
-    try {
-      const resultados = await Promise.all(fontes.map(([, p]) => safe(p)));
-      if (seq !== seqRef.current) return;
-      const parcial = {}; const falhas = [];
-      resultados.forEach((r, i) => { if (r.ok) parcial[fontes[i][0]] = r.value; else falhas.push(fontes[i][0]); });
-      apply(parcial, seq);
-      // Falha parcial mantém o último valor bom daquela coleção e avisa, em vez
-      // de esvaziar a tela.
-      setFailure(falhas.length ? `Não foi possível atualizar: ${falhas.join(', ')}. Exibindo os últimos dados carregados.` : '');
-      carregouRef.current = true;
-    } catch (e) {
-      if (seq === seqRef.current) setFailure('Não foi possível atualizar o Financeiro. Exibindo os últimos dados carregados.');
-    } finally {
+    const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
+      alias,
+      entity,
+      entidade: base44.entities[entity],
+    }));
+    // Um administrador não vê caixa; para ele a collection resolve como vazia,
+    // o que é um valor legítimo e não uma falha.
+    if (!isAdmin) fontes[13] = { ...fontes[13], entidade: { list: async () => [] } };
+
+    const { valores, falhas } = await executarFontes(fontes);
+
+    // A sessão pode ter expirado com a tela aberta. Uma falha de sessão atinge
+    // as 15 entities de uma vez porque o cabeçalho é compartilhado: antes disso
+    // a tela ficava zerada para sempre, sem nenhuma nova tentativa. Renovamos
+    // a sessão UMA vez e repetimos a carga; se voltar a falhar, o aviso passa a
+    // trazer status e causa de verdade.
+    if (falhas.length && tentativa === 0 && ehFalhaDeSessao(falhas)) {
+      await renovarSessao();
       if (seq === seqRef.current) { setInitialLoading(false); setRefreshing(false); }
+      return load({ tentativa: 1 });
     }
+
+    if (seq !== seqRef.current) return;
+    // Uma collection que falhou NÃO é trocada por vazio: fica o último valor
+    // bom. É o que impede "deu ruim" de virar "não existem gastos".
+    apply(mesclarPreservando(valores, dataRef.current), seq);
+    const invalidos = aliasesInvalidos(falhas);
+    setInvalidAliases(invalidos);
+    setFailure(resumirFalhas(falhas, { carregouAntes: carregouRef.current }));
+    carregouRef.current = true;
+    setInitialLoading(false);
+    setRefreshing(false);
   };
 
   // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
@@ -220,7 +233,7 @@ export default function Financeiro() {
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
     {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
