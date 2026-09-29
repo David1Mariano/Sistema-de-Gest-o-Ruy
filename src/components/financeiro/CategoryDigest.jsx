@@ -108,7 +108,7 @@ export default function CategoryDigest({ rows = [], periodLabel = '', onPick, se
             </h5>
             <button
               type="button"
-              onClick={() => setAberto(null)}
+              onClick={() => setGrupoAberto(null)}
               className="inline-flex items-center gap-1 text-xs text-slate-500 hover:text-slate-800"
             >
               <X className="w-3 h-3" /> Fechar detalhamento

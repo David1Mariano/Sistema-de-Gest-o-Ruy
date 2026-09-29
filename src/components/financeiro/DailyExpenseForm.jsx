@@ -5,8 +5,12 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import NumberInput from '@/components/shared/NumberInput';
+import DraftNotice from '@/components/shared/DraftNotice';
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
+import { usePersistentDraft } from '@/lib/usePersistentDraft';
+import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
+import { hasDraftChanged } from '@/lib/draftStore';
 import { ExpenseAttachmentUpload } from '@/components/financeiro/ExpenseAttachment';
 import {
   saveDailyExpense, validateExpenseForm, expenseToForm, emptyExpenseForm, newExpenseId,
@@ -15,6 +19,13 @@ import {
 } from '@/lib/dailyExpenses';
 import { toNumberBR } from '@/lib/numberUtils';
 import { employeeById, employeeSelectOptions } from '@/lib/paymentRecipients';
+
+// Anexos NÃO entram no rascunho. `proof_url`/`invoice_url` são o resultado de
+// um upload que já aconteceu; o File em si nunca está no estado. Guardar a URL
+// no localStorage mostraria um comprovante possivelmente expirado como se
+// fosse o anexado de agora, então o rascunho carrega o TEXTO e a tela avisa
+// que o arquivo precisa ser escolhido de novo.
+const CAMPOS_DE_ANEXO = ['proof_url', 'invoice_url'];
 
 const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
 
@@ -55,14 +66,33 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   const proofRef = useRef();
   const invoiceRef = useRef();
 
+  // Rascunho local. Chave por usuário + por formulário; em edição o id do
+  // gasto entra na chave para não misturar dois registros. Anexos ficam de
+  // fora (ver CAMPOS_DE_ANEXO).
+  const draftKey = draftEditKey(
+    editing ? DRAFT_FORM_KEYS.FINANCEIRO_GASTO_EDIT : DRAFT_FORM_KEYS.FINANCEIRO_GASTO_NOVO,
+    editing?.id,
+  );
+  const draft = usePersistentDraft({
+    formKey: draftKey,
+    enabled: open,
+    value: form,
+    excludeFields: CAMPOS_DE_ANEXO,
+    recordUpdatedAt: editing?.updated_at,
+  });
+
   useEffect(() => {
     if (!open) return;
-    setForm(editing ? expenseToForm(editing) : emptyExpenseForm());
+    // `restoreInto` devolve o baseline já com o rascunho por cima (ou o
+    // baseline intacto). O rascunho é aplicado AQUI, dentro do mesmo reset que
+    // já existia — por isso o efeito do hook não precisa competir de ordem
+    // com este.
+    setForm(draft.restoreInto(editing ? expenseToForm(editing) : emptyExpenseForm()));
     setErrors({});
     setFailure('');
     setUploading('');
     pendingId.current = '';
-  }, [open, editing]);
+  }, [open, editing, draft.restoreInto]);
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -97,13 +127,31 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
         payments: data.payments,
       });
       pendingId.current = '';
+      // O backend CONFIRMOU. Só agora o rascunho sai — antes disso ele é a
+      // única cópia do que a pessoa digitou.
+      draft.markSaved();
       onClose();
       await onSaved();
     } catch (err) {
       // `pendingId` é mantido de propósito: a próxima tentativa reenvia o mesmo
       // id, então o `create` atualiza o gasto existente em vez de duplicá-lo.
+      // O rascunho também é mantido, pela mesma razão.
+      draft.markFailed();
       setFailure(err?.message || 'Não foi possível salvar o gasto. Tente novamente.');
     } finally { setSaving(false); }
+  };
+
+  // Cancelar nunca apaga sozinho. Se houver algo digitado, a decisão é da
+  // pessoa: descartar o rascunho ou guardar para continuar depois.
+  const requestClose = () => {
+    if (saving) return;
+    if (hasDraftChanged(form, editing ? expenseToForm(editing) : emptyExpenseForm())
+      && window.confirm(DRAFT_CANCEL_CONFIRM)) {
+      draft.discard();
+    } else {
+      draft.keep();
+    }
+    onClose();
   };
 
   const activeCategories = expenseCategoryOptions(data.categories);
@@ -112,8 +160,10 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   // filtro que possa divergir e esconder gente da lista.
   const employeeOptions = employeeSelectOptions(data.employees);
   const canSave = Boolean(form.description?.trim()) && toNumberBR(form.amount) > 0;
+  const hasFile = Boolean(form.proof_url || form.invoice_url);
+  const hint = hasFile ? DRAFT_LABEL_FILE : undefined;
 
-  return <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) onClose(); }}>
+  return <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) requestClose(); }}>
     <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
       <DialogHeader>
         <DialogTitle>{editing ? 'Editar gasto diário' : 'Novo gasto diário'}</DialogTitle>
@@ -179,8 +229,14 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
         </div>
       </div>
       {failure && <p role="alert" className="mt-3 rounded-md border border-red-200 bg-red-50 p-3 text-sm text-red-700">{failure}</p>}
+      <DraftNotice
+        status={draft.status}
+        message={draft.message}
+        hint={hint}
+        onDiscard={draft.discard}
+        onDismiss={draft.dismissNotice} />
       <DialogFooter>
-        <Button variant="outline" onClick={onClose} disabled={saving}>Cancelar</Button>
+        <Button variant="outline" onClick={requestClose} disabled={saving}>Cancelar</Button>
         <Button onClick={save} disabled={saving || !canSave}>{saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Registrar gasto'}</Button>
       </DialogFooter>
     </DialogContent>
