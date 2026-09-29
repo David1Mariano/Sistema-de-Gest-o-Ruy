@@ -854,6 +854,100 @@ Tabela **própria**, e não linhas em `social_events`: o CHECK de `action` dali 
 fechado para o ciclo de comentários e respostas, e forçar "acesso revogado" ali
 apagaria a distinção entre "comentário recebido" e "acesso revogado".
 
+### A sequência REAL de ativação (Fase 8)
+
+A sequência da Fase 7 era **impossível** e foi corrigida. Ela dizia: aplicar o
+schema, abrir a tela e conceder o primeiro `can_admin` **pela própria tela** —
+mas a tela exige `can_admin` para conceder acesso, e com a tabela vazia ninguém
+o tem. Um caminho não pode autorizar quem ainda não tem autorização.
+
+A ordem correta é esta:
+
+1. **Aplicar** `proposed-social-account-access.sql` (uma vez, em janela
+   administrativa). As tabelas nascem vazias.
+2. **Cadastrar/conectar** pelo menos uma conta social real.
+3. **Executar o bootstrap one-shot** do primeiro administrador, no console
+   administrativa — não pela tela.
+4. **Administrar os demais acessos pela interface**, a partir de então.
+
+### Bootstrap: caminho separado, não atalho
+
+```
+tela (fluxo normal)  -> exige configure + can_admin   [Fases 6 e 7]
+bootstrap (one-shot) -> conexão administrativa ao banco
+                        + nenhum administrador ativo  [Fase 8]
+```
+
+`scripts/bootstrap-social-admin.mjs`:
+
+- **modo padrão é dry-run**: sem `--apply`, **zero escrita**;
+- `--apply` grava **e ainda exige** que o operador digite `APLICAR`;
+- resolve pessoa e conta **por nome/e-mail**, nunca por UUID digitado;
+- **ambiguidade para**: dois "Maria Souza" param o comando e listam candidatos;
+- exige pessoa **ativa**, com `auth_user_id` no inventário, e conta
+  **`connected`**;
+- Permissions fixas e completas: `can_view`, `can_reply`, `can_approve_ai`,
+  `can_admin` (as constraints do banco recusariam um conjunto parcial);
+- **um-shot**: havendo qualquer `active=true, can_admin=true`, recusa. Um admin
+  **revogado** não reabre a porta;
+- concorrência: `pg_advisory_xact_lock` serializa bootstraps, e a checagem de
+  "já existe admin" roda **dentro** da transação;
+- auditoria na **mesma transação**, com `origin: 'bootstrap'`.
+
+Sem `--apply`, o dry-run **faz as mesmas verificações** do apply — se fizesse
+menos, não validaria nada.
+
+O bootstrap **não é alcançável por HTTP**: `createSocialAdminHandler` não tem
+rota de bootstrap, e há teste que falha se alguém acrescentar uma.
+
+### Store PostgreSQL real
+
+`server/social/accountAccessStore.mjs` implementa o contrato do serviço sobre
+`social_account_access` e `social_account_access_audit`, seguindo o padrão do
+`repository.mjs` (`withClient()` + `transaction()`):
+
+- **toda escrita passa por `transaction()`** — concessão e auditoria no mesmo
+  commit; se a auditoria falhar, a concessão não fica pela metade;
+- `select ... for update` serializa edições do mesmo vínculo;
+- `insert ... on conflict do nothing` + checagem de linhas transforma a corrida
+  de concessão em `ALREADY_EXISTS`, e não em exceção opaca do driver;
+- erro de banco propaga; resposta fora do formato é `STORE_MALFORMED`. **Nenhuma
+  falha vira lista vazia**;
+- sem fallback em memória: sem `withClient`, o store não sobe.
+
+### Handler HTTP de administração
+
+`server/social/adminHandler.mjs`, namespace **`/social-admin/*`**, separado de
+`/social-ai/*` — são autorizações de contratos diferentes.
+
+| Rota | Verbo | Permissão |
+|---|---|---|
+| `/social-admin/accounts` | GET | `configure` (lista global) |
+| `/social-admin/accounts/:id/access` | GET | `configure` + `can_admin` |
+| `/social-admin/accounts/:id/candidates` | GET | `configure` + `can_admin` |
+| `/social-admin/accounts/:id/grant` | POST | `configure` + `can_admin` |
+| `/social-admin/accounts/:id/access` | PATCH | `configure` + `can_admin` |
+| `/social-admin/accounts/:id/revoke` | POST | `configure` + `can_admin` |
+| `/social-admin/accounts/:id/reactivate` | POST | `configure` + `can_admin` |
+
+**Sem CRUD genérico**: não existe `POST /social-admin/query` nem rota de operação
+arbitrária. Cada ação tem verbo e corpo próprios.
+
+A lista de contas **não** exige vínculo por conta — o operador precisa **ver** as
+contas antes de poder administrar uma. Todas as demais exigem.
+
+`verifyIdentity` é o da Fase 5, revalidado no servidor. `userId` e `role` do
+corpo são **ignorados**.
+
+**Mensagem de erro**: só códigos de negócio recebem texto próprio. Erro de
+infraestrutura recebe mensagem genérica, porque o `pg` inclui host, porta e às
+vezes credencial na mensagem — ecoá-la entregaria a topologia do banco. O
+código continua indo, para a tela diferenciar "sem permissão" de "banco fora".
+
+O identificador externo da plataforma viaja **redigido** na resposta.
+
+
+
 ### Verificação do schema (Fase 7)
 
 `scripts/check-social-access-schema.mjs` é **somente leitura**: 14 verificações

@@ -121,6 +121,10 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
         provider: row.provider,
         display_name: row.display_name,
         status: row.status,
+        // O identificador externo viaja para que a tela possa EXIBI-LO
+        // REDIGIDO. Sem este campo, `redactExternalId()` da Fase 7 recebia
+        // `undefined` e toda conta aparecia como "não informado".
+        external_account_id: row.external_account_id ?? null,
         access_count: Number.isInteger(row.access_count) ? row.access_count : 0,
       }));
     },

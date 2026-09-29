@@ -31,13 +31,13 @@ export function createSocialAccessClient({ endpoint, getToken, fetchImpl } = {})
   }
 
   return Object.freeze({
-    listAccounts: () => request('/social-accounts'),
-    listAccountAccess: (accountId) => request(`/social-accounts/${encodeURIComponent(accountId)}/access`),
-    listCandidates: (accountId) => request(`/social-accounts/${encodeURIComponent(accountId)}/candidates`),
-    grant: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'grant', ...input } }),
-    saveAccess: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'update', ...input } }),
-    revoke: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'revoke', ...input } }),
-    reactivate: (input) => request('/social-accounts/access', { method: 'POST', body: { action: 'reactivate', ...input } }),
+    listAccounts: () => request('/social-admin/accounts'),
+    listAccountAccess: (accountId) => request(`/social-admin/accounts/${encodeURIComponent(accountId)}/access`),
+    listCandidates: (accountId) => request(`/social-admin/accounts/${encodeURIComponent(accountId)}/candidates`),
+    grant: (input) => request(`/social-admin/accounts/${encodeURIComponent(input.accountId)}/grant`, { method: 'POST', body: { auth_user_id: input.authUserId, ...input.permissions } }),
+    saveAccess: (input) => request(`/social-admin/accounts/${encodeURIComponent(input.accountId)}/access`, { method: 'PATCH', body: { auth_user_id: input.authUserId, ...input.permissions } }),
+    revoke: (input) => request(`/social-admin/accounts/${encodeURIComponent(input.accountId)}/revoke`, { method: 'POST', body: { auth_user_id: input.authUserId } }),
+    reactivate: (input) => request(`/social-admin/accounts/${encodeURIComponent(input.accountId)}/reactivate`, { method: 'POST', body: { auth_user_id: input.authUserId, ...input.permissions } }),
   });
 }
 

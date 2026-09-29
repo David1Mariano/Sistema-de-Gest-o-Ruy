@@ -52,7 +52,9 @@ const vinculo = (extra = {}) => ({ account_id: 'acc-1', auth_user_id: 'u1', acti
 test('1. lista contas com canal, nome, status e contagem de acessos', async () => {
   const contas = await service(fakeStore()).listAccounts('token');
   assert.equal(contas.length, 1);
-  assert.deepEqual(contas[0], { id: 'acc-1', provider: 'instagram', display_name: 'Ruy Caldo de Cana', status: 'connected', access_count: 1 });
+  // `external_account_id` foi acrescentado na Fase 8: sem ele, a tela recebia
+  // `undefined` e mostrava "não informado" para toda conta.
+  assert.deepEqual(contas[0], { id: 'acc-1', provider: 'instagram', display_name: 'Ruy Caldo de Cana', status: 'connected', external_account_id: '17841400', access_count: 1 });
 });
 test('2. conta sem vínculos devolve lista vazia, não erro', async () => {
   const s = fakeStore({ accounts: [{ id: 'acc-9', provider: 'whatsapp', display_name: 'Número da empresa', status: 'disconnected', access_count: 0 }] });
@@ -261,8 +263,11 @@ test('o cliente HTTP fala só com o backend, nunca com o provider', async () => 
   const client = createSocialAccessClient({ endpoint: 'https://api.invalid', getToken: async () => 't', fetchImpl: async (url) => { urls.push(url); return new Response('{}', { status: 200, headers: { 'content-type': 'application/json' } }); } });
   await client.listAccounts();
   await client.grant({ accountId: 'acc-1', authUserId: 'u1', permissions: { can_view: true } });
-  assert.equal(urls[0], 'https://api.invalid/social-accounts');
-  assert.equal(urls[1], 'https://api.invalid/social-accounts/access');
+  assert.equal(urls[0], 'https://api.invalid/social-admin/accounts');
+  // A Fase 8 deu verbo e corpo próprios a cada ação: grant é POST próprio, e a
+  // edição é PATCH em `/access`. Um único endpoint com `action` no corpo seria
+  // exatamente o CRUD genérico que a fase proíbe.
+  assert.equal(urls[1], 'https://api.invalid/social-admin/accounts/acc-1/grant');
   assert.ok(!urls.some((u) => /ollama|11434|gemini|groq/i.test(u)));
   assert.ok(!/11434/.test(src), 'nenhuma porta do Ollama no cliente');
 });
