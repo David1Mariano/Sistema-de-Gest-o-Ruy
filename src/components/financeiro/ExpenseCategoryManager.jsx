@@ -23,14 +23,27 @@ const comTempoLimite = (promise, mensagem) => Promise.race([
 // Não há exclusão física: se a categoria já foi usada em algum gasto, só
 // desativamos (status), preservando o histórico e as descrições gravadas.
 //
-// TRAVAMENTO (bug real): a guarda `saving` do React só vale na PRÓXIMA
-// renderização. Com Enter + clique ou dois cliques rápidos, as duas chamadas
-// liam `saving === false` e persistiam DUAS vezes; e como o `onSaved` antigo
-// recarregava as 8 entidades com `Promise.all`, uma requisição lenta deixava a
-// tela inteira em "Carregando gastos..." com o botão travado. Aqui a guarda é
-// um `ref` (síncrono, vale na hora), o `onSaved` recarrega SÓ as categorias e
-// toda espera tem tempo limite.
+// TRAVAMENTO (bug real, CAUSA RAIZ): o componente renderiza
+// `selectableCategories(categories)`, que faz `[...(categories || [])]`. Quando
+// `categories` chega como OBJETO (não lista) — e não como `undefined`, onde o
+// default `= []` segura — o spread estoura: "is not iterable". Sem Error
+// Boundary, o React desmonta a árvore inteira: TELA BRANCA travada.
+//
+// Isto NÃO era o aviso de "controlled/uncontrolled": aquele só avisa, não joga a
+// tela fora. Foi reproduzido com `renderToStaticMarkup` — `value={undefined}`
+// passa, `categories` não-array estoura.
+//
+// De onde vem o objeto: `DailyExpensesPanel` repassa `data.categories` direto, e
+// o `Financeiro.jsx` monta o painel SEM `onCategoriesChanged`, então o `onSaved`
+// do Gerenciador cai no `load()` completo, que regrava o `data` inteiro.
+//
+// A correção é na BORDA (não mascarando): aceitar lista, rejeitar o resto, e o
+// chamador nunca receber um id que não existe.
 export default function ExpenseCategoryManager({ categories = [], onSaved, onSelect }) {
+  // Normaliza na entrada: `Array.isArray` é a única fonte de verdade sobre o
+  // que é lista. Qualquer outra coisa (undefined, objeto, null) vira lista vazia
+  // em vez de derrubar o render.
+  const lista = selectableCategories(Array.isArray(categories) ? categories : []);
   const [name, setName] = useState('');
   const [saving, setSaving] = useState(false);
   const [message, setMessage] = useState('');
@@ -74,12 +87,20 @@ export default function ExpenseCategoryManager({ categories = [], onSaved, onSel
         );
         avisar(() => setName(''));
         avisar(() => setMessage(`Categoria "${limpo}" criada. Já aparece na lista de gastos.`));
-        avisar(() => onSelect?.(criada?.id));
+        // O `onSaved` vem ANTES da seleção: só assim a categoria já existe no
+        // `<select>` quando recebe o id. Selecionar antes deixava o valor
+        // apontando para uma opção que ainda não estava na lista.
+        await onSaved?.();
+        // Só seleciona com id REAL. `undefined` aqui virava estado `undefined`
+        // no select do pai — controlado sem `value`, o React reclamava.
+        const novoId = criada?.id;
+        if (novoId) avisar(() => onSelect?.(novoId));
+        return;
       }
       // Recarrega SÓ as categorias; não derruba a tela de gastos.
       await onSaved?.();
     } catch (e) {
-      avisar(() => setError(e?.message || 'Não foi possível salvar a categoria. Tente novamente.'));
+      avisar(() => setError(e?.message || 'Não foi possível criar a categoria. Tente novamente.'));
     } finally {
       busy.current = false;
       avisar(() => setSaving(false));
@@ -105,9 +126,7 @@ export default function ExpenseCategoryManager({ categories = [], onSaved, onSel
       busy.current = false;
       avisar(() => setSaving(false));
     }
-  }, [onSaved]);
-
-  const lista = selectableCategories(categories);
+  }, [categories, onSaved]);
 
   return <div className="rounded-xl border border-slate-200 bg-white p-4">
     <div className="flex items-center gap-2 mb-3">

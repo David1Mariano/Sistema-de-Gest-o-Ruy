@@ -15,6 +15,7 @@ import FechamentoCaixaPanel from '@/components/financeiro/FechamentoCaixaPanel';
 import SangriaPanel from '@/components/financeiro/SangriaPanel';
 import CashMovementPanel from '@/components/financeiro/CashMovementPanel';
 import DailyExpensesPanel from '@/components/financeiro/DailyExpensesPanel';
+import { employeeOptionLabel, employeeSelectOptions, payableEmployees } from '@/lib/paymentRecipients';
 import { useUserRole } from '@/lib/useUserRole';
 import PaymentProof from '@/components/rh/PaymentProof';
 import { PayableAttachment, PayableAttachmentUpload } from '@/components/financeiro/PayableAttachment';
@@ -40,7 +41,13 @@ const METHOD_LABELS = { dinheiro:'Dinheiro', pix:'Pix', cartao_debito:'Cartão d
 export default function Financeiro() {
   const { isAdmin } = useUserRole();
   const [tab, setTab] = useState(() => new URLSearchParams(window.location.search).get('tab') || 'visao');
-  const [loading, setLoading] = useState(true);
+  // Carga inicial e refresh são estados SEPARADOS de propósito. Antes, todo
+  // `load()` ligava `loading` e a lista exibia "Carregando gastos..." a cada
+  // save — inclusive ao criar categoria, que recarregava tudo. Era isso que
+  // produzia o piscar "lista → loading → lista".
+  const [initialLoading, setInitialLoading] = useState(true);
+  const [refreshing, setRefreshing] = useState(false);
+  const [failure, setFailure] = useState('');
   const [expenseOpenSignal, setExpenseOpenSignal] = useState(0);
   const [paymentOpen, setPaymentOpen] = useState(false);
   const [paymentEditing, setPaymentEditing] = useState(null);
@@ -52,33 +59,108 @@ export default function Financeiro() {
   const [batchOpen, setBatchOpen] = useState(false);
   const [consumptionOpen, setConsumptionOpen] = useState(false);
 
-  const load = async () => {
-    setLoading(true);
-    try {
-      const [expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements, suppliers] = await Promise.all([
-        base44.entities.FinancialExpense.list('-date', 1000).catch(() => []),
-        base44.entities.EmployeePayment.list('-payment_date', 1000).catch(() => []),
-        base44.entities.Employee.list('name', 500).catch(() => []),
-        base44.entities.Vale.list('-date', 1000).catch(() => []),
-        base44.entities.Consumption.list('-date', 1000).catch(() => []),
-        base44.entities.ExpenseCategory.list('name', 300).catch(() => []),
-        base44.entities.CostCenter.list('name', 300).catch(() => []),
-        base44.entities.AccountsPayable.list('due_date', 1000).catch(() => []),
-        base44.entities.FinancialAccount.list('name', 200).catch(() => []),
-        base44.entities.RecurringExpense.list('next_due_date', 300).catch(() => []),
-        base44.entities.DailyFinancialClose.list('-date', 300).catch(() => []),
-        base44.entities.FechamentoCaixa.list('-date', 1000).catch(() => []),
-        base44.entities.Sangria.list('-date', 1000).catch(() => []),
-        isAdmin ? base44.entities.CashMovement.list('-date', 1500).catch(() => []) : Promise.resolve([]),
-        base44.entities.Supplier.list('name', 500).catch(() => []),
-      ]);
-      setData({ expenses, payments, employees, vales, consumptions, categories, centers, payables, accounts, recurrings, closes, fechamentosCaixa, sangrias, cashMovements, suppliers });
-    } finally { setLoading(false); }
+  // Toda carga recebe um número. Só a mais recente pode escrever: sem isso, uma
+  // requisição antiga que resolve por último sobrescreve dados mais novos.
+  const seqRef = useRef(0);
+  // Espelho do estado para decidir "primeira carga" e montar o próximo objeto
+  // sem depender de closure defasada.
+  const carregouRef = useRef(false);
+  const dataRef = useRef(data);
+  dataRef.current = data;
+
+  // FALHA NÃO pode virar lista vazia. O `catch(() => [])` antigo transformava
+  // uma queda de rede em "Nenhum gasto encontrado", apagando da tela gastos que
+  // já estavam corretos e sem deixar rastro do que aconteceu.
+  const safe = async fn => {
+    try { return { ok: true, value: await fn() }; }
+    catch { return { ok: false, value: null }; }
   };
+
+  const apply = (parcial, seq) => {
+    // Chegou uma carga antiga: ela não tem mais nada a dizer.
+    if (seq !== seqRef.current) return false;
+    setData(atual => ({ ...atual, ...parcial }));
+    return true;
+  };
+
+  const load = async () => {
+    const seq = ++seqRef.current;
+    if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
+    const fontes = [
+      ['expenses', base44.entities.FinancialExpense.list('-date', 1000)],
+      ['payments', base44.entities.EmployeePayment.list('-payment_date', 1000)],
+      ['employees', base44.entities.Employee.list('name', 500)],
+      ['vales', base44.entities.Vale.list('-date', 1000)],
+      ['consumptions', base44.entities.Consumption.list('-date', 1000)],
+      ['categories', base44.entities.ExpenseCategory.list('name', 300)],
+      ['centers', base44.entities.CostCenter.list('name', 300)],
+      ['payables', base44.entities.AccountsPayable.list('due_date', 1000)],
+      ['accounts', base44.entities.FinancialAccount.list('name', 200)],
+      ['recurrings', base44.entities.RecurringExpense.list('next_due_date', 300)],
+      ['closes', base44.entities.DailyFinancialClose.list('-date', 300)],
+      ['fechamentosCaixa', base44.entities.FechamentoCaixa.list('-date', 1000)],
+      ['sangrias', base44.entities.Sangria.list('-date', 1000)],
+      ['cashMovements', isAdmin ? base44.entities.CashMovement.list('-date', 1500) : Promise.resolve([])],
+      ['suppliers', base44.entities.Supplier.list('name', 500)],
+    ];
+    try {
+      const resultados = await Promise.all(fontes.map(([, p]) => safe(p)));
+      if (seq !== seqRef.current) return;
+      const parcial = {}; const falhas = [];
+      resultados.forEach((r, i) => { if (r.ok) parcial[fontes[i][0]] = r.value; else falhas.push(fontes[i][0]); });
+      apply(parcial, seq);
+      // Falha parcial mantém o último valor bom daquela coleção e avisa, em vez
+      // de esvaziar a tela.
+      setFailure(falhas.length ? `Não foi possível atualizar: ${falhas.join(', ')}. Exibindo os últimos dados carregados.` : '');
+      carregouRef.current = true;
+    } catch (e) {
+      if (seq === seqRef.current) setFailure('Não foi possível atualizar o Financeiro. Exibindo os últimos dados carregados.');
+    } finally {
+      if (seq === seqRef.current) { setInitialLoading(false); setRefreshing(false); }
+    }
+  };
+
+  // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
+  // pagamentos, colaboradores, sangrias e mais 11 entidades.
+  const reloadExpenses = async () => {
+    const seq = ++seqRef.current;
+    setRefreshing(true);
+    const r = await safe(base44.entities.FinancialExpense.list('-date', 1000));
+    // Na falha, `value` é null: aplicar assim TROCCARIA a lista boa por null e
+    // quebraria a tabela inteira. O último estado válido é mantido.
+    if (!apply({ expenses: r.ok ? r.value : dataRef.current.expenses }, seq)) return;
+    setFailure(r.ok ? '' : 'Não foi possível atualizar os gastos. Exibindo os últimos dados carregados.');
+    if (seq === seqRef.current) setRefreshing(false);
+  };
+
+  // Criar categoria é operação de cadastro, não de gasto: recarrega só as
+  // categorias e os gastos que dependem delas.
+  const reloadCategories = async () => {
+    const seq = ++seqRef.current;
+    setRefreshing(true);
+    const [cats, expenses] = await Promise.all([
+      safe(base44.entities.ExpenseCategory.list('name', 300)),
+      safe(base44.entities.FinancialExpense.list('-date', 1000)),
+    ]);
+    if (!apply({ categories: cats.value ?? dataRef.current.categories, expenses: expenses.value ?? dataRef.current.expenses }, seq)) return;
+    setFailure(cats.ok && expenses.ok ? '' : 'Não foi possível atualizar as categorias. Exibindo os últimos dados carregados.');
+    // O indicador é da OPERAÇÃO mais recente: se esta for a última, ela é quem
+    // desliga. Sem isso, uma carga de categorias superada deixava o "Atualizando"
+    // preso na tela para sempre.
+    if (seq === seqRef.current) setRefreshing(false);
+  };
+
   useEffect(() => { load(); }, [isAdmin]);
   useEffect(() => {
     if (!isAdmin) return undefined;
-    const unsubscribe = base44.entities.CashMovement.subscribe(() => load());
+    // A subscription de caixa não pode reconsultar as 15 entidades: só o que a
+    // tela de caixa realmente usa.
+    const unsubscribe = base44.entities.CashMovement.subscribe(async () => {
+      const seq = ++seqRef.current;
+      const r = await safe(base44.entities.CashMovement.list('-date', 1500));
+      if (!r.ok) return;
+      apply({ cashMovements: r.value }, seq);
+    });
     return unsubscribe;
   }, [isAdmin]);
 
@@ -138,8 +220,8 @@ export default function Financeiro() {
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={loading} data={data} onSaved={load} openSignal={expenseOpenSignal} />}
-    {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={loading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={loading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
     {tab==='fechamentocaixa' && <FechamentoCaixaPanel records={data.fechamentosCaixa} onSaved={load}/>} 
@@ -214,7 +296,7 @@ function PaymentDialog({open,onClose,onSaved,data,editing}) {
   return <Dialog open={open} onOpenChange={o=>!o&&requestClose()}><DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto"><DialogHeader><DialogTitle>{editing?'Editar pagamento':multi?'Registrar pagamento para vários colaboradores':'Registrar pagamento de colaborador'}</DialogTitle></DialogHeader>{saveError&&<p role="alert" className="mt-2 text-sm text-red-600">{saveError}</p>}
     {!editing&&<div className="flex items-center gap-2 mb-3"><input type="checkbox" id="multiPay" checked={multi} onChange={e=>setMulti(e.target.checked)}/><label htmlFor="multiPay" className="text-sm">Pagar para vários colaboradores de uma vez</label></div>}
     <div className="grid sm:grid-cols-2 gap-3">
-      {!multi&&<Field l="Colaborador">{editing?<Input value={f.employee_name||editing.employee_name||''} disabled className="bg-slate-50"/>:<select className={inputCls} value={f.employee_id} onChange={e=>set('employee_id',e.target.value)}><option value="">Selecione...</option>{data.employees.filter(x=>x.status!=='inativo').map(x=><option key={x.id} value={x.id}>{x.name} {x.function?`· ${x.function}`:''}</option>)}</select>}</Field>}
+      {!multi&&<Field l="Colaborador">{editing?<Input value={f.employee_name||editing.employee_name||''} disabled className="bg-slate-50"/>:<select className={inputCls} value={f.employee_id} onChange={e=>set('employee_id',e.target.value)}><option value="">Selecione...</option>{employeeSelectOptions(data.employees).map(([idValue,label])=><option key={idValue} value={idValue}>{label}</option>)}</select>}</Field>}
       <Field l="Tipo"><Select v={f.payment_type} on={v=>set('payment_type',v)} opts={Object.entries(PAYMENT_LABELS)}/></Field>
       {isDaily?<><Field l="Data da diária"><Input type="date" value={f.work_date} onChange={e=>set('work_date',e.target.value)}/></Field><Field l="Quantidade de diárias"><Input type="number" value={f.days_quantity} onChange={e=>set('days_quantity',e.target.value)}/></Field>{!multi&&<Field l="Valor da diária"><CurrencyInput value={f.daily_rate} onChange={v=>set('daily_rate',v)}/></Field>}</>:<><Field l="Referência inicial"><Input type="date" value={f.reference_start} onChange={e=>set('reference_start',e.target.value)}/></Field><Field l="Referência final"><Input type="date" value={f.reference_end} onChange={e=>set('reference_end',e.target.value)}/></Field></>}
       {!multi&&<><Field l="Valor bruto"><CurrencyInput value={f.gross_amount} onChange={v=>{set('gross_amount',v);set('net_amount',String(Number(v||0)-Number(f.discount_amount||0)))}}/></Field><Field l="Descontos"><CurrencyInput value={f.discount_amount} onChange={v=>{set('discount_amount',v);set('net_amount',String(Number(f.gross_amount||0)-Number(v||0)))}}/></Field><Field l="Valor líquido"><CurrencyInput value={f.net_amount} onChange={v=>set('net_amount',v)}/></Field></>}
@@ -223,7 +305,7 @@ function PaymentDialog({open,onClose,onSaved,data,editing}) {
       <Field l="Status"><Select v={f.status} on={v=>set('status',v)} opts={[['pago','Pago'],['pendente','Pendente']]}/></Field>
       <div className="sm:col-span-2"><Field l="Observação"><Textarea rows={2} value={f.observation} onChange={e=>set('observation',e.target.value)}/></Field></div>
       {!multi&&<div className="sm:col-span-2"><UploadField label="Comprovante de pagamento" value={f.proof_url} busy={uploading} refEl={fileRef} onFile={upload}/></div>}
-      {multi&&<div className="sm:col-span-2"><Label className="text-xs">Colaboradores e valores</Label><div className="divide-y border rounded-lg mt-1 max-h-64 overflow-y-auto">{data.employees.filter(x=>x.status!=='inativo').map(emp=><div key={emp.id} className="flex items-center gap-3 p-2"><input type="checkbox" checked={!!rows[emp.id]} onChange={()=>toggleRow(emp.id)}/><span className="flex-1 text-sm">{emp.name} {emp.function?`· ${emp.function}`:''}</span>{rows[emp.id]&&<div className="w-32"><CurrencyInput value={rows[emp.id].amount} onChange={v=>setRowAmount(emp.id,v)}/></div>}</div>)}</div></div>}
+      {multi&&<div className="sm:col-span-2"><Label className="text-xs">Colaboradores e valores</Label><div className="divide-y border rounded-lg mt-1 max-h-64 overflow-y-auto">{payableEmployees(data.employees).map(emp=><div key={emp.id} className="flex items-center gap-3 p-2"><input type="checkbox" checked={!!rows[emp.id]} onChange={()=>toggleRow(emp.id)}/><span className="flex-1 text-sm">{employeeOptionLabel(emp)}</span>{rows[emp.id]&&<div className="w-32"><CurrencyInput value={rows[emp.id].amount} onChange={v=>setRowAmount(emp.id,v)}/></div>}</div>)}</div></div>}
     </div>
     <DraftNotice status={draft.status} message={draft.message} hint={f.proof_url?DRAFT_LABEL_FILE:undefined} onDiscard={draft.discard} onDismiss={draft.dismissNotice}/>
     <DialogFooter><Button variant="outline" onClick={requestClose} disabled={saving}>Cancelar</Button><Button onClick={save} disabled={saving||(multi?!selectedIds.length:(!f.employee_id||!Number(f.net_amount)))}>{saving?'Salvando...':editing?'Salvar alterações':multi?`Registrar ${selectedIds.length||''} pagamento(s)`:'Registrar pagamento'}</Button></DialogFooter>
@@ -329,7 +411,7 @@ function ConsumptionDialog({open,onClose,onSaved,data}) {
       onClose();await onSaved();
     }finally{setSaving(false)}
   };
-  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Novo consumo</DialogTitle></DialogHeader><div className="grid sm:grid-cols-2 gap-3"><div className="sm:col-span-2"><Field l="Colaborador"><select className={inputCls} value={f.employee_id} onChange={e=>set('employee_id',e.target.value)}><option value="">Selecione...</option>{data.employees.filter(x=>x.status!=='inativo').map(x=><option key={x.id} value={x.id}>{x.name} {x.function?`· ${x.function}`:''}</option>)}</select></Field></div><Field l="Data"><Input type="date" value={f.date} onChange={e=>set('date',e.target.value)}/></Field><Field l="Horário"><Input type="time" value={f.time} onChange={e=>set('time',e.target.value)}/></Field><div className="sm:col-span-2"><Field l="Produto"><Input value={f.product} onChange={e=>set('product',e.target.value)} placeholder="Ex.: Marmita, refrigerante, lanche..."/></Field></div><Field l="Quantidade"><Input type="number" value={f.quantity} onChange={e=>set('quantity',e.target.value)}/></Field><Field l="Valor"><CurrencyInput value={f.amount} onChange={v=>set('amount',v)}/></Field></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving||!f.employee_id||!f.product||!Number(f.amount)}>{saving?'Salvando...':'Registrar consumo'}</Button></DialogFooter></DialogContent></Dialog>
+  return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-lg"><DialogHeader><DialogTitle>Novo consumo</DialogTitle></DialogHeader><div className="grid sm:grid-cols-2 gap-3"><div className="sm:col-span-2"><Field l="Colaborador"><select className={inputCls} value={f.employee_id} onChange={e=>set('employee_id',e.target.value)}><option value="">Selecione...</option>{employeeSelectOptions(data.employees).map(([idValue,label])=><option key={idValue} value={idValue}>{label}</option>)}</select></Field></div><Field l="Data"><Input type="date" value={f.date} onChange={e=>set('date',e.target.value)}/></Field><Field l="Horário"><Input type="time" value={f.time} onChange={e=>set('time',e.target.value)}/></Field><div className="sm:col-span-2"><Field l="Produto"><Input value={f.product} onChange={e=>set('product',e.target.value)} placeholder="Ex.: Marmita, refrigerante, lanche..."/></Field></div><Field l="Quantidade"><Input type="number" value={f.quantity} onChange={e=>set('quantity',e.target.value)}/></Field><Field l="Valor"><CurrencyInput value={f.amount} onChange={v=>set('amount',v)}/></Field></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving||!f.employee_id||!f.product||!Number(f.amount)}>{saving?'Salvando...':'Registrar consumo'}</Button></DialogFooter></DialogContent></Dialog>
 }
 
 function ValeFinanceDialog({vale,open,onClose,onSaved,data}) {const [date,setDate]=useState(today());const [method,setMethod]=useState('pix');const [proofUrl,setProofUrl]=useState('');const [uploading,setUploading]=useState(false);const [saving,setSaving]=useState(false);const ref=useRef();useEffect(()=>{if(open){setDate(vale?.date||today());setMethod(vale?.payment_method||'pix');setProofUrl(vale?.proof_url||'')}},[open,vale]);if(!vale)return null;const upload=async(file)=>{if(!file)return;setUploading(true);try{const {file_url}=await base44.integrations.Core.UploadFile({file});setProofUrl(file_url)}finally{setUploading(false)}};const save=async()=>{setSaving(true);try{const emp=data.employees.find(x=>x.id===vale.employee_id);const pay=await base44.entities.EmployeePayment.create({employee_id:vale.employee_id,employee_name:vale.employee_name,sector:emp?.sector||vale.sector||'',function:emp?.function||'',payment_type:'vale',reference_start:vale.date,reference_end:vale.date,gross_amount:Number(vale.amount||0),discount_amount:0,net_amount:Number(vale.amount||0),payment_date:date,payment_method:method,proof_url:proofUrl,vale_id:vale.id,responsible_user:currentUserName(),status:'pago',observation:vale.motive||vale.observation||''});const cat=data.categories.find(x=>x.name==='Vales e adiantamentos');const expense=await base44.entities.FinancialExpense.create({date:vale.date,paid_date:date,description:`Vale - ${vale.employee_name}`,classification:'adiantamento_colaborador',category_id:cat?.id||'',category_name:'Vales e adiantamentos',beneficiary_type:'colaborador',beneficiary_id:vale.employee_id,beneficiary_name:vale.employee_name,amount:Number(vale.amount||0),payment_method:method,proof_url:proofUrl,origin_type:'vale',origin_id:vale.id,status:'pago',responsible_user:currentUserName(),observation:vale.motive||vale.observation||''});await base44.entities.EmployeePayment.update(pay.id,{financial_expense_id:expense.id});await base44.entities.Vale.update(vale.id,{paid_date:date,proof_url:proofUrl,financial_expense_id:expense.id,employee_payment_id:pay.id,payment_method:method});onClose();await onSaved()}finally{setSaving(false)}};return <Dialog open={open} onOpenChange={o=>!o&&onClose()}><DialogContent className="max-w-md"><DialogHeader><DialogTitle>Lançar vale no financeiro</DialogTitle></DialogHeader><div className="space-y-3"><div className="rounded-lg bg-slate-50 p-3"><p className="font-medium">{vale.employee_name}</p><p className="text-xl font-semibold">{brl(vale.amount)}</p></div><Field l="Data da saída"><Input type="date" value={date} onChange={e=>setDate(e.target.value)}/></Field><Field l="Forma de pagamento"><Select v={method} on={setMethod} opts={Object.entries(METHOD_LABELS).filter(([k])=>!['boleto','cartao_credito'].includes(k))}/></Field><UploadField label="Comprovante" value={proofUrl} busy={uploading} refEl={ref} onFile={upload}/><p className="text-xs text-slate-500">O status do vale no RH não será alterado. Ele continua pendente até ser descontado; aqui registramos apenas a saída do dinheiro.</p></div><DialogFooter><Button variant="outline" onClick={onClose}>Cancelar</Button><Button onClick={save} disabled={saving}>{saving?'Salvando...':'Lançar saída'}</Button></DialogFooter></DialogContent></Dialog>}

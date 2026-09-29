@@ -18,6 +18,7 @@ import {
   EXPENSE_BENEFICIARY_LABELS, expenseCategoryOptions, paymentMethodOptions, supplierNameOptions,
 } from '@/lib/dailyExpenses';
 import { toNumberBR } from '@/lib/numberUtils';
+import { employeeById, employeeSelectOptions } from '@/lib/paymentRecipients';
 
 // Anexos NÃO entram no rascunho. `proof_url`/`invoice_url` são o resultado de
 // um upload que já aconteceu; o File em si nunca está no estado. Guardar a URL
@@ -155,7 +156,9 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
 
   const activeCategories = expenseCategoryOptions(data.categories);
   const suppliers = supplierNameOptions(data.suppliers);
-  const employees = (data.employees || []).filter((employee) => employee.status !== 'inativo');
+  // Mesma regra do pagamento (src/lib/paymentRecipients): nada de segundo
+  // filtro que possa divergir e esconder gente da lista.
+  const employeeOptions = employeeSelectOptions(data.employees);
   const canSave = Boolean(form.description?.trim()) && toNumberBR(form.amount) > 0;
   const hasFile = Boolean(form.proof_url || form.invoice_url);
   const hint = hasFile ? DRAFT_LABEL_FILE : undefined;
@@ -200,8 +203,8 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
             opts={Object.entries(EXPENSE_BENEFICIARY_LABELS)} />
         </Field>
         {form.beneficiary_type === 'colaborador' && <Field l="Colaborador *" error={errors.employee_id}>
-          <Select v={form.employee_id} on={(v) => { set('employee_id', v); set('beneficiary_name', employees.find((e) => e.id === v)?.name || ''); }}
-            opts={employees.map((employee) => [employee.id, employee.function ? `${employee.name} · ${employee.function}` : employee.name])} />
+          <Select v={form.employee_id} on={(v) => { set('employee_id', v); set('beneficiary_name', employeeById(data.employees, v)?.name || ''); }}
+            opts={employeeOptions} />
         </Field>}
         {form.beneficiary_type === 'fornecedor' && <Field l="Fornecedor / Estabelecimento">
           <Input list="gasto-fornecedores" value={form.beneficiary_name} onChange={(e) => set('beneficiary_name', e.target.value)} placeholder="Ex.: Hortifruti da esquina" />
