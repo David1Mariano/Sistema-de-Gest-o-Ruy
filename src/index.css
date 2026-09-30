@@ -264,6 +264,50 @@
 .dark .bg-amber-50\/40 { background-color: hsl(38 45% 13% / 0.5); }
 .dark .bg-amber-500\/15 { background-color: hsl(38 70% 40% / 0.2); }
 
+/* ---------------------------------------------------------------------------
+   VARIANTES DE ESTADO — `hover:`, `focus:`, `active:`.
+
+   Mesmo mecanismo das opacidades, mesma armadilha: `hover:bg-slate-50` compila
+   para o nome de classe `.hover\:bg-slate-50:hover`, que é um nome DIFERENTE de
+   `.bg-slate-50`. A regra do remapeamento não alcança, e a linha ficava
+   praticamente branca ao passar o mouse no escuro — o texto sobre ela perdia
+   contraste e a lista de Gastos ficava ilegível.
+
+   Aqui cada variante aponta para o MESMO token da classe base. Assim hover,
+   foco e seleção não podem divergir do estado normal, e não entra nenhuma cor
+   nova: é o `--muted` / `--accent` / `--secondary` que já existia. */
+.dark .hover\:bg-slate-50:hover { background-color: hsl(var(--muted)); }
+.dark .hover\:bg-slate-50\/60:hover { background-color: hsl(var(--muted) / 0.6); }
+.dark .hover\:bg-slate-100:hover { background-color: hsl(var(--accent)); }
+.dark .hover\:bg-slate-200:hover { background-color: hsl(var(--accent)); }
+.dark .hover\:bg-slate-800:hover { background-color: hsl(var(--secondary)); }
+.dark .hover\:bg-rose-50:hover { background-color: hsl(350 40% 14%); }
+.dark .hover\:bg-rose-50\/40:hover { background-color: hsl(350 40% 14% / 0.4); }
+.dark .hover\:bg-rose-100:hover { background-color: hsl(350 35% 18%); }
+.dark .hover\:bg-red-700:hover { background-color: hsl(0 63% 40%); }
+.dark .hover\:bg-amber-50:hover { background-color: hsl(38 45% 13%); }
+.dark .hover\:bg-amber-50\/40:hover { background-color: hsl(38 45% 13% / 0.4); }
+.dark .hover\:bg-amber-100:hover { background-color: hsl(38 40% 17%); }
+.dark .hover\:bg-emerald-50:hover { background-color: hsl(160 40% 13%); }
+.dark .hover\:bg-emerald-700:hover { background-color: hsl(160 60% 38%); }
+.dark .hover\:bg-sky-100:hover { background-color: hsl(200 40% 19%); }
+
+.dark .hover\:text-slate-700:hover,
+.dark .hover\:text-slate-800:hover,
+.dark .hover\:text-slate-900:hover { color: hsl(var(--foreground)); }
+.dark .hover\:text-rose-600:hover { color: hsl(350 70% 75%); }
+.dark .hover\:text-emerald-600:hover { color: hsl(160 50% 72%); }
+.dark .hover\:text-amber-600:hover { color: hsl(40 75% 72%); }
+
+.dark .hover\:border-slate-300:hover,
+.dark .hover\:border-slate-400:hover { border-color: hsl(var(--border)); }
+.dark .hover\:border-amber-300:hover { border-color: hsl(38 45% 32%); }
+
+/* Estado selecionado: a combinação mais traiçoeira, porque many vezes a linha
+   já vem clara E o hover clareia de novo. Fora do `.dark`, nada muda. */
+.dark [data-state='selected'],
+.dark [aria-selected='true'] { background-color: hsl(var(--accent)); color: hsl(var(--accent-foreground)); }
+
 /* SAÍDA DE EMERGÊNCIA: superfície 100% papel.
    Só para algo que é fisicamente branco por definição — folha impressa, PDF.
    A regra vem DEPOIS dos remapeamentos e é mais específica, então vence sem
