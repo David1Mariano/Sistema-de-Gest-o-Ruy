@@ -146,28 +146,82 @@ test('caso sensivel continua exigindo humano mesmo classificado como elogio', as
 });
 
 // 12-14. Limite, vazio e timeout: todos caem no fallback manual.
+//
+// CONTRATO (confirmado no codigo, nao em opiniao):
+//   provider -> SocialAIService.draftReply -> handler -> safeSuggestion
+// A VALIDACAO de limite e de saida vazia/invalida e do SocialAIService
+// (`ai.mjs`): `if (!reply) throw AI_INVALID_RESPONSE` e
+// `if (reply.length > 2000) throw AI_UNSAFE_OUTPUT`, com o comentario
+// "a fronteira nao pode depender de um unico provider". O handler so mapeia o
+// codigo Lancado para HTTP + frase de fallback; `safeSuggestion` normaliza o
+// que sobrou e nunca recebe saida invalida em producao.
+//
+// Antes estas assercoes rodavam contra o HANDLER com um stub cru, que pulava o
+// servico — medindo uma camada que nao existe. Agora medem as duas camadas
+// onde cada uma e responsavel, sem duplicar validacao no handler.
 test('12-14. draft acima do limite, vazio e timeout caem no fallback manual', async () => {
-  const grande = await bodyOf(await handlerWith(stubService({ draftReply: async () => ({ reply: 'x'.repeat(2001) }) }))(post('oi')));
-  assert.equal(grande.message, FALLBACK);
-  const vazio = await bodyOf(await handlerWith(stubService({ draftReply: async () => ({ reply: '   ' }) }))(post('oi')));
-  assert.equal(vazio.message, FALLBACK);
+  // (a) CAMADA SERVICO: e ela quem reprova limite e saida invalida.
+  const limite = new SocialAIService({ provider: { draftReply: async () => ({ reply: 'y'.repeat(2000) }) } });
+  assert.equal((await limite.draftReply({ text: 'oi' })).reply.length, 2000, '2000 e o limite aceito');
+  await assert.rejects(
+    new SocialAIService({ provider: { draftReply: async () => ({ reply: 'y'.repeat(2001) }) } }).draftReply({ text: 'oi' }),
+    { code: 'AI_UNSAFE_OUTPUT' },
+  );
+  await assert.rejects(
+    new SocialAIService({ provider: { draftReply: async () => ({ reply: null }) } }).draftReply({ text: 'oi' }),
+    { code: 'AI_INVALID_RESPONSE' },
+  );
+  await assert.rejects(
+    new SocialAIService({ provider: { draftReply: async () => ({ reply: '   ' }) } }).draftReply({ text: 'oi' }),
+    { code: 'AI_INVALID_RESPONSE' },
+  );
+
+  // (b) CAMADA HANDLER: servico de verdade, ponta a ponta. O servico lanca, o
+  // handler traduz para 502 + frase de fallback. E o que a UI recebe.
+  const servicoReal = new SocialAIService({
+    provider: { classifyComment: async () => null, draftReply: async () => ({ reply: 'x'.repeat(2001) }) },
+  });
+  const grande = await handlerWith(servicoReal)(post('oi'));
+  assert.equal(grande.status, 502);
+  const corpoGrande = await bodyOf(grande);
+  assert.equal(corpoGrande.message, FALLBACK, 'draft grande vira a frase de recuperacao');
+  assert.equal(corpoGrande.error, 'error', 'o codigo publico nao revela o interno do provider');
+
+  const servicoVazio = new SocialAIService({
+    provider: { classifyComment: async () => null, draftReply: async () => ({ reply: '   ' }) },
+  });
+  const vazio = await bodyOf(await handlerWith(servicoVazio)(post('oi')));
+  assert.equal(vazio.message, FALLBACK, 'rascunho vazio vira a frase de recuperacao');
+
+  // (c) TIMEOUT: erro de infra vira 503 offline e a mensagem do provider nao
+  // vaza. Este continua sendo contrato do HANDLER.
   const respostaTimeout = await handlerWith(stubService({ draftReply: async () => { throw Object.assign(new Error('timeout em 10.0.0.5:11434'), { code: 'AI_TIMEOUT' }); } }))(post('oi'));
   assert.equal(respostaTimeout.status, 503);
   const timeout = await bodyOf(respostaTimeout);
   assert.equal(timeout.message, FALLBACK);
   assert.equal(timeout.error, 'offline');
   assert.ok(!JSON.stringify(timeout).includes('10.0.0.5'), 'a mensagem do provider nao pode vazar');
-  // Limite exato e aceito; 2001 e barrado tambem pelo proprio servico.
-  const limite = new SocialAIService({ provider: { draftReply: async () => ({ reply: 'y'.repeat(2000) }) } });
-  assert.equal((await limite.draftReply({ text: 'oi' })).reply.length, 2000);
-  await assert.rejects(new SocialAIService({ provider: { draftReply: async () => ({ reply: 'y'.repeat(2001) }) } }).draftReply({ text: 'oi' }), { code: 'AI_UNSAFE_OUTPUT' });
-  await assert.rejects(new SocialAIService({ provider: { draftReply: async () => ({ reply: null }) } }).draftReply({ text: 'oi' }), { code: 'AI_INVALID_RESPONSE' });
 });
 
 // 15. Resposta invalida nao quebra a UI nem polui o fallback.
+//
+// Mesma separacao do 12-14: a INVALIDIDADE do rascunho e julgada pelo
+// SocialAIService; o handler responde por traducao, metodo, rota e payload.
 test('15. resposta invalida, JSON quebrado, metodo e rota nao quebram a UI', async () => {
-  const invalida = await bodyOf(await handlerWith(stubService({ draftReply: async () => ({ reply: 123 }) }))(post('oi')));
-  assert.equal(invalida.message, FALLBACK);
+  // (a) SERVICO: rascunho nao-string e vazio sao AI_INVALID_RESPONSE.
+  await assert.rejects(
+    new SocialAIService({ provider: { draftReply: async () => ({ reply: 123 }) } }).draftReply({ text: 'oi' }),
+    { code: 'AI_INVALID_RESPONSE' },
+  );
+  // (b) HANDLER ponta a ponta com o servico real: o operador ve o fallback.
+  const servicoInvalido = new SocialAIService({
+    provider: { classifyComment: async () => null, draftReply: async () => ({ reply: 123 }) },
+  });
+  const respostaInvalida = await handlerWith(servicoInvalido)(post('oi'));
+  assert.equal(respostaInvalida.status, 502);
+  const invalida = await bodyOf(respostaInvalida);
+  assert.equal(invalida.message, FALLBACK, 'resposta invalida vira a frase de recuperacao');
+  // (c) HANDLER: contrato proprio — payload, metodo, rota.
   assert.equal((await handlerWith(stubService())(req('/social-ai/draft', { method: 'POST', body: '{nao e json' }))).status, 400);
   assert.equal((await handlerWith(stubService())(req('/social-ai/draft'))).status, 405);
   assert.equal((await handlerWith(stubService())(req('/social-ai/health', { method: 'POST' }))).status, 405);
@@ -175,15 +229,42 @@ test('15. resposta invalida, JSON quebrado, metodo e rota nao quebram a UI', asy
   assert.equal((await handlerWith(stubService())(req('/social-ai/draft', { method: 'POST', body: JSON.stringify({ text: '   ' }) }))).status, 400);
 });
 
-// 16. Clique duplo barrado: uma requisicao por vez.
-test('16. clique duplo e barrado pelo cliente: uma requisicao por vez', async () => {
+// 16. latest-wins: a SEGUNDA chamada prevalece e a primeira e descartada.
+//
+// CONTRATO (docs/redes-sociais.md, "Duas protecoes de concorrencia"):
+//   1. clique duplo  -> `createLatestRequest()` serializa por contador monotonico
+//      e `AbortController`; o clique duplo e barrado no COMPONENTE
+//      (CommentPanel abre com `if (busy) return`), nao no cliente;
+//   2. latest-wins   -> "Gerar novamente" invalida a anterior por token, e a
+//      resposta velha e descartada mesmo que o servidor ja tenha respondido.
+//
+// Portanto a SEGUNDA vence. A versao anterior deste teste esperava o
+// contrario (a `segunda` rejeitando) e ainda exigia `chamadas === 1`, o que
+// contrariava a implementacao: `suggest` SEMPRE emite sua requisicao e aborta
+// a anterior. O que se afere agora e o contrato real, com assert especifico.
+test('16. latest-wins: a segunda chamada prevalece e a primeira e descartada', async () => {
   let chamadas = 0;
-  const cliente = createSocialAIClient({ endpoint: 'https://api.invalid', fetchImpl: async () => { chamadas += 1; return ok({ text: 'sugestao' }); } });
+  let abortadas = 0;
+  const cliente = createSocialAIClient({
+    endpoint: 'https://api.invalid',
+    fetchImpl: async (url, init) => {
+      chamadas += 1;
+      if (init?.signal) {
+        if (init.signal.aborted) abortadas += 1;
+        else init.signal.addEventListener('abort', () => { abortadas += 1; });
+      }
+      return ok({ text: 'sugestao' });
+    },
+  });
   const primeira = cliente.suggest({ id: 'c1', text: 'oi' });
   const segunda = cliente.suggest({ id: 'c1', text: 'oi' });
-  await assert.rejects(segunda, (e) => e.code === 'superseded');
-  await primeira;
-  assert.equal(chamadas, 1, 'o segundo clique nao pode disparar outra chamada');
+
+  // A ANTIGA e supersedada: nao pode chegar a tela como sugestao valida.
+  await assert.rejects(primeira, (e) => e.code === 'superseded', 'a requisicao antiga precisa ser descartada');
+  // A NOVA e a que vale.
+  assert.equal((await segunda).text, 'sugestao', 'a requisicao mais recente precisa prevalecer');
+  assert.equal(chamadas, 2, 'cada clique emite sua requisicao; o que se aborta e a anterior');
+  assert.equal(abortadas, 1, 'a requisicao anterior precisa ter sido abortada');
 });
 
 // 17. Resposta antiga nao sobrescreve a nova (latest-wins).
