@@ -1,20 +1,47 @@
-import { useState, useEffect } from 'react';
+import { useState, useEffect, useMemo } from 'react';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
+// MERGE (Fase 9): imports dos DOIS lados. A main trouxe o tema (Sun/Moon e
+// useTheme); a branch social traz Tabs, useUserRole e o painel de acessos.
+// Nenhum dos dois foi descartado.
+import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
 import { Save, Clock, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
+import { useUserRole } from '@/lib/useUserRole';
 import { useTheme } from '@/lib/theme/ThemeProvider';
+import SocialAccessAdmin from '@/components/social/SocialAccessAdmin';
+import { createSocialAccessClient } from '@/lib/social/aiClient';
+import { supabaseAuth } from '@/lib/supabaseClient';
+
 
 export default function Configuracoes() {
+  const { isAdmin } = useUserRole();
   const [settings, setSettings] = useState(null);
   const [tolerance, setTolerance] = useState(5);
   const [coverage, setCoverage] = useState('{}');
   const [saving, setSaving] = useState(false);
+  // MERGE (Fase 9): `accessClient` é da branch social; `tema/setTema` é da main.
+  // Convivem sem conflito: um monta o cliente HTTP, o outro lê o contexto de tema.
+  // Endpoint da API de acessos. Sem ele, o cliente falha fechado e a tela
+  // mostra erro controlado em vez de fingir que está tudo vazio.
+  const accessClient = useMemo(() => createSocialAccessClient({
+    endpoint: import.meta.env.VITE_SOCIAL_ADMIN_ENDPOINT,
+    getToken: async () => {
+      try {
+        const { data } = await supabaseAuth.getSession();
+        return data?.session?.access_token ?? null;
+      } catch {
+        // Sem sessao nao ha token. O cliente segue sem `Authorization` e o
+        // backend responde 401, que e a resposta correta.
+        return null;
+      }
+    },
+  }), []);
   // O tema NÃO é estado desta página: vem do contexto. Assim Configurações e o
   // layout nunca discordam sobre qual tema está ativo.
   const { tema, setTema } = useTheme();
@@ -53,9 +80,35 @@ export default function Configuracoes() {
     <div className="space-y-5 max-w-3xl">
       <div>
         <h1 className="text-2xl font-semibold tracking-tight">Configurações</h1>
-        <p className="text-sm text-slate-500">Parâmetros administrativos do sistema de jornada</p>
+        <p className="text-sm text-slate-500">Parâmetros administrativos do sistema</p>
       </div>
 
+      {/* A tela de acessos entra como uma SEÇÃO de Configurações, com os mesmos
+          Card/Alert/Badge do resto da tela. Sem palette própria e sem tema
+          paralelo: se o sistema ganhar dark mode, o componente acompanha. */}
+      <Tabs defaultValue="acesso">
+        <TabsList>
+          <TabsTrigger value="acesso">Redes Sociais</TabsTrigger>
+          <TabsTrigger value="jornada">Jornada</TabsTrigger>
+        </TabsList>
+        <TabsContent value="acesso" className="mt-4 space-y-4">
+          <SocialAccessAdmin
+            client={accessClient}
+            canConfigure={isAdmin}
+            canAdmin={isAdmin}
+          />
+          <p className="text-xs text-slate-500">
+            Conceder acesso aqui é a operação do dia a dia. Criar a estrutura de contas e acessos no banco é feito
+            uma única vez pelo administrador do sistema.
+          </p>
+        </TabsContent>
+        <TabsContent value="jornada" className="mt-4 space-y-5">
+          {/* Aparência vem DA MAIN, integralmente (valores `light`/`dark` e
+              tokens `bg-accent`/`bg-card`, sem cor fixa). Na resolução do merge
+              da Fase 9 o card havia sido reescrito com cores fixas e um
+              terceiro valor de tema, o que quebrou `test-theme-inventario` e
+              trocou o contrato que a main define. O que sobra da branch social
+              aqui e apenas o ENVELOPO em Tabs ao redor. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">
@@ -143,6 +196,8 @@ export default function Configuracoes() {
           <Save className="w-4 h-4" /> {saving ? 'Salvando...' : 'Salvar configurações'}
         </Button>
       </div>
+        </TabsContent>
+      </Tabs>
     </div>
   );
 }
