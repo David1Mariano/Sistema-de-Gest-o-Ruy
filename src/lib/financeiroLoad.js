@@ -128,3 +128,61 @@ export function resumirFalhas(falhas, { carregouAntes = true } = {}) {
 export function aliasesInvalidos(falhas) {
   return new Set((falhas || []).map((f) => f.alias));
 }
+
+// ---------------------------------------------------------------------------
+// Prioridade por aba
+//
+// Medido: as 15 fontes em paralelo levam segundos, mas a FinancialExpense
+// sozinha responde bem mais rápido. A aba Gastos não usa nenhuma das outras
+// 14 para renderizar a lista. Fazer a aba esperar o conjunto inteiro é
+// esperar por dados de que ela não precisa.
+//
+// Aqui fica só a POLICY (quais aliases cada aba precisa primeiro). A
+// execução em duas fases vive no componente, porque precisa conviver com o
+// estado do React.
+
+/** O que cada aba precisa para aparecer. O resto vem em segundo plano. */
+export const PRIORIDADE_POR_ABA = Object.freeze({
+  gastos: ['expenses', 'categories'],
+  visao: ['expenses', 'categories'],
+  pagamentos: ['payments', 'employees', 'vales', 'consumptions'],
+  vales: ['vales', 'employees'],
+  consumo: ['consumptions', 'employees'],
+  contas: ['payables', 'suppliers', 'categories'],
+  recorrentes: ['recurrings', 'categories'],
+  fechamentocaixa: ['fechamentosCaixa', 'cashMovements', 'sangrias'],
+  sangrias: ['sangrias', 'cashMovements'],
+  fechamento: ['closes', 'expenses', 'categories'],
+  cadastros: ['accounts', 'centers', 'suppliers'],
+});
+
+/**
+ * Separa as fontes em (prioritárias, resto) para uma aba.
+ * A aba 'caixasdelivery' é de caixa: o que ela mostra não está no mapa, e
+ * por segurança ela prioriza os gastos, que é o mínimo conhecido.
+ */
+export function separarPorPrioridade(fontes, aba) {
+  const conhecidos = new Set(FONTE_FINANCEIRO.map((f) => f.alias));
+  const pedido = (PRIORIDADE_POR_ABA[aba] || PRIORIDADE_POR_ABA.visao)
+    .filter((alias) => conhecidos.has(alias));
+  const prioridade = fontes.filter((f) => pedido.includes(f.alias));
+  const resto = fontes.filter((f) => !pedido.includes(f.alias));
+  return { prioridade, resto };
+}
+
+/**
+ * Junta o resultado das duas fases preservando a última collection boa.
+ * `anterior` nunca é sobrescrito por uma collection que não veio nesta fase.
+ */
+export function aplicarFases(fases, anterior) {
+  const acumulado = { ...anterior };
+  for (const fase of fases) {
+    for (const [alias, valor] of Object.entries(fase?.valores || {})) acumulado[alias] = valor;
+  }
+  return mesclarPreservando(acumulado, anterior);
+}
+
+/** Falhas das duas fases, juntas, para a mensagem final retratar tudo. */
+export function juntarFalhas(...fases) {
+  return fases.flatMap((f) => f?.falhas || []);
+}

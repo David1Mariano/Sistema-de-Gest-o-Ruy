@@ -18,7 +18,7 @@ import {
   dailyExpenseIndicators,
   isCancelledExpense,
 } from '../src/lib/dailyExpenses.js';
-import { FONTE_FINANCEIRO, executarFontes, mesclarPreservando } from '../src/lib/financeiroLoad.js';
+import { FONTE_FINANCEIRO, aplicarFases, executarFontes, mesclarPreservando } from '../src/lib/financeiroLoad.js';
 
 // ---- Os 23 gastos reais, reconstruídos ------------------------------------
 // Valores observados na leitura direta: 10 em 21/09, 13 em 22/09, status
@@ -161,9 +161,19 @@ test('G10 — nenhum setExpenses([]) indevido no caminho do loader', async () =>
 
   assert.doesNotMatch(painel, /setRows\(\[\]\)/, 'o painel nunca esvazia a lista recebida');
   assert.doesNotMatch(tela, /setData\(\{[^}]*expenses:\s*\[\]/, 'a tela nunca zera expenses por conta própria');
-  // A única forma de expenses virar vazio é uma leitura bem-sucedida que não
-  // traz nada — e aí o indicador de dados inválidos cobre.
-  assert.match(tela, /mesclarPreservando\(/, 'a última collection boa é preservada');
+  // A última collection boa é preservada pelo núcleo, via `aplicarFases`.
+  assert.match(tela, /aplicarFases\(/, 'a junção das fases passa pelo núcleo');
+  assert.match(tela, /aplicarResultado\(/, 'e a tela aplica por fase');
+  const nucleo = await readFile(new URL('../src/lib/financeiroLoad.js', import.meta.url), 'utf8');
+  assert.match(nucleo, /aplicarFases[\s\S]{0,600}mesclarPreservando/, 'que preserva a última collection boa');
+  // Comportamento, não só texto: a fase 2 sem expenses não pode apagar nada.
+  const anterior = { expenses: GASTOS_REAIS, employees: [] };
+  const fontesDaFase2 = FONTE_FINANCEIRO
+    .filter((f) => f.alias !== 'expenses')
+    .map((f) => ({ alias: f.alias, entity: f.entity, entidade: { list: async () => [] } }));
+  const f1 = await executarFontes(fontesDaFase2);
+  const depoisDaFase2 = aplicarFases([f1], anterior);
+  assert.equal(depoisDaFase2.expenses.length, 23, 'uma fase que não traz expenses preserva as 23');
 });
 
 test('G11 — erro de refresh preserva os últimos 23', async () => {
