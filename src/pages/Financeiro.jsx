@@ -14,6 +14,7 @@ import {
   separarPorPrioridade,
 } from '@/lib/financeiroLoad';
 import { renovarSessao } from '@/lib/supabaseClient';
+import { lerComRevalidacao, marcar } from '@/lib/financeiroPrefetch';
 import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
 import DraftNotice from '@/components/shared/DraftNotice';
 import { Button } from '@/components/ui/button';
@@ -99,6 +100,7 @@ export default function Financeiro() {
   };
 
   const load = async ({ tentativa = 0 } = {}) => {
+    marcar('financeiro:gastos:start');
     const seq = ++seqRef.current;
     if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
     const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
@@ -110,13 +112,21 @@ export default function Financeiro() {
     // o que é um valor legítimo e não uma falha.
     if (!isAdmin) fontes[13] = { ...fontes[13], entidade: { list: async () => [] } };
 
-    // Duas fases. A aba ativa espera só o que precisa para desenhar; o resto
-    // vem depois, sem segurar ninguém. Medido: as 15 juntas levam segundos,
-    // a FinancialExpense sozinha responde bem antes.
-    const { prioridade, resto } = separarPorPrioridade(fontes, tab);
+    // Três camadas. A aba espera SÓ o que desenha; o complemento e o resto
+    // vêm em seguida, sem travar ninguém. E o que já está em memória (do
+    // prefetch ou de uma visita anterior) é usado na hora, com revalidação por
+    // baixo — a lista nunca passa por "vazio -> spinner -> dado".
+    const { render, proxima, resto } = separarPorPrioridade(fontes, tab);
 
-    const fase1 = prioridade.length
-      ? await executarFontes(prioridade)
+    const comCache = (alias, entidade) => ({
+      ...entidade,
+      list: async (sort, limit) => {
+        const r = await lerComRevalidacao(alias, () => entidade.list(sort, limit));
+        return r.dados;
+      },
+    });
+    const fase0 = render.length
+      ? await executarFontes(render.map((f) => ({ ...f, entidade: comCache(f.alias, f.entidade) })))
       : { valores: {}, falhas: [] };
 
     // Recuperação. A tela chamava `load()` UMA vez, ao montar, e nunca mais:
@@ -125,26 +135,36 @@ export default function Financeiro() {
     // quando a causa é 401 e um número pequeno de repetições para falha
     // transitória. É limitado de propósito — se o problema persistir, o aviso
     // tem que dizer a verdade, não ficar tentando para sempre.
-    if (fase1.falhas.length && tentativa < MAX_TENTATIVAS) {
-      if (ehFalhaDeSessao(fase1.falhas)) await renovarSessao();
+    if (fase0.falhas.length && tentativa < MAX_TENTATIVAS) {
+      if (ehFalhaDeSessao(fase0.falhas)) await renovarSessao();
       await new Promise((r) => { setTimeout(r, PAUSA_ENTRE_TENTATIVAS_MS); });
       if (seq !== seqRef.current) return;
       return load({ tentativa: tentativa + 1 });
     }
 
     if (seq !== seqRef.current) return;
-    // FASE 1 APLICADA. A aba já tem o que precisa; `initialLoading` desliga
-    // aqui, e a lista desenha com o que veio.
-    aplicarResultado(fase1, seq);
+    // CAMADA 0 APLICADA. A lista desenha agora. `initialLoading` desliga aqui.
+    aplicarResultado(fase0, seq);
     carregouRef.current = true;
     setInitialLoading(false);
+    marcar('financeiro:gastos:data-ready');
+    setTimeout(() => {
+      if (seq === seqRef.current) marcar('financeiro:gastos:render-ready');
+    }, 0);
 
-    // FASE 2: as demais, em segundo plano. Nada aqui impede a tela de ser
-    // usada, e uma falha aqui não desfaz o que a fase 1 já entregou.
+    // Camada 1: o complemento (rótulos de categoria, filtros). Não bloqueia.
+    if (proxima.length) {
+      const fase1 = await executarFontes(proxima);
+      if (seq !== seqRef.current) return;
+      aplicarResultado(fase1, seq, { anteriores: [fase0] });
+    }
+
+    // Camada 2: as demais, em segundo plano. Nada aqui impede a tela de ser
+    // usada, e uma falha aqui não desfaz o que a camada 0 já entregou.
     if (!resto.length) { setRefreshing(false); return; }
     const fase2 = await executarFontes(resto);
     if (seq !== seqRef.current) return;
-    aplicarResultado(fase2, seq, { anteriores: [fase1] });
+    aplicarResultado(fase2, seq, { anteriores: [fase0] });
     setRefreshing(false);
   };
 

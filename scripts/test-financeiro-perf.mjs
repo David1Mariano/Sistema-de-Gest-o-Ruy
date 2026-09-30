@@ -55,7 +55,7 @@ test('P01 — a FinancialExpense não espera as outras 14 entidades', async () =
     vales: { ms: 900, dados: [] },
     consumptions: { ms: 900, dados: [] },
   });
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'gastos');
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'gastos');
 
   assert.ok(prioridade.some((f) => f.alias === 'expenses'), 'expenses está na fase 1 de Gastos');
   assert.equal(resto.some((f) => f.alias === 'expenses'), false, 'expenses não está na fase 2');
@@ -78,7 +78,7 @@ test('P02 — setExpenses pode acontecer antes do loader global terminar', async
     payables: { ms: 1200, dados: [] },
     closes: { ms: 1200, dados: [] },
   });
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'gastos');
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'gastos');
 
   const linhaDoTempo = [];
   const f1 = await executarFontes(prioridade);
@@ -110,7 +110,7 @@ test('P03 — voltar à aba preserva a lista (sem vazio + loading)', async () =>
 
   // Volta: a fase prioritária roda de novo, mas ANTES dela a tela já tem o que
   // mostrar. A regra da tela é `loading && !expenses.length`.
-  const f2 = await executarFontes(separarPorPrioridade(fontes, 'gastos').prioridade);
+  const f2 = await executarFontes(separarPorPrioridade(fontes, 'gastos').render);
   const telaAoVoltar = mesclarPreservando(f2.valores, telaAposPrimeira);
   assert.equal(telaAoVoltar.expenses.length, 3, 'ao voltar, a lista está lá — não houve tela vazia');
 });
@@ -132,7 +132,7 @@ test('P05 — uma entidade lenta não atrasa Gastos', async () => {
     // Uma entity de fundo absurdamente lenta.
     fechamentosCaixa: { ms: 3000, dados: [] },
   });
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'gastos');
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'gastos');
   assert.equal(resto.some((f) => f.alias === 'fechamentosCaixa'), true, 'fechamentosCaixa é de fundo');
 
   const inicio = performance.now();
@@ -146,7 +146,7 @@ test('P06 — uma entity quebrada não atrasa Gastos', async () => {
     expenses: { ms: 20, dados: [{ id: 'e1' }] },
     payables: { falha: Object.assign(new Error('relation not found'), { status: 404 }) },
   });
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'gastos');
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'gastos');
   const f1 = await executarFontes(prioridade);
   const f2 = await executarFontes(resto);
 
@@ -192,30 +192,35 @@ test('P09 — categorias chegam depois sem apagar os gastos', async () => {
     categories: { ms: 200, dados: [{ id: 'c1' }] },
     vales: { ms: 120, dados: [] },
   });
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'gastos');
-  // 'gastos' prioriza expenses E categories — mas ambas são esperadas juntas.
-  // O ponto é que, ao aplicá-las, nada de fora apaga o que já veio.
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'gastos');
+  // A lista desenha só com `render` (expenses). As categorias vêm na camada
+  // seguinte e não podem apagar o que já apareceu.
   const f1 = await executarFontes(prioridade);
-  const f2 = await executarFontes(resto);
-  const final = aplicarFases([f1, f2], {});
+  assert.equal(f1.valores.expenses.length, 1, 'a lista aparece antes das categorias');
+  assert.equal(f1.valores.categories, undefined, 'as categorias ainda não vieram — e não devem travar');
+  const f2 = await executarFontes(proxima);
+  const f3 = await executarFontes(resto);
+  const final = aplicarFases([f1, f2, f3], {});
   assert.equal(final.expenses.length, 1, 'os gastos sobreviveram à chegada do resto');
-  assert.equal(final.categories.length, 1, 'e as categorias chegaram');
-  assert.equal(juntarFalhas(f1, f2).length, 0, 'sem falhas');
+  assert.equal(final.categories.length, 1, 'e as categorias chegaram depois');
+  assert.equal(juntarFalhas(f1, f2, f3).length, 0, 'sem falhas');
 });
 
 test('P10 — a prioridade de cada aba aponta para os aliases certos', () => {
-  assert.deepEqual(PRIORIDADE_POR_ABA.gastos, ['expenses', 'categories'], 'Gastos prioriza gastos e categorias');
+  assert.deepEqual(PRIORIDADE_POR_ABA.gastos.render, ['expenses'], 'Gastos desenha só com os gastos');
+  assert.deepEqual(PRIORIDADE_POR_ABA.gastos.proxima, ['categories'], 'e categoria vem logo depois, sem bloquear');
   const conhecidos = new Set(FONTE_FINANCEIRO.map((f) => f.alias));
-  for (const [aba, aliases] of Object.entries(PRIORIDADE_POR_ABA)) {
-    for (const a of aliases) {
+  for (const [aba, camadas] of Object.entries(PRIORIDADE_POR_ABA)) {
+    assert.ok(Array.isArray(camadas.render), `${aba}: precisa ter a camada render`);
+    for (const a of [...camadas.render, ...(camadas.proxima || [])]) {
       assert.equal(conhecidos.has(a), true, `${aba}: "${a}" não existe em FONTE_FINANCEIRO — seria uma fonte morta`);
     }
   }
   // Toda aba conhecida tem prioridade; aba desconhecida cai na visao.
   const fontes = construir();
-  const { prioridade, resto } = separarPorPrioridade(fontes, 'aba-que-nao-existe');
-  assert.ok(prioridade.length > 0, 'aba desconhecida ainda tem uma fase prioritária válida');
-  assert.equal(prioridade.length + resto.length, FONTE_FINANCEIRO.length, 'e a divisão cobre as 15 exatamente uma vez');
+  const { render: prioridade, proxima, resto } = separarPorPrioridade(fontes, 'aba-que-nao-existe');
+  assert.ok(prioridade.length > 0, 'aba desconhecida ainda tem uma camada de render válida');
+  assert.equal(prioridade.length + proxima.length + resto.length, FONTE_FINANCEIRO.length, 'e a divisão cobre as 15 exatamente uma vez');
 });
 
 test('P11 — as subscriptions são específicas (nada recarrega as 15)', async () => {
@@ -236,8 +241,9 @@ test('P12 — loading não bloqueia uma lista que já tem dados', async () => {
     /<DailyExpensesPanel rows=\{data\.expenses\} loading=\{initialLoading && !data\.expenses\.length\}/,
     'a tabela só entra em loading quando não há NENHUM dado para mostrar',
   );
-  // E a fase 1 desliga o loading global antes de a fase 2 começar.
-  assert.match(src, /aplicarResultado\(fase1, seq\)[\s\S]{0,120}setInitialLoading\(false\)/, 'initialLoading desliga na fase 1');
+  // E a camada 0 desliga o loading global antes da camada 1 começar.
+  assert.match(src, /aplicarResultado\(fase0, seq\)[\s\S]{0,160}setInitialLoading\(false\)/, 'initialLoading desliga na camada de render');
+  assert.match(src, /const \{ render, proxima, resto \} = separarPorPrioridade/, 'as três camadas são separadas');
 });
 
 test('P13 — o texto de aviso e o indicador continuam existindo', async () => {

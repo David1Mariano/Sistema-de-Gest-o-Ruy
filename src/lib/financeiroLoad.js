@@ -141,33 +141,44 @@ export function aliasesInvalidos(falhas) {
 // execução em duas fases vive no componente, porque precisa conviver com o
 // estado do React.
 
-/** O que cada aba precisa para aparecer. O resto vem em segundo plano. */
+/**
+ * O que cada aba precisa, em duas camadas.
+ *
+ * `render`  — o que ela precisa para DESENHAR. A tela espera só isso.
+ * `proxima` — o que completa a tela, mas pode chegar depois sem travar.
+ *
+ * Medido: ExpenseCategory sozinha responde em ~0,3 s, então colocá-la junto
+ * do expenses quase não custava nada. Mas ela não é necessária para a
+ * LISTA aparecer — só para o rótulo da categoria e o filtro. Se algum dia o
+ * servidor demorar com categorias, a lista de gastos não pode esperar junto.
+ * Por isso ela fica em `proxima`.
+ */
 export const PRIORIDADE_POR_ABA = Object.freeze({
-  gastos: ['expenses', 'categories'],
-  visao: ['expenses', 'categories'],
-  pagamentos: ['payments', 'employees', 'vales', 'consumptions'],
-  vales: ['vales', 'employees'],
-  consumo: ['consumptions', 'employees'],
-  contas: ['payables', 'suppliers', 'categories'],
-  recorrentes: ['recurrings', 'categories'],
-  fechamentocaixa: ['fechamentosCaixa', 'cashMovements', 'sangrias'],
-  sangrias: ['sangrias', 'cashMovements'],
-  fechamento: ['closes', 'expenses', 'categories'],
-  cadastros: ['accounts', 'centers', 'suppliers'],
+  gastos: { render: ['expenses'], proxima: ['categories'] },
+  visao: { render: ['expenses'], proxima: ['categories'] },
+  pagamentos: { render: ['payments', 'employees'], proxima: ['vales', 'consumptions'] },
+  vales: { render: ['vales'], proxima: ['employees'] },
+  consumo: { render: ['consumptions'], proxima: ['employees'] },
+  contas: { render: ['payables'], proxima: ['suppliers', 'categories'] },
+  recorrentes: { render: ['recurrings'], proxima: ['categories'] },
+  fechamentocaixa: { render: ['fechamentosCaixa'], proxima: ['cashMovements', 'sangrias'] },
+  sangrias: { render: ['sangrias'], proxima: ['cashMovements'] },
+  fechamento: { render: ['closes', 'expenses'], proxima: ['categories'] },
+  cadastros: { render: ['accounts', 'centers'], proxima: ['suppliers'] },
+  caixasdelivery: { render: ['cashMovements'], proxima: ['sangrias'] },
 });
 
-/**
- * Separa as fontes em (prioritárias, resto) para uma aba.
- * A aba 'caixasdelivery' é de caixa: o que ela mostra não está no mapa, e
- * por segurança ela prioriza os gastos, que é o mínimo conhecido.
- */
+/** As duas camadas de uma aba, já filtradas para aliases que existem. */
 export function separarPorPrioridade(fontes, aba) {
   const conhecidos = new Set(FONTE_FINANCEIRO.map((f) => f.alias));
-  const pedido = (PRIORIDADE_POR_ABA[aba] || PRIORIDADE_POR_ABA.visao)
-    .filter((alias) => conhecidos.has(alias));
-  const prioridade = fontes.filter((f) => pedido.includes(f.alias));
-  const resto = fontes.filter((f) => !pedido.includes(f.alias));
-  return { prioridade, resto };
+  const pedido = PRIORIDADE_POR_ABA[aba] || PRIORIDADE_POR_ABA.visao;
+  const render = new Set((pedido.render || []).filter((a) => conhecidos.has(a)));
+  const proxima = new Set((pedido.proxima || []).filter((a) => conhecidos.has(a)));
+  return {
+    render: fontes.filter((f) => render.has(f.alias)),
+    proxima: fontes.filter((f) => proxima.has(f.alias)),
+    resto: fontes.filter((f) => !render.has(f.alias) && !proxima.has(f.alias)),
+  };
 }
 
 /**
