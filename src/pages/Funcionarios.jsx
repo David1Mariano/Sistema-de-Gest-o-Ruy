@@ -6,6 +6,7 @@ import { Input } from '@/components/ui/input';
 import { Search, Plus, Pencil, Trash2, Users, Eye, Wallet } from 'lucide-react';
 import { Image } from '@/components/ui/image';
 import EmployeeForm from '@/components/rh/EmployeeForm';
+import AttachmentPreview from '@/components/rh/AttachmentPreview';
 import { SangriaDialog } from '@/components/financeiro/SangriaPanel';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
@@ -138,7 +139,9 @@ export default function Funcionarios() {
                         <div className="flex items-center gap-3">
                           <div className="w-9 h-9 rounded-full bg-slate-100 overflow-hidden flex items-center justify-center shrink-0">
                             {e.photo_url
-                              ? <Image src={e.photo_url} alt="" className="w-full h-full" fittingType="fill" />
+                              ? <AttachmentPreview record={e} field="photo_url" title={`Foto de ${e.name || 'colaborador'}`} label="Ampliar foto" diagLabel="[foto-colaborador]">
+                                  <Image src={e.photo_url} alt="" className="w-full h-full" fittingType="fill" />
+                                </AttachmentPreview>
                               : <span className="text-sm font-medium text-slate-500">{(e.name || '?').charAt(0).toUpperCase()}</span>}
                           </div>
                           <div className="min-w-0">

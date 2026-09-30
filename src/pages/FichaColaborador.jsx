@@ -150,7 +150,9 @@ export default function FichaColaborador() {
         <div className="flex flex-wrap items-start gap-4">
           <div className="w-20 h-20 rounded-2xl bg-slate-100 overflow-hidden flex items-center justify-center shrink-0">
             {employee.photo_url
-              ? <img src={employee.photo_url} alt="" className="w-full h-full object-cover" />
+              ? <AttachmentPreview record={employee} field="photo_url" title={`Foto de ${employee.name || 'colaborador'}`} label="Ampliar foto" diagLabel="[foto-colaborador]">
+                  <img src={employee.photo_url} alt="" className="w-full h-full object-cover" />
+                </AttachmentPreview>
               : <User className="w-8 h-8 text-slate-400" />}
           </div>
           <div className="flex-1 min-w-0">

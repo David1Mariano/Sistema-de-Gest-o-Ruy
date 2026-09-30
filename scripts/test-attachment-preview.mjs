@@ -1,14 +1,17 @@
 import assert from 'node:assert/strict';
 import { test } from 'node:test';
+import { readFile } from 'node:fs/promises';
+import { fileURLToPath } from 'node:url';
 import {
   FIT, FIT_LABELS, MAX_PRINT_PAGES, PRINT_PAGE, TALL_IMAGE_RATIO,
   attachmentKind, autoFitMode, buildImagePrintHtml, clampZoom, createPreviewSession,
-  downloadName, extensionForType, fitScale, formatBytes, formatPixels, imageStyle,
-  isTallImage, printLayout, printPageCount, sanitizeFileName, zoomFromPinch,
+  downloadName, exportPdfName, extensionForType, fitScale, formatBytes, formatPixels,
+  imageStyle, isTallImage, printLayout, printPageCount, sanitizeFileName, zoomFromPinch,
   zoomFromWheel, zoomLabel, zoomStep,
 } from '../src/lib/attachmentViewer.js';
 
-// -------------------------------------------------------------------- zoom ---
+// Lê um arquivo do projeto por caminho RELATIVO à raiz do repositório.
+const read = (relative) => readFile(fileURLToPath(new URL(`../${relative}`, import.meta.url)), 'utf8');
 
 test('zoom é limitado a 25%-400% e sobrevive a valores inválidos', () => {
   assert.equal(clampZoom(0.1), 0.25);
@@ -233,4 +236,67 @@ test('falha ao revogar não quebra o visualizador', () => {
   assert.equal(session.closed, true);
 });
 
+
+
+// ===========================================================================
+// UNIFICAÇÃO DOS ANEXOS: download, "baixar como PDF", nomes e superfícies
+// ===========================================================================
+
+test('imagem -> PDF real: bytes válidos, uma página para foto e várias para bobina', async () => {
+  const { imageToPdfBytes, imageToPdfPlan } = await import('../src/lib/attachmentViewer.js');
+  // JPEG 1x1 mínimo, gerado aqui para não depender de arquivo do disco.
+  const jpeg = Buffer.from('/9j/4AAQSkZJRgABAQEAYABgAAD/2wBDAAgGBgcGBQgHBwcJCQgKDBQNDAsLDBkSEw8UHRofHh0aHBwcJC4nICIsIxwcKDcpLDAxNDQ0Hyc5PTgyPDIzND/2wBDAQkJCQwLDBgNDRgyIRwhMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjIyMjL/wAARCAABAAEDASIAAhEBAxEB/8QAHwAAAQUBAQEBAQEAAAAAAAAAAAECAwQFBgcICQoL/8QAtRAAAgEDAwIEAwUFBAQAAAF9AQIDAAQRBRIhMUEGE1FhByJxFDKBkaEII0KxwRVS0fAkM2JyggkKFhcYGRolJicoKSo0NTY3ODk6Q0RFRkdISUpTVFVWV1hZWmNkZWZnaGlqc3R1dnd4eXqDhIWGh4iJipKTlJWWl5iZmqKjpKWmp6ipqrKztLW2t7i5usLDxMXGx8jJytLT1NXW19jZ2uHi4+Tl5ufo6erx8vP09fb3+Pn6/9oADAMBAAIRAxEAPwD3+iiigD//2Q==', 'base64');
+  const uma = await imageToPdfBytes(new Uint8Array(jpeg), { mime: 'image/jpeg', width: 600, height: 400, title: 'comprovante' });
+  assert.ok(uma.length > 400, 'PDF gerado tem conteúdo');
+  assert.equal(Buffer.from(uma.slice(0, 5)).toString('latin1'), '%PDF-', 'assinatura de PDF válida');
+  assert.equal(imageToPdfPlan({ width: 600, height: 400 }).pages, 1, 'foto deitada cabe em uma página');
+  assert.ok(imageToPdfPlan({ width: 600, height: 9000 }).pages > 1, 'bobina vira várias páginas');
+});
+
+test('o nome do PDF gerado nunca carrega o base64 nem some com a extensão útil', () => {
+  assert.equal(exportPdfName('comprovante-gasto-123.jpg'), 'comprovante-gasto-123.pdf');
+  assert.equal(exportPdfName('documento-colaborador.png'), 'documento-colaborador.pdf');
+  assert.equal(exportPdfName(''), 'anexo.pdf');
+  // O sanitizador continua derrubando o caminho: o nome do PDF sai da base já
+  // sanitizada pelo viewer, nunca do nome cru do banco.
+  assert.equal(sanitizeFileName('C:\\Users\\joao\\recibo.jpg', 'image/jpeg'), 'recibo.jpg');
+  // E um nome de PDF que ainda tivesse extensão é normalizado uma vez só.
+  assert.equal(exportPdfName(exportPdfName('comprovante.jpg')), 'comprovante.pdf');
+});
+
+test('o viewer renderiza os botões de download e "baixar como PDF" só onde faz sentido', async () => {
+  const { createServer: createViteServer } = await import('vite');
+  const { default: react } = await import('@vitejs/plugin-react');
+  const { createElement } = await import('react');
+  const { renderToStaticMarkup } = await import('react-dom/server');
+  const { fileURLToPath } = await import('node:url');
+  const abs = (rel) => fileURLToPath(new URL(`../${rel}`, import.meta.url));
+  const vite = await createViteServer({
+    configFile: false, plugins: [react()],
+    resolve: { alias: { '@': abs('src') } },
+    server: { middlewareMode: true, hmr: false, watch: null }, appType: 'custom',
+  });
+  try {
+    const previousWindow = globalThis.window;
+    try { globalThis.window = { self: null, top: null }; await vite.ssrLoadModule(abs('src/lib/utils.js')); }
+    finally { if (previousWindow === undefined) delete globalThis.window; else globalThis.window = previousWindow; }
+    const { default: AttachmentPreview } = await vite.ssrLoadModule(abs('src/components/rh/AttachmentPreview.jsx'));
+    const fonte = await read('src/components/rh/AttachmentPreview.jsx');
+
+    // A nota fiscal da compra é o caso que não abria: vivia em `invoice_url` e
+    // era aberta com <a target="_blank">, que não funciona com data URL base64.
+    const jpeg = 'data:image/jpeg;base64,/9j/4AAQSkZJRg==';
+    const markup = renderToStaticMarkup(createElement(AttachmentPreview, {
+      record: { id: 'c1', invoice_url: jpeg }, field: 'invoice_url', label: 'Ver NF',
+    }));
+    assert.match(markup, /Ver NF/, 'o botão aparece para invoice_url (antes sumia)');
+    assert.match(fonte, /Baixar como PDF/, 'existe a ação de exportar imagem para PDF');
+    assert.match(fonte, /Baixar original/, 'o download do original é nomeado');
+    assert.match(fonte, /theme-static-light-surface/, 'contrato de tema preservado');
+    // O botão de exportar PDF fica condicionado à imagem: PDF não gera PDF.
+    assert.match(fonte, /isImage \? \(/, 'exportar PDF é exclusivo de imagem');
+  } finally {
+    await vite.close();
+  }
+});
 
