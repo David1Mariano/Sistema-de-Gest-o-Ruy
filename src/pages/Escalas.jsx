@@ -93,7 +93,7 @@ export default function Escalas() {
           <div className="flex items-center gap-2">
             <button onClick={() => shiftView(-1)} className="p-1.5 rounded-md hover:bg-slate-100"><ChevronLeft className="w-4 h-4" /></button>
             {view === 'diaria' ? (
-              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm" />
+              <input type="date" value={date} onChange={(e) => setDate(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm" />
             ) : (
               <span className="text-sm font-medium text-slate-700">
                 {WEEKDAY_LABELS[weekdayOf(weekStart)]} {formatBR(weekStart)} – {formatBR(addDays(weekStart, 6))}

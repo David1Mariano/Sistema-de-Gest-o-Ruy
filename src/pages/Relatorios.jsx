@@ -84,7 +84,7 @@ export default function Relatorios() {
         </div>
         <div className="flex gap-2">
           {isAdmin && <Link to="/relatorios/financeiro" className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm border bg-white hover:bg-slate-50"><Landmark className="w-4 h-4" /> Relatório financeiro</Link>}
-          <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800">
+          <button onClick={() => window.print()} className="inline-flex items-center gap-2 px-3 py-2 rounded-lg text-sm bg-slate-900 text-white hover:bg-slate-800 print:hidden">
             <Download className="w-4 h-4" /> Exportar / Imprimir
           </button>
         </div>
@@ -93,29 +93,29 @@ export default function Relatorios() {
       <div className="flex flex-wrap items-end gap-3 bg-white border border-slate-200 rounded-xl p-4">
         <div className="space-y-1">
           <label className="text-xs text-slate-500">Data inicial</label>
-          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm" />
+          <input type="date" value={start} onChange={(e) => setStart(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm" />
         </div>
         <div className="space-y-1">
           <label className="text-xs text-slate-500">Data final</label>
-          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm" />
+          <input type="date" value={end} onChange={(e) => setEnd(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm" />
         </div>
         <div className="space-y-1">
           <label className="text-xs text-slate-500">Setor</label>
-          <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+          <select value={fSector} onChange={(e) => setFSector(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
             <option value="">Todos</option>
             {sectors.map((s) => <option key={s} value={s}>{s}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-xs text-slate-500">Unidade</label>
-          <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+          <select value={fUnit} onChange={(e) => setFUnit(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
             <option value="">Todas</option>
             {units.map((u) => <option key={u} value={u}>{u}</option>)}
           </select>
         </div>
         <div className="space-y-1">
           <label className="text-xs text-slate-500">Funcionário</label>
-          <select value={fEmployee} onChange={(e) => setFEmployee(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-white px-3 text-sm">
+          <select value={fEmployee} onChange={(e) => setFEmployee(e.target.value)} className="h-9 rounded-md border border-slate-300 bg-background px-3 text-sm">
             <option value="">Todos</option>
             {employees.map((e) => <option key={e.id} value={e.id}>{e.name}</option>)}
           </select>

@@ -188,7 +188,7 @@ function SearchAndFilters({
   </div>;
 }
 
-export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', data, onSaved, onCategoriesChanged, openSignal = 0 }) {
+export default function DailyExpensesPanel({ rows = [], loading, refreshing = false, failure = '', semDadosConfirmados = true, data, onSaved, onCategoriesChanged, openSignal = 0 }) {
   // A auditoria de FinancialExpense é sensível (mostra valores e favorecidos de
   // todo mundo). Só quem já pode administer o Financeiro acessa o histórico,
   // com o MESMO critério de acesso da tela global de Auditoria.
@@ -342,6 +342,19 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     />}
 
     {view !== 'historico' && <>
+    {/* "R$ 0,00" e "não consegui ler" são coisas diferentes. Quando a
+        collection de gastos não foi lida, mostrar zero seria afirmar que não
+        existe gasto nenhum — o que é uma mentira bem mais perigosa que um
+        aviso. Nestes cards, zero só aparece quando os dados foram lidos. */}
+    {!semDadosConfirmados ? (
+      <div className="rounded-xl border border-amber-300 bg-amber-50 p-4 text-sm text-amber-900">
+        <p className="font-semibold">Valores indisponíveis — os gastos não foram carregados.</p>
+        <p className="mt-1">
+          Os números abaixo ficam ocultos de propósito: sem conseguir ler a lista, qualquer total
+          seria uma estimativa inventada. Tente atualizar ou entre novamente.
+        </p>
+      </div>
+    ) : (
     <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
       <Indicator label="Gastos de hoje" value={formatExpenseAmount(indicators.todayTotal)} icon={Wallet}
         hint={indicators.todayCount ? `${indicators.todayCount} lançamento(s)` : 'Nenhum lançamento hoje'} />
@@ -351,6 +364,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
       <Indicator label="Pagos sem comprovante" value={indicators.noProofCount} icon={AlertTriangle}
         danger={indicators.noProofCount > 0} hint="Pendentes de anexo" />
     </div>
+    )}
 
     <SearchAndFilters
       search={search} setSearch={setSearch}
@@ -402,7 +416,17 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
                 antigos continuam visíveis: nada de "Carregando gastos..."
                 derrubando a lista e os totais (era o bug de instabilidade). */}
             {loading && <tr><td colSpan={8} className="p-10 text-center text-slate-400">Carregando gastos...</td></tr>}
-            {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
+            {!loading && !visible.length && periodRows.length > 0 && (
+      <div className="rounded-lg border border-slate-200 bg-slate-50 p-3 text-sm text-slate-700">
+        <p>
+          <strong>{periodRows.length} lançamento(s) existem</strong> no período selecionado, mas
+          nenhum corresponde aos filtros de busca, categoria, forma de pagamento ou situação.
+        </p>
+        <button onClick={clearFilters} className="mt-1 underline text-slate-900">Limpar filtros</button>
+      </div>
+    )}
+
+    {!loading && !visible.length && <tr><td colSpan={8} className="p-10 text-center text-slate-500">
               <p className="font-medium text-slate-700">Nenhum gasto encontrado.</p>
               <p className="text-sm mt-1">Ajuste a busca ou os filtros, ou registre um novo gasto.</p>
               <Button className="mt-4 gap-2" onClick={openCreate}><Plus className="w-4 h-4" /> Novo gasto</Button>

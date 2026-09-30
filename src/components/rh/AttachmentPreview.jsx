@@ -338,7 +338,7 @@ export default function AttachmentPreview({
           {open && preview && !error ? (isImage ? (
             <div
               ref={viewportRef}
-              className="min-h-0 flex-1 cursor-grab overflow-auto bg-slate-100 p-3 active:cursor-grabbing"
+              className="theme-static-light-surface min-h-0 flex-1 cursor-grab overflow-auto bg-slate-100 p-3 active:cursor-grabbing"
               style={{ touchAction: 'pan-x pan-y', scrollbarGutter: 'stable' }}
               onPointerDown={onPointerDown}
               onPointerMove={onPointerMove}
@@ -357,14 +357,19 @@ export default function AttachmentPreview({
               />
             </div>
           ) : kind === 'pdf' ? (
-            <iframe
-              ref={pdfFrameRef}
-              title="Comprovante PDF"
-              src={preview.url}
-              className="min-h-0 w-full flex-1 border-0 bg-white"
-              onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })}
-              onError={() => previewFailed('O navegador não conseguiu exibir o PDF.')}
-            />
+            /* preview.type === 'application/pdf': o leitor nativo do browser
+               decide o resto. Esta é a única superfície light-only do dialog —
+               no tema escuro a caixa continua clara para o documento ser legível. */
+            <div className="theme-static-light-surface flex min-h-0 flex-1 flex-col">
+              <iframe
+                ref={pdfFrameRef}
+                title="Comprovante PDF"
+                src={preview.url}
+                className="min-h-0 w-full flex-1 border-0 bg-white"
+                onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })}
+                onError={() => previewFailed('O navegador não conseguiu exibir o PDF.')}
+              />
+            </div>
           ) : (
             <p className="px-4 py-3 text-sm text-slate-600">
               Este arquivo não pode ser exibido aqui. Use Baixar para abrir no aplicativo adequado.

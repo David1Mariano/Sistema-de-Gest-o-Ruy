@@ -3,6 +3,15 @@ import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { usePersistentDraft } from '@/lib/usePersistentDraft';
 import { hasDraftChanged } from '@/lib/draftStore';
+import {
+  FONTE_FINANCEIRO,
+  aliasesInvalidos,
+  ehFalhaDeSessao,
+  executarFontes,
+  mesclarPreservando,
+  resumirFalhas,
+} from '@/lib/financeiroLoad';
+import { renovarSessao } from '@/lib/supabaseClient';
 import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
 import DraftNotice from '@/components/shared/DraftNotice';
 import { Button } from '@/components/ui/button';
@@ -67,6 +76,10 @@ export default function Financeiro() {
   const carregouRef = useRef(false);
   const dataRef = useRef(data);
   dataRef.current = data;
+  // Quais collections NÃO foram lidas na última carga. Um card alimentado por
+  // uma delas não pode mostrar um número como se fosse verdade: "R$ 0,00" e
+  // "não consegui ler" precisam ser coisas diferentes na tela.
+  const [invalidAliases, setInvalidAliases] = useState(() => new Set());
 
   // FALHA NÃO pode virar lista vazia. O `catch(() => [])` antigo transformava
   // uma queda de rede em "Nenhum gasto encontrado", apagando da tela gastos que
@@ -83,41 +96,45 @@ export default function Financeiro() {
     return true;
   };
 
-  const load = async () => {
+  const load = async ({ tentativa = 0 } = {}) => {
     const seq = ++seqRef.current;
     if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
-    const fontes = [
-      ['expenses', base44.entities.FinancialExpense.list('-date', 1000)],
-      ['payments', base44.entities.EmployeePayment.list('-payment_date', 1000)],
-      ['employees', base44.entities.Employee.list('name', 500)],
-      ['vales', base44.entities.Vale.list('-date', 1000)],
-      ['consumptions', base44.entities.Consumption.list('-date', 1000)],
-      ['categories', base44.entities.ExpenseCategory.list('name', 300)],
-      ['centers', base44.entities.CostCenter.list('name', 300)],
-      ['payables', base44.entities.AccountsPayable.list('due_date', 1000)],
-      ['accounts', base44.entities.FinancialAccount.list('name', 200)],
-      ['recurrings', base44.entities.RecurringExpense.list('next_due_date', 300)],
-      ['closes', base44.entities.DailyFinancialClose.list('-date', 300)],
-      ['fechamentosCaixa', base44.entities.FechamentoCaixa.list('-date', 1000)],
-      ['sangrias', base44.entities.Sangria.list('-date', 1000)],
-      ['cashMovements', isAdmin ? base44.entities.CashMovement.list('-date', 1500) : Promise.resolve([])],
-      ['suppliers', base44.entities.Supplier.list('name', 500)],
-    ];
-    try {
-      const resultados = await Promise.all(fontes.map(([, p]) => safe(p)));
+    const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
+      alias,
+      entity,
+      entidade: base44.entities[entity],
+    }));
+    // Um administrador não vê caixa; para ele a collection resolve como vazia,
+    // o que é um valor legítimo e não uma falha.
+    if (!isAdmin) fontes[13] = { ...fontes[13], entidade: { list: async () => [] } };
+
+    const { valores, falhas } = await executarFontes(fontes);
+
+    // Recuperação. A tela chamava `load()` UMA vez, ao montar, e nunca mais:
+    // uma falha naquele instante deixava as collections quebradas vazias para
+    // sempre, sem botão e sem nova tentativa. Agora há (a) uma renovação de
+    // sessão quando a causa é 401, e (b) um número pequeno de repetições para
+    // falha transitória. É limitado de propósito — se o problema persistir, o
+    // aviso tem que dizer a verdade, não ficar tentando para sempre.
+    if (falhas.length && tentativa < MAX_TENTATIVAS) {
+      if (ehFalhaDeSessao(falhas)) await renovarSessao();
+      // Pausa curta: dá tempo de uma renovação de sessão que já estava em
+      // curso de terminar antes de uma nova tentativa.
+      await new Promise((r) => { setTimeout(r, PAUSA_ENTRE_TENTATIVAS_MS); });
       if (seq !== seqRef.current) return;
-      const parcial = {}; const falhas = [];
-      resultados.forEach((r, i) => { if (r.ok) parcial[fontes[i][0]] = r.value; else falhas.push(fontes[i][0]); });
-      apply(parcial, seq);
-      // Falha parcial mantém o último valor bom daquela coleção e avisa, em vez
-      // de esvaziar a tela.
-      setFailure(falhas.length ? `Não foi possível atualizar: ${falhas.join(', ')}. Exibindo os últimos dados carregados.` : '');
-      carregouRef.current = true;
-    } catch (e) {
-      if (seq === seqRef.current) setFailure('Não foi possível atualizar o Financeiro. Exibindo os últimos dados carregados.');
-    } finally {
-      if (seq === seqRef.current) { setInitialLoading(false); setRefreshing(false); }
+      return load({ tentativa: tentativa + 1 });
     }
+
+    if (seq !== seqRef.current) return;
+    // Uma collection que falhou NÃO é trocada por vazio: fica o último valor
+    // bom. É o que impede "deu ruim" de virar "não existem gastos".
+    apply(mesclarPreservando(valores, dataRef.current), seq);
+    const invalidos = aliasesInvalidos(falhas);
+    setInvalidAliases(invalidos);
+    setFailure(resumirFalhas(falhas, { carregouAntes: carregouRef.current }));
+    carregouRef.current = true;
+    setInitialLoading(false);
+    setRefreshing(false);
   };
 
   // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
@@ -215,12 +232,21 @@ export default function Financeiro() {
       </div>
     </>}
 
-    <div className="flex gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}</div>
+    <div className="flex items-center gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}
+      {/* Recarregar é a saída quando a carga falha. Antes não existia nenhuma:
+          sem este botão, uma sessão vencida no momento da montagem deixava a
+          tela vazia até o usuário sair e voltar por conta própria. */}
+      <button onClick={() => load()} disabled={initialLoading || refreshing}
+        title="Recarregar os dados do Financeiro"
+        className="ml-auto whitespace-nowrap px-3 py-2 rounded-lg text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed">
+        {refreshing ? 'Atualizando…' : 'Atualizar'}
+      </button>
+    </div>
 
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
     {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
@@ -235,6 +261,9 @@ export default function Financeiro() {
     <ValeFinanceDialog vale={valeSelected} open={Boolean(valeSelected)} onClose={()=>setValeSelected(null)} onSaved={load} data={data}/>
   </div>;
 }
+
+const MAX_TENTATIVAS = 2;
+const PAUSA_ENTRE_TENTATIVAS_MS = 1500;
 
 function Stat({label,value,icon:Icon,danger}) { return <div className={`rounded-xl border p-4 ${danger?'border-rose-200 bg-rose-50':'border-slate-200 bg-white'}`}><div className="flex justify-between"><div><p className={`text-xs ${danger?'text-rose-600':'text-slate-500'}`}>{label}</p><p className={`text-xl font-semibold mt-1 ${danger?'text-rose-700':'text-slate-900'}`}>{value}</p></div><Icon className={`w-5 h-5 ${danger?'text-rose-500':'text-amber-600'}`}/></div></div> }
 function SearchBox({value,setValue}) { return <div className="relative max-w-md"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><Input className="pl-9" placeholder="Buscar..." value={value} onChange={e=>setValue(e.target.value)}/></div> }
