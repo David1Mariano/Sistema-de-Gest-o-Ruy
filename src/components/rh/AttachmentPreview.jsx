@@ -1,12 +1,13 @@
-import { useCallback, useEffect, useRef, useState } from 'react';
-import { Download, Minus, Plus, Printer } from 'lucide-react';
+import { useCallback, useEffect, useMemo, useRef, useState } from 'react';
+import { Download, FileText, Minus, Plus, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { loadPaymentProof, PAYMENT_PROOF_DIAG } from '@/lib/paymentProof';
 import {
-  FIT, FIT_LABELS, attachmentKind, autoFitMode, buildImagePrintHtml, createPreviewSession,
-  downloadName, formatBytes, formatPixels, imageStyle, isTallImage, zoomFromPinch,
-  zoomFromWheel, zoomLabel, zoomStep,
+  FIT, FIT_LABELS, attachmentErrorMessage, attachmentKind, autoFitMode, buildImagePrintHtml,
+  createPreviewSession, downloadName, exportPdfName, formatBytes, formatPixels, imageStyle,
+  imageToPdfBytes, isTallImage, normalizeAttachment, zoomFromPinch, zoomFromWheel, zoomLabel,
+  zoomStep,
 } from '@/lib/attachmentViewer';
 
 // Visualização genérica de comprovantes/anexos: é O único visualizador do
@@ -26,6 +27,7 @@ export default function AttachmentPreview({
   diagLabel = PAYMENT_PROOF_DIAG,
   sourceField,
   className = 'text-xs text-emerald-700 underline',
+  children,
 } = {}) {
   const [open, setOpen] = useState(false);
   const [preview, setPreview] = useState(null);
@@ -41,7 +43,16 @@ export default function AttachmentPreview({
   const dragRef = useRef(null);
   const printFramesRef = useRef([]);
 
-  const hasProof = Boolean(record?.proof_url || record?.storage_path);
+  // O que existe é decidido pelo NORMALIZADOR, não por `proof_url ||
+  // storage_path`. Era exatamente esse o motivo de "alguns anexos não
+  // abriam": a nota fiscal da compra vive em `invoice_url`, o documento da
+  // conta a pagar em `document_url` e a foto em `photo_url` — campos que a
+  // checagem antiga considerava "sem anexo" e o botão nem aparecia.
+  const normalized = useMemo(
+    () => normalizeAttachment(record, { field: sourceField, mime: record?.mime_type }),
+    [record, sourceField], // eslint-disable-line react-hooks/exhaustive-deps
+  );
+  const hasProof = Boolean(normalized.url || normalized.dataUrl);
   const kind = attachmentKind(preview?.type);
   const isImage = kind === 'image';
 
@@ -67,7 +78,14 @@ export default function AttachmentPreview({
       mimeType: record?.mime_type || null,
       storagePath: record?.storage_path || null,
     });
-    loadPaymentProof(record, { signal: controller.signal, prefix, diagLabel }).then((blob) => {
+    // `loadPaymentProof` historicamente só sabe ler `proof_url`/`storage_path`.
+    // Anexos que vivem em `invoice_url`, `document_url` ou `photo_url` são
+    // entregues a ele já remapeados, sem alterar o carregador (e sem tocar em
+    // nenhum registro): é o registro desmontado, não o banco, que muda.
+    const source = normalized.sourceType === 'file' || record?.storage_path
+      ? record
+      : { ...record, proof_url: normalized.dataUrl || normalized.url, storage_path: '' };
+    loadPaymentProof(source, { signal: controller.signal, prefix, diagLabel }).then((blob) => {
       if (controller.signal.aborted) return;
       const adopted = session.adopt(blob);
       // null = o modal fechou durante o download; a URL foi revogada na hora.
@@ -77,18 +95,27 @@ export default function AttachmentPreview({
         url: adopted.url,
         type: adopted.type,
         bytes: blob.size,
-        name: downloadName(record, adopted.type),
+        // O nome vem do normalizador quando existe (nota fiscal, documento,
+        // foto) e do registro nos anexos antigos, para o download nunca sair
+        // como "comprovante" genérico.
+        name: normalized.filename && !/^comprovante$/i.test(normalized.filename)
+          ? normalized.filename
+          : downloadName(record, adopted.type),
       });
     }).catch((err) => {
       if (controller.signal.aborted) return;
       console.error(diagLabel, 'ERRO', { message: err?.message || String(err), status: err?.status ?? null, code: err?.code ?? null });
-      setError(err.message);
+      // Se o NORMALIZADOR já disse que o anexo é inutilizável, a causa é essa
+      // (campo vazio, base64 quebrado, URL inválida) e vale mais que a falha
+      // genérica do carregador. Se ele considerava o anexo válido, quem fala
+      // é o carregador (Storage, rede, arquivo corrompido no banco).
+      setError(normalized.canPreview ? (err.message || 'Não foi possível visualizar este anexo.') : attachmentErrorMessage(normalized));
     });
     return () => {
       controller.abort();
       if (session.close()) console.info(diagLabel, 'preview: blob URL revogada');
     };
-  }, [open, record?.proof_url, record?.storage_path]); // eslint-disable-line react-hooks/exhaustive-deps
+  }, [open, normalized.url, record?.storage_path]); // eslint-disable-line react-hooks/exhaustive-deps
 
   // ---------------------------------------------------- medir a área visível
   useEffect(() => {
@@ -264,6 +291,45 @@ export default function AttachmentPreview({
     }
   };
 
+  // --------------------------------------------------- baixar imagem como PDF
+  //
+  // Só faz sentido para IMAGEM (um PDF já é PDF). O arquivo vem do mesmo Blob
+  // que está na tela: nunca re-download, e o original do registro continua
+  // intocado — isto gera uma CÓPIA A4.
+  const [exporting, setExporting] = useState(false);
+  const exportAsPdf = async () => {
+    if (!preview?.url || !isImage || exporting) return;
+    setExporting(true);
+    setError('');
+    try {
+      const response = await fetch(preview.url);
+      if (!response.ok) throw new Error('arquivo indisponível');
+      const bytes = new Uint8Array(await response.arrayBuffer());
+      const pdf = await imageToPdfBytes(bytes, {
+        mime: preview.type,
+        width: natural?.width,
+        height: natural?.height,
+        title: preview.name,
+      });
+      const url = URL.createObjectURL(new Blob([pdf], { type: 'application/pdf' }));
+      const anchor = document.createElement('a');
+      anchor.href = url;
+      anchor.download = exportPdfName(preview.name);
+      document.body.appendChild(anchor);
+      anchor.click();
+      anchor.remove();
+      // URL do PDF é temporária: revogada já, com o download disparado.
+      setTimeout(() => URL.revokeObjectURL(url), 0);
+      console.info(diagLabel, 'imagem exportada como PDF', { nome: anchor.download, bytes: pdf.length });
+    } catch (err) {
+      setError('Não foi possível gerar o PDF desta imagem. Use "Baixar original" e converta o arquivo se precisar.');
+      console.error(diagLabel, 'ERRO', { message: err?.message || String(err), code: 'EXPORT_PDF_FAILED' });
+    } finally {
+      setExporting(false);
+    }
+  };
+
+
   if (!hasProof) return null;
   const meta = [formatPixels(natural), formatBytes(preview?.bytes)].filter(Boolean).join(' · ');
 
@@ -271,10 +337,11 @@ export default function AttachmentPreview({
     <>
       <button
         type="button"
-        className={className}
+        className={children ? 'block cursor-zoom-in' : className}
+        title={children ? 'Ampliar a foto' : undefined}
         onClick={() => { console.info(diagLabel, 'preview: clique', { recordId: record?.id || null, campoUtilizado: sourceField, tipo: record?.storage_path ? 'storage' : 'legacy' }); setPreview(null); setError(''); setOpen(true); }}
       >
-        {label}
+        {children || label}
       </button>
       <Dialog open={open} onOpenChange={setOpen}>
         <DialogContent
@@ -318,8 +385,22 @@ export default function AttachmentPreview({
             <span className="ml-auto flex items-center gap-1">
               <Button type="button" variant="outline" size="sm" onClick={downloadFile} className="gap-1.5">
                 <Download className="h-4 w-4" />
-                Baixar
+                {isImage ? 'Baixar original' : 'Baixar PDF'}
               </Button>
+              {isImage ? (
+                <Button
+                  type="button"
+                  variant="outline"
+                  size="sm"
+                  onClick={exportAsPdf}
+                  disabled={exporting}
+                  className="gap-1.5"
+                  title="Gerar uma cópia em PDF A4. O arquivo original continua intacto."
+                >
+                  <FileText className="h-4 w-4" />
+                  {exporting ? 'Gerando PDF...' : 'Baixar como PDF'}
+                </Button>
+              ) : null}
               <Button type="button" variant="outline" size="sm" onClick={printFile} className="gap-1.5">
                 <Printer className="h-4 w-4" />
                 Imprimir
