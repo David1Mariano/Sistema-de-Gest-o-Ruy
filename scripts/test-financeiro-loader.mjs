@@ -216,9 +216,12 @@ test('L11 — Financeiro usa o loader corrigido e guarda as flags', async () => 
   const src = await readFile(new URL('../src/pages/Financeiro.jsx', import.meta.url), 'utf8');
 
   assert.match(src, /executarFontes\(/, 'a tela usa o loader isolado por entity');
-  assert.match(src, /mesclarPreservando\(/, 'preserva o último valor bom');
+  // A preservação da última collection boa é feita por `aplicarFases`, que
+  // chama `mesclarPreservando` no núcleo. A tela não precisa mais conhecê-la.
+  assert.match(src, /aplicarResultado\(/, 'a tela aplica o resultado por fase');
+  assert.match(src, /aplicarFases\(/, 'e a junção das fases acontece pelo núcleo');
   assert.match(src, /resumirFalhas\(/, 'a mensagem traz status e causa');
-  assert.match(src, /ehFalhaDeSessao\(falhas\)/, 'a falha de sessão é reconhecida');
+  assert.match(src, /ehFalhaDeSessao\(fase0\.falhas\)/, 'a falha de sessão é reconhecida');
   assert.match(src, /renovarSessao\(\)/, 'a sessão é renovada uma vez antes de desistir');
   assert.match(src, /setInvalidAliases\(/, 'a tela sabe quais collections são inválidas');
   assert.match(src, /semDadosConfirmados=/, 'o painel de gastos recebe a flag de confiabilidade');

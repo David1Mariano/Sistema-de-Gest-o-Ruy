@@ -2,6 +2,8 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
+import { useEffect } from 'react';
+import { usePrefetchFinanceiro } from '@/lib/usePrefetchFinanceiro';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
 import UserNotRegisteredError from '@/components/UserNotRegisteredError';
@@ -39,6 +41,10 @@ import Auditoria from '@/pages/Auditoria';
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
+  // Um único ponto de prefetch no aplicativo inteiro. Dispara depois que a
+  // sessão está resolvida, no tempo ocioso do navegador — nunca no caminho
+  // crítico do primeiro render.
+  usePrefetchFinanceiro();
 
   // Show loading spinner while checking app public settings or auth
   if (isLoadingPublicSettings || isLoadingAuth) {
