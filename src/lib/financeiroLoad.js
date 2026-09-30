@@ -128,3 +128,72 @@ export function resumirFalhas(falhas, { carregouAntes = true } = {}) {
 export function aliasesInvalidos(falhas) {
   return new Set((falhas || []).map((f) => f.alias));
 }
+
+// ---------------------------------------------------------------------------
+// Prioridade por aba
+//
+// Medido: as 15 fontes em paralelo levam segundos, mas a FinancialExpense
+// sozinha responde bem mais rápido. A aba Gastos não usa nenhuma das outras
+// 14 para renderizar a lista. Fazer a aba esperar o conjunto inteiro é
+// esperar por dados de que ela não precisa.
+//
+// Aqui fica só a POLICY (quais aliases cada aba precisa primeiro). A
+// execução em duas fases vive no componente, porque precisa conviver com o
+// estado do React.
+
+/**
+ * O que cada aba precisa, em duas camadas.
+ *
+ * `render`  — o que ela precisa para DESENHAR. A tela espera só isso.
+ * `proxima` — o que completa a tela, mas pode chegar depois sem travar.
+ *
+ * Medido: ExpenseCategory sozinha responde em ~0,3 s, então colocá-la junto
+ * do expenses quase não custava nada. Mas ela não é necessária para a
+ * LISTA aparecer — só para o rótulo da categoria e o filtro. Se algum dia o
+ * servidor demorar com categorias, a lista de gastos não pode esperar junto.
+ * Por isso ela fica em `proxima`.
+ */
+export const PRIORIDADE_POR_ABA = Object.freeze({
+  gastos: { render: ['expenses'], proxima: ['categories'] },
+  visao: { render: ['expenses'], proxima: ['categories'] },
+  pagamentos: { render: ['payments', 'employees'], proxima: ['vales', 'consumptions'] },
+  vales: { render: ['vales'], proxima: ['employees'] },
+  consumo: { render: ['consumptions'], proxima: ['employees'] },
+  contas: { render: ['payables'], proxima: ['suppliers', 'categories'] },
+  recorrentes: { render: ['recurrings'], proxima: ['categories'] },
+  fechamentocaixa: { render: ['fechamentosCaixa'], proxima: ['cashMovements', 'sangrias'] },
+  sangrias: { render: ['sangrias'], proxima: ['cashMovements'] },
+  fechamento: { render: ['closes', 'expenses'], proxima: ['categories'] },
+  cadastros: { render: ['accounts', 'centers'], proxima: ['suppliers'] },
+  caixasdelivery: { render: ['cashMovements'], proxima: ['sangrias'] },
+});
+
+/** As duas camadas de uma aba, já filtradas para aliases que existem. */
+export function separarPorPrioridade(fontes, aba) {
+  const conhecidos = new Set(FONTE_FINANCEIRO.map((f) => f.alias));
+  const pedido = PRIORIDADE_POR_ABA[aba] || PRIORIDADE_POR_ABA.visao;
+  const render = new Set((pedido.render || []).filter((a) => conhecidos.has(a)));
+  const proxima = new Set((pedido.proxima || []).filter((a) => conhecidos.has(a)));
+  return {
+    render: fontes.filter((f) => render.has(f.alias)),
+    proxima: fontes.filter((f) => proxima.has(f.alias)),
+    resto: fontes.filter((f) => !render.has(f.alias) && !proxima.has(f.alias)),
+  };
+}
+
+/**
+ * Junta o resultado das duas fases preservando a última collection boa.
+ * `anterior` nunca é sobrescrito por uma collection que não veio nesta fase.
+ */
+export function aplicarFases(fases, anterior) {
+  const acumulado = { ...anterior };
+  for (const fase of fases) {
+    for (const [alias, valor] of Object.entries(fase?.valores || {})) acumulado[alias] = valor;
+  }
+  return mesclarPreservando(acumulado, anterior);
+}
+
+/** Falhas das duas fases, juntas, para a mensagem final retratar tudo. */
+export function juntarFalhas(...fases) {
+  return fases.flatMap((f) => f?.falhas || []);
+}

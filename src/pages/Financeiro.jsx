@@ -6,12 +6,15 @@ import { hasDraftChanged } from '@/lib/draftStore';
 import {
   FONTE_FINANCEIRO,
   aliasesInvalidos,
+  aplicarFases,
   ehFalhaDeSessao,
   executarFontes,
-  mesclarPreservando,
+  juntarFalhas,
   resumirFalhas,
+  separarPorPrioridade,
 } from '@/lib/financeiroLoad';
 import { renovarSessao } from '@/lib/supabaseClient';
+import { lerComRevalidacao, marcar } from '@/lib/financeiroPrefetch';
 import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
 import DraftNotice from '@/components/shared/DraftNotice';
 import { Button } from '@/components/ui/button';
@@ -97,6 +100,7 @@ export default function Financeiro() {
   };
 
   const load = async ({ tentativa = 0 } = {}) => {
+    marcar('financeiro:gastos:start');
     const seq = ++seqRef.current;
     if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
     const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
@@ -108,33 +112,71 @@ export default function Financeiro() {
     // o que é um valor legítimo e não uma falha.
     if (!isAdmin) fontes[13] = { ...fontes[13], entidade: { list: async () => [] } };
 
-    const { valores, falhas } = await executarFontes(fontes);
+    // Três camadas. A aba espera SÓ o que desenha; o complemento e o resto
+    // vêm em seguida, sem travar ninguém. E o que já está em memória (do
+    // prefetch ou de uma visita anterior) é usado na hora, com revalidação por
+    // baixo — a lista nunca passa por "vazio -> spinner -> dado".
+    const { render, proxima, resto } = separarPorPrioridade(fontes, tab);
+
+    const comCache = (alias, entidade) => ({
+      ...entidade,
+      list: async (sort, limit) => {
+        const r = await lerComRevalidacao(alias, () => entidade.list(sort, limit));
+        return r.dados;
+      },
+    });
+    const fase0 = render.length
+      ? await executarFontes(render.map((f) => ({ ...f, entidade: comCache(f.alias, f.entidade) })))
+      : { valores: {}, falhas: [] };
 
     // Recuperação. A tela chamava `load()` UMA vez, ao montar, e nunca mais:
     // uma falha naquele instante deixava as collections quebradas vazias para
-    // sempre, sem botão e sem nova tentativa. Agora há (a) uma renovação de
-    // sessão quando a causa é 401, e (b) um número pequeno de repetições para
-    // falha transitória. É limitado de propósito — se o problema persistir, o
-    // aviso tem que dizer a verdade, não ficar tentando para sempre.
-    if (falhas.length && tentativa < MAX_TENTATIVAS) {
-      if (ehFalhaDeSessao(falhas)) await renovarSessao();
-      // Pausa curta: dá tempo de uma renovação de sessão que já estava em
-      // curso de terminar antes de uma nova tentativa.
+    // sempre, sem botão e sem nova tentativa. Agora há renovação de sessão
+    // quando a causa é 401 e um número pequeno de repetições para falha
+    // transitória. É limitado de propósito — se o problema persistir, o aviso
+    // tem que dizer a verdade, não ficar tentando para sempre.
+    if (fase0.falhas.length && tentativa < MAX_TENTATIVAS) {
+      if (ehFalhaDeSessao(fase0.falhas)) await renovarSessao();
       await new Promise((r) => { setTimeout(r, PAUSA_ENTRE_TENTATIVAS_MS); });
       if (seq !== seqRef.current) return;
       return load({ tentativa: tentativa + 1 });
     }
 
     if (seq !== seqRef.current) return;
-    // Uma collection que falhou NÃO é trocada por vazio: fica o último valor
-    // bom. É o que impede "deu ruim" de virar "não existem gastos".
-    apply(mesclarPreservando(valores, dataRef.current), seq);
-    const invalidos = aliasesInvalidos(falhas);
-    setInvalidAliases(invalidos);
-    setFailure(resumirFalhas(falhas, { carregouAntes: carregouRef.current }));
+    // CAMADA 0 APLICADA. A lista desenha agora. `initialLoading` desliga aqui.
+    aplicarResultado(fase0, seq);
     carregouRef.current = true;
     setInitialLoading(false);
+    marcar('financeiro:gastos:data-ready');
+    setTimeout(() => {
+      if (seq === seqRef.current) marcar('financeiro:gastos:render-ready');
+    }, 0);
+
+    // Camada 1: o complemento (rótulos de categoria, filtros). Não bloqueia.
+    if (proxima.length) {
+      const fase1 = await executarFontes(proxima);
+      if (seq !== seqRef.current) return;
+      aplicarResultado(fase1, seq, { anteriores: [fase0] });
+    }
+
+    // Camada 2: as demais, em segundo plano. Nada aqui impede a tela de ser
+    // usada, e uma falha aqui não desfaz o que a camada 0 já entregou.
+    if (!resto.length) { setRefreshing(false); return; }
+    const fase2 = await executarFontes(resto);
+    if (seq !== seqRef.current) return;
+    aplicarResultado(fase2, seq, { anteriores: [fase0] });
     setRefreshing(false);
+  };
+
+  // Aplica uma fase preservando a última collection boa.
+  const aplicarResultado = (fase, seq, { anteriores = [] } = {}) => {
+    if (seq !== seqRef.current) return false;
+    const anterior = aplicarFases([...anteriores, fase], dataRef.current);
+    apply(anterior, seq);
+    const falhas = juntarFalhas(...anteriores, fase);
+    setInvalidAliases(aliasesInvalidos(falhas));
+    setFailure(resumirFalhas(falhas, { carregouAntes: carregouRef.current }));
+    return true;
   };
 
   // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
@@ -168,6 +210,29 @@ export default function Financeiro() {
   };
 
   useEffect(() => { load(); }, [isAdmin]);
+  // Trocar de aba refaz SÓ a fase prioritária daquela aba. O que já veio antes
+  // fica em memória: voltar para Gastos não mostra vazio nem loading, mostra a
+  // lista que já estava lá e revalida por baixo. Não é preciso esperar as 15.
+  useEffect(() => { if (tab) load(); }, [tab]);
+  useEffect(() => {
+    // Subscriptions ESPECÍFICAS. Antes, qualquer evento relevante acabava no
+    // loader das 15 entidades; agora cada entity recarrega só a si mesma.
+    // Uma mudança em gasto não reconsulta pagamentos, vales e sangrias.
+    const unsub = [
+      base44.entities.FinancialExpense.subscribe(() => reloadExpenses()),
+      base44.entities.ExpenseCategory.subscribe(() => reloadCategories()),
+    ];
+    // Employee e Supplier alimentam várias abas de uma vez; para eles uma
+    // recarga agrupada, com atraso curto para não disparar a cada evento.
+    let timer;
+    const onMudancaAmpla = () => {
+      clearTimeout(timer);
+      timer = setTimeout(() => load(), 800);
+    };
+    unsub.push(base44.entities.Employee.subscribe(onMudancaAmpla));
+    unsub.push(base44.entities.Supplier.subscribe(onMudancaAmpla));
+    return () => { clearTimeout(timer); unsub.forEach((f) => f()); };
+  }, []);
   useEffect(() => {
     if (!isAdmin) return undefined;
     // A subscription de caixa não pode reconsultar as 15 entidades: só o que a
@@ -246,7 +311,7 @@ export default function Financeiro() {
     {tab==='visao' && <Overview expenses={periodExpenses}/>} 
     {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
     {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading} refreshing={refreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading && !data.expenses.length} refreshing={refreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
     {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
     {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
     {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
