@@ -3,6 +3,54 @@ import test from 'node:test';
 import assert from 'node:assert/strict';
 import { bootstrapFirstSocialAdmin, formatBootstrapReport } from '../scripts/bootstrap-social-admin.mjs';
 import { STORE_NOT_READY } from '../server/social/accountAccessStore.mjs';
+import { readFileSync } from 'node:fs';
+
+// ─────────────────────────────────────────────────────────────────────────────
+// TRAVA DA ORDEM DA CLI (Fase 9).
+//
+// O bug corrigido aqui NAO estava em `bootstrapFirstSocialAdmin`, e sim no bloco
+// de linha de comando: ele passava `apply: args.apply` na PRIMEIRA chamada, de
+// modo que `--apply` gravava ANTES do prompt `APLICAR` — e, sem TTY, o script
+// escrevia e so depois recusava. A funcao pura estava correta e por isso os
+// testes existentes nunca pegaram o problema.
+//
+// Este teste e estrutural: ele le o fonte da CLI e trava a ordem exigida.
+// Falha se voltar a existir qualquer escrita antes da confirmacao.
+// ─────────────────────────────────────────────────────────────────────────────
+test('CLI: dry-run vem antes de qualquer escrita, sempre', () => {
+  const fonte = readFileSync(new URL('./bootstrap-social-admin.mjs', import.meta.url), 'utf8');
+  // Corta no bloco de CLI: e a partir do guarda de execucao que ele roda.
+  const inicio = fonte.indexOf('if (process.argv[1]');
+  assert.ok(inicio > 0, 'nao encontrei o bloco de execucao da CLI');
+  const cli = fonte.slice(inicio);
+
+  const chamadas = [...cli.matchAll(/bootstrapFirstSocialAdmin\(\{([\s\S]*?)\}\)/g)].map((m) => m[1]);
+  assert.ok(chamadas.length >= 1, 'a CLI deve chamar o bootstrap');
+
+  // 1. A PRIMEIRA chamada e sempre dry-run. `args.apply` nessa posicao e o bug.
+  assert.match(
+    chamadas[0],
+    /apply:\s*false/,
+    'a primeira chamada da CLI precisa ser dry-run (apply: false); usar args.apply aqui grava antes de confirmar',
+  );
+
+  // 2. A confirmacao digitada acontece ANTES de qualquer chamada com apply=true.
+  const iConfirmacao = cli.indexOf("'APLICAR'");
+  assert.ok(iConfirmacao > 0, 'a CLI precisa pedir a confirmacao APLICAR');
+  const chamadasComApply = chamadas.map((c, i) => ({ i, corpo: c })).filter((c) => /apply:\s*true/.test(c.corpo));
+  assert.ok(chamadasComApply.length >= 1, 'a CLI precisa ter uma chamada com apply: true (apos confirmar)');
+  for (const c of chamadasComApply) {
+    const pos = cli.indexOf(`bootstrapFirstSocialAdmin({${c.corpo}}`);
+    assert.ok(
+      pos > iConfirmacao,
+      `a chamada com apply: true (indice ${c.i}) acontece antes do prompt APLICAR: isso grava sem consentimento`,
+    );
+  }
+
+  // 3. Sem TTY a CLI nao escreve: o guard existe e antecede qualquer apply.
+  assert.match(cli, /!process\.stdin\.isTTY/, 'sem TTY a CLI precisa recusar antes de gravar');
+});
+
 
 const USUARIOS = [{ auth_user_id: 'auth-1', full_name: 'Maria Souza', email: 'maria@ruy.com', status: 'ativo' }];
 const CONTAS = [{ id: 'acc-1', provider: 'instagram', display_name: 'Ruy Caldo de Cana', status: 'connected' }];

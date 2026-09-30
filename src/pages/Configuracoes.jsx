@@ -6,10 +6,10 @@ import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Card, CardContent, CardHeader, CardTitle } from '@/components/ui/card';
 // MERGE (Fase 9): imports dos DOIS lados. A main trouxe o tema (Sun/Moon e
-// useTheme); a branch social brought Tabs, useUserRole e o painel de acessos.
+// useTheme); a branch social traz Tabs, useUserRole e o painel de acessos.
 // Nenhum dos dois foi descartado.
 import { Tabs, TabsContent, TabsList, TabsTrigger } from '@/components/ui/tabs';
-import { Save, Clock, ShieldCheck, Sun, Moon, MonitorSmartphone } from 'lucide-react';
+import { Save, Clock, ShieldCheck, Sun, Moon } from 'lucide-react';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { useUserRole } from '@/lib/useUserRole';
@@ -103,50 +103,12 @@ export default function Configuracoes() {
           </p>
         </TabsContent>
         <TabsContent value="jornada" className="mt-4 space-y-5">
-          {/* Aparência veio da main (tema claro/escuro). Fica na aba de jornada
-              porque é preferência do navegador, não do domínio social. Convive
-              com as Tabs da Fase 7: os dois lados do merge foram preservados. */}
-          <Card>
-        <CardHeader>
-          <CardTitle className="flex items-center gap-2 text-base">
-            <Sun className="w-4 h-4 text-amber-500" /> Aparência
-          </CardTitle>
-        </CardHeader>
-        <CardContent className="space-y-3">
-          <p className="text-sm text-slate-500">
-            Vale para este navegador. A preferência fica salva aqui, no seu
-            dispositivo — não é uma configuração do sistema e não muda o que
-            outras pessoas veem.
-          </p>
-          <div
-            role="radiogroup"
-            aria-label="Tema da interface"
-            className="flex gap-2">
-            {[
-              { valor: 'claro', rotulo: 'Claro', Icon: Sun },
-              { valor: 'escuro', rotulo: 'Escuro', Icon: Moon },
-              { valor: 'sistema', rotulo: 'Sistema', Icon: MonitorSmartphone },
-            ].map(({ valor, rotulo, Icon }) => (
-              <button
-                key={valor}
-                type="button"
-                role="radio"
-                aria-checked={tema === valor}
-                onClick={() => setTema(valor)}
-                className={
-                  'flex items-center gap-2 rounded-lg border px-3 py-2 text-sm ' +
-                  (tema === valor
-                    ? 'border-amber-500 bg-amber-50 dark:bg-amber-950/40 text-foreground'
-                    : 'text-muted-foreground hover:bg-muted')
-                }
-              >
-                <Icon className="h-4 w-4" />
-                {rotulo}
-              </button>
-            ))}
-          </div>
-        </CardContent>
-      </Card>
+          {/* Aparência vem DA MAIN, integralmente (valores `light`/`dark` e
+              tokens `bg-accent`/`bg-card`, sem cor fixa). Na resolução do merge
+              da Fase 9 o card havia sido reescrito com cores fixas e um
+              terceiro valor de tema, o que quebrou `test-theme-inventario` e
+              trocou o contrato que a main define. O que sobra da branch social
+              aqui e apenas o ENVELOPO em Tabs ao redor. */}
       <Card>
         <CardHeader>
           <CardTitle className="flex items-center gap-2 text-base">

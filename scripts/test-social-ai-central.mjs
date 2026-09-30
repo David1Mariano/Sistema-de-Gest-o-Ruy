@@ -1,4 +1,4 @@
-﻿// Fase 4: a IA utilizÃ¡vel pela CENTRAL. Backend handler, cliente, categoria e concorrÃªncia.
+// Fase 4: a IA utilizável pela CENTRAL. Backend handler, cliente, categoria e concorrência.
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import { readFile } from 'node:fs/promises';
@@ -9,7 +9,7 @@ import { socialClient } from '../src/lib/social/client.js';
 import { SOCIAL_AUTOMATION } from '../server/social/outbox.mjs';
 import { createSocialService } from '../server/social/service.mjs';
 
-const FALLBACK = 'NÃ£o foi possÃ­vel gerar uma sugestÃ£o. VocÃª pode responder manualmente.';
+const FALLBACK = 'Não foi possível gerar uma sugestão. Você pode responder manualmente.';
 const ok = body => new Response(JSON.stringify(body), { status: 200, headers: { 'content-type': 'application/json' } });
 const req = (path, init = {}) => new Request(`https://api.invalid${path}`, {
   headers: { authorization: 'Bearer token', 'content-type': 'application/json' }, ...init,
@@ -18,7 +18,7 @@ const asUser = async () => ({ id: 'u1', active: true, app_metadata: { system_rol
 const post = (text) => req('/social-ai/draft', { method: 'POST', body: JSON.stringify({ text }) });
 const bodyOf = async (response) => response.json();
 
-// Handler com serviÃ§o demente: o teste observa o que a UI receberia, sem rede.
+// Handler com serviço demente: o teste observa o que a UI receberia, sem rede.
 function handlerWith(service, over = {}) {
   return createSocialAIHandler({ service, verifyIdentity: asUser, ...over });
 }
@@ -29,7 +29,7 @@ const stubService = (over = {}) => ({
   ...over,
 });
 
-// 1-4. Health: os quatro estados de operaÃ§Ã£o + normalizaÃ§Ã£o.
+// 1-4. Health: os quatro estados de operação + normalização.
 test('1-4. health reflete not_configured, offline, model_unavailable e ready', async () => {
   for (const status of ['not_configured', 'offline', 'model_unavailable', 'ready']) {
     const response = await handlerWith(stubService({ health: async () => ({ status, provider: 'ollama', host: '127.0.0.1', model: 'llama3' }) }))(req('/social-ai/health'));
@@ -40,7 +40,7 @@ test('1-4. health reflete not_configured, offline, model_unavailable e ready', a
   }
 });
 
-// 5. Health nÃ£o vaza segredo: URL, porta, header e resposta crua ficam de fora.
+// 5. Health não vaza segredo: URL, porta, header e resposta crua ficam de fora.
 test('5. health nao vaza segredo e normaliza estado desconhecido para error', async () => {
   const vazamento = {
     status: 'ready', provider: 'ollama', host: '127.0.0.1', model: 'llama3',
@@ -59,18 +59,18 @@ test('5. health nao vaza segredo e normaliza estado desconhecido para error', as
   assert.equal((await bodyOf(lancou)).status, 'error');
 });
 
-// AutorizaÃ§Ã£o: sem identidade real, fail-closed.
-test('handler sem verifyIdentity ou sem identidade vÃ¡lida nega tudo', async () => {
+// Autorização: sem identidade real, fail-closed.
+test('handler sem verifyIdentity ou sem identidade válida nega tudo', async () => {
   assert.equal((await createSocialAIHandler({ service: stubService() })(req('/social-ai/health'))).status, 503);
   assert.equal((await createSocialAIHandler({ service: stubService(), verifyIdentity: async () => null })(req('/social-ai/health'))).status, 401);
   assert.equal((await createSocialAIHandler({ service: stubService(), verifyIdentity: async () => ({ id: 'u', active: false }) })(req('/social-ai/health'))).status, 401);
   assert.equal((await createSocialAIHandler({ service: stubService(), verifyIdentity: async () => ({ id: 'u', active: true, app_metadata: { system_role: 'viewer' } }) })(req('/social-ai/health'))).status, 403);
 
-// 6-9. Sucesso: texto, categoria, confianÃ§a e o indicador de humano.
+// 6-9. Sucesso: texto, categoria, confiança e o indicador de humano.
 test('6-9. draft bem-sucedido devolve texto, categoria e exige humano', async () => {
   const service = stubService({
     classifyComment: async () => ({ category: 'reclamacao', categoryRecognized: true, confidence: 0.9 }),
-    draftReply: async () => ({ reply: 'Sentimos muito pelo transtorno, vamos verificar.', category: 'reclamacao', confidence: 0.9, safety: { level: 'high', reasons: ['reclamaÃ§Ã£o'] } }),
+    draftReply: async () => ({ reply: 'Sentimos muito pelo transtorno, vamos verificar.', category: 'reclamacao', confidence: 0.9, safety: { level: 'high', reasons: ['reclamação'] } }),
   });
   const body = await bodyOf(await handlerWith(service)(post('Produto veio errado')));
   assert.equal(body.text, 'Sentimos muito pelo transtorno, vamos verificar.');
@@ -81,7 +81,7 @@ test('6-9. draft bem-sucedido devolve texto, categoria e exige humano', async ()
   assert.equal(body.safety.level, 'high');
 });
 
-// 10. Categoria fora da allowlist nunca chega crua Ã  UI.
+// 10. Categoria fora da allowlist nunca chega crua à UI.
 test('10. categoria fora da allowlist vira outro e e marcada como nao reconhecida', async () => {
   const service = stubService({
     classifyComment: async () => ({ category: 'falha nuclear do servidor', categoryRecognized: false }),
@@ -95,7 +95,7 @@ test('10. categoria fora da allowlist vira outro e e marcada como nao reconhecid
 });
 
 test('categoria valida e preservada, com e sem acento ou caixa', () => {
-  for (const entrada of ['elogio', 'ELOGIO', 'Elogio', 'DÃºvida', 'DUVIDA', 'problema_pedido', 'Problema Pedido']) {
+  for (const entrada of ['elogio', 'ELOGIO', 'Elogio', 'Dúvida', 'DUVIDA', 'problema_pedido', 'Problema Pedido']) {
     assert.equal(normalizeCategory(entrada).recognized, true, `deveria reconhecer ${entrada}`);
     assert.ok(SOCIAL_AI_CATEGORIES.includes(normalizeCategory(entrada).category));
   }
@@ -104,7 +104,7 @@ test('categoria valida e preservada, com e sem acento ou caixa', () => {
   }
 });
 
-// 11. requires_human Ã© polÃ­tica soberana: o modelo nÃ£o libera, mesmo dizendo false.
+// 11. requires_human é política soberana: o modelo não libera, mesmo dizendo false.
 test('11. requires_human e soberano: provider dizendo false ainda exige humano', async () => {
   const service = new SocialAIService({
     provider: {
@@ -128,9 +128,19 @@ test('caso sensivel continua exigindo humano mesmo classificado como elogio', as
       draftReply: async () => ({ reply: 'ok', category: 'elogio', requiresHuman: false }),
     },
   });
-  const r = await service.classifyComment({ text: 'Quero reembolso e meu CPF Ã© 123.456.789-00' });
+  const r = await service.classifyComment({ text: 'Quero reembolso e meu CPF é 123.456.789-00' });
   assert.equal(r.requiresHuman, true);
-  assert.ok(['high', 'critical'].includes(r.safety.level), `esperava nivel alto, veio ${r.safety.level}`);
+  assert.equal(r.automaticAllowed, false);
+  // O contrato real de `moderationCheck` é `{requiresHuman, automaticAllowed,
+  // requiresAttention, sensitive, policyVersion}` — NÃO tem `level`. O teste
+  // antigo exigia `safety.level`, campo que o código nunca produziu (verificado
+  // por `git log -S "level" -- server/social/ai.mjs`, sem resultado, desde o
+  // commit de origem 8664611). A intenção do teste é a mesma: conteúdo
+  // sensível precisa ser marcado e nunca liberado para resposta automática.
+  assert.equal(r.safety.sensitive, true, 'texto com CPF deveria ser sensivel');
+  assert.equal(r.safety.requiresAttention, true, 'sensivel exige atencao');
+  assert.equal(r.safety.requiresHuman, true);
+  assert.equal(r.safety.automaticAllowed, false);
 });
 
 });
@@ -285,10 +295,10 @@ test('nenhum segredo de Ollama no frontend', async () => {
 
 test('a UI mantem os tres botoes e nunca offers envio automatico', async () => {
   const painel = await readFile(new URL('../src/components/social/CommentPanel.jsx', import.meta.url), 'utf8');
-  for (const botao of ['Gerar sugestÃ£o com IA', 'Editar', 'Gerar novamente']) {
+  for (const botao of ['Gerar sugestão com IA', 'Editar', 'Gerar novamente']) {
     assert.ok(painel.includes(botao), `falta o botao ${botao}`);
   }
-  assert.ok(painel.includes('Gerando sugestÃ£o...'), 'falta o estado de loading');
+  assert.ok(painel.includes('Gerando sugestão...'), 'falta o estado de loading');
   assert.ok(painel.includes('Requer humano'), 'falta o indicador de humano');
   assert.ok(!/Enviar automaticamente|Enviar resposta|Enviar agora/.test(painel), 'nao pode existir envio automatico na UI');
   assert.ok(painel.includes('Aprovar e responder'), 'a aprovacao humana precisa continuar');
