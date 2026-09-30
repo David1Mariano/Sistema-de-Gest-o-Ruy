@@ -48,9 +48,14 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
    * ao menos uma conta. Esconder o botão no frontend não é autorização: cada
    * operação revalida aqui, e o `canAdminAnyAccount` volta a consultar a conta
    * real, então um admin sem vínculo admin é barrado mesmo sabendo o id.
+   *
+   * `token` é o bearer BRUTO (o header `Authorization`). Aceitar também um
+   * objeto com `.raw` mantem o contrato com o handler, que carrega o id junto
+   * para uso local. Uma string solta continua válida — é o que os testes usam.
    */
   async function authorizeAdmin(token, accountId) {
-    const identity = await verifyIdentity(token);
+    const raw = typeof token === 'string' ? token : token?.raw;
+    const identity = await verifyIdentity(raw);
     if (!identity?.id || identity.active !== true) throw fail('UNAUTHORIZED', 'Sessão inválida');
     if (!socialPermissions(identity.app_metadata?.system_role).configure) throw fail('FORBIDDEN', 'Sem permissão administrativa');
     if (accountId) {
@@ -69,13 +74,39 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
     throw fail('UNAVAILABLE', message);
   };
 
-  async function audit(identity, action, { accountId, authUserId, details = null } = {}) {
+  async function audit(identity, action, { accountId, authUserId, details = null, tx = null } = {}) {
     if (!ACCOUNT_AUDIT_ACTIONS.includes(action)) throw new Error(`Ação de auditoria inválida: ${action}`);
     // Registro com operador, alvo e instante. Nunca token, senha ou segredo:
     // esta linha pode acabar em relatório.
     return store.appendAudit({
       action, account_id: accountId ?? null, target_user_id: authUserId ?? null,
       operator_user_id: identity.id, details, created_at: now(),
+    }, tx);
+  }
+
+  /**
+   * Escrita + auditoria no MESMO commit.
+   *
+   * A Fase 8 chamava `upsertAccess` e `appendAudit` em sequência, como duas
+   * operações. Com o adaptador real cada uma abre a própria transação: se a
+   * auditoria falhasse depois, a concessão JÁ TIVERIA COMMITADO — o vínculo
+   * existiria sem registro de quem concedeu. A regra é o oposto disso.
+   *
+   * Quando o store tem `transaction`, as duas operações entram num `tx` só.
+   * Quando não tem (stores de teste das fases anteriores), o caminho antigo
+   * continua válido — por isso o teste integrado é que cobre a atomicidade de
+   * verdade, pelo adaptador.
+   */
+  async function gravarComAuditoria(identity, action, { accountId, authUserId, details = null }, escrever) {
+    if (typeof store.transaction !== 'function') {
+      const saved = await escrever(undefined);
+      await audit(identity, action, { accountId, authUserId, details });
+      return saved;
+    }
+    return store.transaction(async (tx) => {
+      const saved = await escrever(tx);
+      await audit(identity, action, { accountId, authUserId, details, tx });
+      return saved;
     });
   }
 
@@ -110,6 +141,53 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
   }
 
   return Object.freeze({
+    /**
+     * CONTAS VISÍVEIS AO OPERADOR (Fase 9).
+     *
+     * Substitui a listagem global da Fase 8. Antes, `listAccounts` bastava
+     * `configure` para enumerar TODAS as contas da empresa — inclusive de
+     * unidades que a pessoa não administra. Isso é vazamento de metadado: o
+     * nome e o provedor de uma conta que você não administra são informação
+     * sobre outra equipe.
+     *
+     * REGRA FINAL: a lista é a DESCOBERTA ADMINISTRATIVA AUTORIZADA. Para ver
+     * qualquer coisa, a pessoa precisa de `configure` E de `can_admin` em pelo
+     * menos uma conta. O que volta são só essas contas.
+     *
+     * Consequência deliberada: alguém com `configure` e ZERO contas admin não
+     * recebe lista nenhuma. Isso é correto — essa pessoa não tem nada para
+     * administrar. Ela não vai "descobrir" contas pela tela.
+     */
+    async listAdministeredAccounts(token) {
+      const identity = await authorizeAdmin(token, null);
+      // Sem `canAdminAnyAccount` (resolver real não ligado) não há como saber
+      // o que a pessoa administra. Fail-closed: lista vazia, não lista total.
+      if (typeof canAdminAnyAccount !== 'function') return [];
+      let rows;
+      try { rows = await store.listAccounts(); }
+      catch (error) { asFailure(error, 'Não foi possível carregar as contas'); }
+      // Resposta malformada é FALHA. Devolver `[]` aqui esconderia banco
+      // quebrado atrás de "você não administra nada".
+      if (!Array.isArray(rows)) throw fail('UNAVAILABLE', 'Resposta inesperada ao carregar contas');
+      const administradas = [];
+      for (const row of rows) {
+        // `can_admin` decide. Um erro de banco ao checar UMA conta não pode
+        // derrubar a lista toda — e também não pode virar "administra": aqui
+        // o descarte é o lado seguro.
+        const ok = await canAdminAnyAccount(identity.id, row.id, 'can_admin').catch(() => false);
+        if (ok !== true) continue;
+        administradas.push({
+          id: row.id,
+          provider: row.provider,
+          display_name: row.display_name,
+          status: row.status,
+          external_account_id: row.external_account_id ?? null,
+          access_count: Number.isInteger(row.access_count) ? row.access_count : 0,
+        });
+      }
+      return administradas;
+    },
+
     async listAccounts(token) {
       await authorizeAdmin(token, null);
       let rows;
@@ -161,14 +239,14 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
       if (normalized.invalid.length) throw fail('INVALID_PERMISSION', 'Permissão inválida');
       const existing = await findAccess(accountId, authUserId);
       if (existing && existing.active) throw fail('ALREADY_EXISTS', 'Este usuário já tem acesso a esta conta');
-      if (existing) {
-        const saved = await store.upsertAccess({ accountId, authUserId, ...normalized.permissions, active: true, revoked_at: null, operatorUserId: identity.id });
-        await audit(identity, 'access_reactivated', { accountId, authUserId, details: { permissions: normalized.permissions, adjusted: normalized.adjusted } });
-        return { ...saved, reactivated: true, adjusted: normalized.adjusted };
-      }
-      const saved = await store.upsertAccess({ accountId, authUserId, ...normalized.permissions, active: true, operatorUserId: identity.id });
-      await audit(identity, 'access_granted', { accountId, authUserId, details: { permissions: normalized.permissions, adjusted: normalized.adjusted } });
-      return { ...saved, reactivated: false, adjusted: normalized.adjusted };
+      const reativando = Boolean(existing);
+      const saved = await gravarComAuditoria(
+        identity,
+        reativando ? 'access_reactivated' : 'access_granted',
+        { accountId, authUserId, details: { permissions: normalized.permissions, adjusted: normalized.adjusted } },
+        (tx) => store.upsertAccess({ accountId, authUserId, ...normalized.permissions, active: true, revoked_at: null, operatorUserId: identity.id }, tx),
+      );
+      return { ...saved, reactivated: reativando, adjusted: normalized.adjusted };
     },
 
     /** Edita permissões de um vínculo EXISTENTE. Nunca cria. */
@@ -184,8 +262,12 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
       // "Aprovar IA" não ressuscita ninguém por acidente.
       const normalized = normalizeAccountPermissions(permissions, existing.active);
       if (normalized.invalid.length) throw fail('INVALID_PERMISSION', 'Permissão inválida');
-      const saved = await store.updateAccess({ accountId, authUserId, ...normalized.permissions, active: existing.active, operatorUserId: identity.id });
-      await audit(identity, 'access_updated', { accountId, authUserId, details: { before: existing, after: normalized.permissions, adjusted: normalized.adjusted } });
+      const saved = await gravarComAuditoria(
+        identity,
+        'access_updated',
+        { accountId, authUserId, details: { before: existing, after: normalized.permissions, adjusted: normalized.adjusted } },
+        (tx) => store.updateAccess({ accountId, authUserId, ...normalized.permissions, active: existing.active, operatorUserId: identity.id }, tx),
+      );
       return { ...saved, adjusted: normalized.adjusted };
     },
 
@@ -203,8 +285,12 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
       if (!existing) throw fail('NOT_FOUND', 'Vínculo não encontrado');
       if (!existing.active) return { ...existing, already_revoked: true };
       const zero = { can_view: false, can_reply: false, can_approve_ai: false, can_admin: false };
-      const saved = await store.updateAccess({ accountId, authUserId, ...zero, active: false, revoked_at: now(), operatorUserId: identity.id });
-      await audit(identity, 'access_revoked', { accountId, authUserId, details: { before: existing } });
+      const saved = await gravarComAuditoria(
+        identity,
+        'access_revoked',
+        { accountId, authUserId, details: { before: existing } },
+        (tx) => store.updateAccess({ accountId, authUserId, ...zero, active: false, revoked_at: now(), operatorUserId: identity.id }, tx),
+      );
       return { ...saved, already_revoked: false };
     },
 
@@ -224,8 +310,12 @@ export function createAccountAdminService({ verifyIdentity, store, canAdminAnyAc
       // CHECK impede; por isso as permissões são reescolhidas na reativação.
       const normalized = normalizeAccountPermissions(permissions ?? existing, true);
       if (normalized.invalid.length) throw fail('INVALID_PERMISSION', 'Permissão inválida');
-      const saved = await store.upsertAccess({ accountId, authUserId, ...normalized.permissions, active: true, revoked_at: null, operatorUserId: identity.id });
-      await audit(identity, 'access_reactivated', { accountId, authUserId, details: { permissions: normalized.permissions, adjusted: normalized.adjusted } });
+      const saved = await gravarComAuditoria(
+        identity,
+        'access_reactivated',
+        { accountId, authUserId, details: { permissions: normalized.permissions, adjusted: normalized.adjusted } },
+        (tx) => store.upsertAccess({ accountId, authUserId, ...normalized.permissions, active: true, revoked_at: null, operatorUserId: identity.id }, tx),
+      );
       return { ...saved, adjusted: normalized.adjusted };
     },
 

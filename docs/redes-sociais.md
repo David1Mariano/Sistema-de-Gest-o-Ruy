@@ -17,6 +17,139 @@ Não houve merge, publicação, aplicação de SQL, deploy ou conexão de contas
 | Autorização | `app_metadata.system_role`, useUserRole, filtros visuais de menu | Matriz social por ação; serviço exige identidade verificada e acesso à conta |
 | Banco | cloudDb sobre `public.records`; fallback legado localDb | Não adicionar entidades sociais ao fallback local nem assumir RLS de records |
 | Base44 | Cliente com nome legado; comentário confirma que app não depende do Base44; Vite sem plugin Base44 | Nenhum trabalho específico Base44 ou instalação de SDK/skills desnecessários |
+
+---
+
+# Fase 9 — backend único, resolver real e atomicidade
+
+Sem merge na `main`, sem publicação, sem aplicar a migration, sem bootstrap real
+e sem conectar canal. `pg` instalado como dependência normal do projeto.
+
+## 1. Autorização: `canAdminAnyAccount` ligado ao resolver REAL
+
+`canAdminAnyAccount` deixou de ser um duplo de teste e passou a ser
+`createAccountPermissionResolver` (Fase 6) sobre `social_account_access`, via
+`server/social/socialApi.mjs`.
+
+Para qualquer operação administrativa vale a regra única:
+
+1. usuário autenticado e **ativo** (verificado no servidor, `user_metadata` nunca
+   é lido);
+2. permissão funcional **`configure`** no `app_metadata.system_role`;
+3. vínculo **ativo** na conta;
+4. **`can_admin = true`**.
+
+Não existe admin global implícito, não se aceita `uuid` vindo do corpo e não há
+fallback que permita. Sem `withClient` (tabela ainda não aplicada) os resolvers
+viram deny-all explícito: `false` para todo mundo, inclusive o admin.
+
+O contrato do resolver é **lista** de linhas (`rows.length !== 1` → falso), e é
+isso que faz uma linha duplicada virar "não autorizado" em vez de "escolhe uma".
+Por isso o `accountQuery` embrulha a linha única em array de 0 ou 1.
+
+## 2. Regra final de listagem de contas
+
+A Fase 8 dizia que `GET /social-admin/accounts` não exigia vínculo, "porque o
+operador precisa ver as contas antes de poder administrar uma". **Isso foi
+revertido**: é vazamento de metadado — bastava `configure` para enumerar todas
+as contas da empresa, inclusive de unidades que a pessoa não administra.
+
+Separação adotada:
+
+- **Descoberta administrativa autorizada**: exige `configure` **e** `can_admin`
+  em ao menos uma conta. A resposta traz **somente** as contas que a pessoa
+  administra. Sem `can_admin` em nenhuma conta, a lista é vazia — e isso é
+  correto, porque essa pessoa não tem nada para administrar.
+- **Contas visíveis ao operador**: são exatamente essas mesmas contas. Não
+  existe "lista global" em nenhum caminho.
+
+A entrada normal da tela continua sendo o link **Gerenciar** numa conta
+conhecida; a lista existe apenas para quem já administra algo.
+
+## 3. Host único (`:8788`)
+
+Um processo, uma porta, dois namespaces:
+
+| Rota | Autorização |
+|---|---|
+| `/social-health` | nenhuma (só leitura de estado, sem dado de negócio) |
+| `/social-ai/health` | `approve_ai` |
+| `/social-ai/draft` | `reply` + `approve_ai` + vínculo |
+| `/social-admin/accounts` | `configure` + `can_admin` em alguma conta |
+| `/social-admin/accounts/:id/access` | `configure` + `can_admin` na conta |
+| `/social-admin/accounts/:id/access` (PATCH) | idem |
+| `/social-admin/accounts/:id/candidates` | idem |
+| `/social-admin/accounts/:id/grant` | idem |
+| `/social-admin/accounts/:id/revoke` | idem |
+| `/social-admin/accounts/:id/reactivate` | idem |
+
+CORS, rate limit, limite de corpo e log operacional ficam **uma vez** no host.
+A autorização continua **por namespace** — compartilhar o handler misturaria as
+duas políticas e criaria o atalho que a Fase 6 proibiu.
+
+## 4. Comandos
+
+```bash
+npm run social:check   # só configuração: o que falta, sem subir nada
+npm run social:dev     # backend em primeiro plano
+```
+
+`social:dev` falha claramente se `SUPABASE_URL` ou `SUPABASE_ANON_KEY` faltarem.
+Não aplica schema, não executa bootstrap, não abre firewall, não instala serviço.
+
+Variáveis do backend: `SUPABASE_URL`, `SUPABASE_ANON_KEY`, `SUPABASE_DB_URL`,
+`OLLAMA_BASE_URL`, `OLLAMA_MODEL`, `SOCIAL_AI_ALLOWED_ORIGINS`.
+No frontend, **apenas** `VITE_SOCIAL_ADMIN_ENDPOINT` (URL pública, sem segredo).
+Quem prova a identidade é o access token da sessão, revalidado no servidor.
+
+## 5. Health
+
+`/social-health` distingue as dependências e **não** transforma indisponibilidade
+em "pronto":
+
+- `supabase`: `ok` | `unreachable` | `not_configured`
+- `social_schema`: `ok` | `absent` | `unknown`
+- `ai.state`: `ready` | `offline` | `model_unavailable` | `not_configured` | `error`
+- `status`: `ready` só com **todas** de pé; caso contrário `degraded`.
+
+Nenhum segredo, connection string ou URL de Ollama sai na resposta.
+
+Schema ausente responde `ACCESS_SCHEMA_NOT_READY` (503) — a migration continua
+**não aplicada**, e a tela mostra "Configuração de acesso social ainda não foi
+ativada."
+
+## 6. Atomicidade: alteração e auditoria no mesmo commit
+
+O adaptador (`server/social/accountAdminStore.mjs`) traduz o contrato de
+métodos nomeados do serviço para o store transacional, e expõe
+`transaction()` para que escrita e auditoria entrem no **mesmo** `tx`. Sem isso a
+concessão poderia commitar e a auditoria falhar depois — o vínculo existiria sem
+registro de quem concedeu.
+
+`scripts/test-social-integrado.mjs` cobre exatamente isso: prova que o `INSERT`
+foi tentado, que a auditoria foi tentada e que a transação terminou em
+`rollback`, e não em `commit`.
+
+## 7. Correção de segurança na CLI do bootstrap
+
+Com `--apply`, a gravação acontecia **antes** do prompt `APLICAR`; sem TTY o
+script escrevia e só depois recusava. A ordem agora é fixa:
+
+1. relatório sempre em dry-run;
+2. recusa no dry-run encerra (já existe admin, conta ausente, migration pendente);
+3. sem `--apply`, sai;
+4. com `--apply`, exige TTY e a digitação de `APLICAR`;
+5. só então grava, reexecutando a checagem de concorrência dentro da transação.
+
+## 8. Estado da ativação real (pendente, fora desta fase)
+
+- [ ] revisar e aplicar `scripts/proposed-social-account-access.sql` (hoje
+      termina em `ROLLBACK`);
+- [ ] executar o bootstrap do primeiro administrador;
+- [ ] instalar Ollama e baixar o modelo;
+- [ ] configurar as variáveis e abrir `social:dev`;
+- [ ] validação visual no navegador.
+
 | Integrações | Core.UploadFile e serviços Supabase; sem framework social/OAuth reutilizável encontrado | Reutilizar sessão Supabase futuramente; providers isolados |
 | Delivery | DeliverySettlement e painéis financeiros; sem Central Delivery de atendimento nesta base | Nenhuma tabela, componente ou regra reutilizada |
 | Meta/social | Busca por Instagram, Facebook, TikTok, webhook e delivery; sem integração social encontrada | Nova fundação isolada |

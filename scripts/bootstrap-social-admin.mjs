@@ -258,13 +258,24 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].rep
   const store = createSocialAccessStore({ withClient: () => pool.connect() });
 
   try {
-    const result = await bootstrapFirstSocialAdmin({
-      store, userTerm: args.userTerm, accountTerm: args.accountTerm, apply: args.apply,
+    // ── FASE 9: SEMPRE dry-run primeiro ────────────────────────────────────
+    // A versão anterior passava `apply: args.apply` aqui, ou seja, com
+    // `--apply` a gravação acontecia ANTES do prompt `APLICAR`. Se o operador
+    // respondesse outra coisa — ou se não houvesse TTY — o script já tinha
+    // escrito no banco e só depois recusava. Era escrita sem consentimento.
+    //
+    // Ordem fixa agora: relatório SEMPRE, depois confirmação, depois escrita.
+    // `args.apply` só decide se existe a etapa de confirmação; nunca decide se
+    // a primeira chamada escreve.
+    const relatorio = await bootstrapFirstSocialAdmin({
+      store, userTerm: args.userTerm, accountTerm: args.accountTerm, apply: false,
       operatorLabel: process.env.SOCIAL_BOOTSTRAP_OPERATOR || null,
     });
-    console.log(formatBootstrapReport(result));
-    if (result.refused) process.exit(2);
-    if (!result.applied) process.exit(0);
+    console.log(formatBootstrapReport(relatorio));
+    // Recusa no dry-run é recusa definitiva: já existe admin ativo, ou a conta
+    // não existe, ou a migration não foi aplicada. Não há nada a confirmar.
+    if (relatorio.refused) process.exit(2);
+    if (!args.apply) process.exit(0);
 
     // ConfirmaÃ§Ã£o digitada: o relatÃ³rio jÃ¡ foi mostrado, e o operador precisa
     // confirmar. Sem terminal interativo, o padrÃ£o Ã© NÃƒO gravar.

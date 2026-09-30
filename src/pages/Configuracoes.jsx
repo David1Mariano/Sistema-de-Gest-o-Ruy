@@ -16,6 +16,7 @@ import { useUserRole } from '@/lib/useUserRole';
 import { useTheme } from '@/lib/theme/ThemeProvider';
 import SocialAccessAdmin from '@/components/social/SocialAccessAdmin';
 import { createSocialAccessClient } from '@/lib/social/aiClient';
+import { supabaseAuth } from '@/lib/supabaseClient';
 
 
 export default function Configuracoes() {
@@ -30,6 +31,16 @@ export default function Configuracoes() {
   // mostra erro controlado em vez de fingir que está tudo vazio.
   const accessClient = useMemo(() => createSocialAccessClient({
     endpoint: import.meta.env.VITE_SOCIAL_ADMIN_ENDPOINT,
+    getToken: async () => {
+      try {
+        const { data } = await supabaseAuth.getSession();
+        return data?.session?.access_token ?? null;
+      } catch {
+        // Sem sessao nao ha token. O cliente segue sem `Authorization` e o
+        // backend responde 401, que e a resposta correta.
+        return null;
+      }
+    },
   }), []);
   // O tema NÃO é estado desta página: vem do contexto. Assim Configurações e o
   // layout nunca discordam sobre qual tema está ativo.

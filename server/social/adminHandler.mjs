@@ -130,7 +130,15 @@ export function createSocialAdminHandler({ service, store, verifyIdentity, canAd
     // Permissão FUNCIONAL: mesma matriz do domínio, já usada em todas as fases.
     if (!socialPermissions(identity.app_metadata?.system_role).configure) return reply(403, { error: 'forbidden' });
 
-    const token = { id: identity.id };
+    // O serviço revalida a identidade em CADA operação (defesa em profundidade:
+    // esconder o botão no frontend não autoriza nada). Para isso ele precisa do
+    // token BRUTO — o header `Authorization` original.
+    //
+    // Antes passava `{ id: identity.id }`, que não é um bearer: o
+    // `verifyIdentity` recebia um objeto, não extraía nada, e TODA operação
+    // administrativa respondia 401. Os testes da Fase 8 não viram porque o
+    // `verifyIdentity` falso deles ignorava o argumento.
+    const token = { id: identity.id, raw: request.headers.get('authorization') };
     const wrap = async (fn) => {
       try { return await fn(); }
       catch (error) {
@@ -157,22 +165,38 @@ export function createSocialAdminHandler({ service, store, verifyIdentity, canAd
     };
 
     if (route === '/social-admin/accounts' && request.method === 'GET') {
-      // Lista global: o operador precisa VER as contas antes de poder administrar
-      // uma delas, então esta rota não exige vínculo por conta.
-      return wrap(async () => reply(200, { accounts: (await service.listAccounts(token.id)).map(publicAccount) }));
+      // DESCOBERTA ADMINISTRATIVA AUTORIZADA.
+      //
+      // A Fase 8 dizia que esta rota não exigia vínculo, "porque o operador
+      // precisa ver as contas antes de administrar uma". Isso é vazamento de
+      // metadado: bastava `configure` para enumerar TODAS as contas da empresa,
+      // inclusive de outras unidades.
+      //
+      // Regra final: quem chega aqui precisa de `configure` E `can_admin` em
+      // pelo menos UMA conta. A lista é a exceção mínima para a tela vazia: ela
+      // mostra apenas as contas que a pessoa administra, e a entrada normal
+      // segue sendo o link "Gerenciar".
+      // A chamada fica DENTRO do `wrap`. Awaitada de fora, uma falha de banco
+      // escapava do handler, perdia o código (`ACCESS_SCHEMA_NOT_READY` virava
+      // `UNAVAILABLE`) e o host tinha que responder com mensagem genérica — a
+      // tela deixava de distinguir "schema pendente" de "banco fora".
+      return wrap(async () => {
+        const administradas = await service.listAdministeredAccounts(token);
+        return reply(200, { accounts: administradas.map(publicAccount) });
+      });
     }
 
     if (request.method === 'GET' && accountIdDe('access')) {
       const accountId = accountIdDe('access');
       const negado = await exigirVinculo(accountId);
       if (negado) return negado;
-      return wrap(async () => reply(200, { account_id: accountId, access: (await service.listAccountAccess(token.id, accountId)).map(publicLink) }));
+      return wrap(async () => reply(200, { account_id: accountId, access: (await service.listAccountAccess(token, accountId)).map(publicLink) }));
     }
     if (request.method === 'GET' && accountIdDe('candidates')) {
       const accountId = accountIdDe('candidates');
       const negado = await exigirVinculo(accountId);
       if (negado) return negado;
-      return wrap(async () => reply(200, { candidates: (await service.listCandidates(token.id, accountId)).map(publicPerson) }));
+      return wrap(async () => reply(200, { candidates: (await service.listCandidates(token, accountId)).map(publicPerson) }));
     }
     if (request.method === 'POST' && accountIdDe('grant')) {
       const accountId = accountIdDe('grant');
@@ -183,7 +207,7 @@ export function createSocialAdminHandler({ service, store, verifyIdentity, canAd
       const perms = permissionsFrom(body);
       if (perms.error) return reply(400, { error: perms.error });
       return wrap(async () => {
-        const r = await service.grantAccountAccess(token.id, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
+        const r = await service.grantAccountAccess(token, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
         return reply(200, { access: publicLink(r), reactivated: r.reactivated === true, adjusted: r.adjusted ?? [] });
       });
     }
@@ -196,7 +220,7 @@ export function createSocialAdminHandler({ service, store, verifyIdentity, canAd
       const perms = permissionsFrom(body);
       if (perms.error) return reply(400, { error: perms.error });
       return wrap(async () => {
-        const r = await service.updateAccountAccess(token.id, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
+        const r = await service.updateAccountAccess(token, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
         return reply(200, { access: publicLink(r), adjusted: r.adjusted ?? [] });
       });
     }
@@ -212,10 +236,10 @@ export function createSocialAdminHandler({ service, store, verifyIdentity, canAd
       if (perms.error) return reply(400, { error: perms.error });
       return wrap(async () => {
         if (acao === 'revoke') {
-          const rev = await service.revokeAccountAccess(token.id, { accountId, authUserId: body.auth_user_id });
+          const rev = await service.revokeAccountAccess(token, { accountId, authUserId: body.auth_user_id });
           return reply(200, { access: publicLink(rev) });
         }
-        const re = await service.reactivateAccountAccess(token.id, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
+        const re = await service.reactivateAccountAccess(token, { accountId, authUserId: body.auth_user_id, permissions: perms.permissions });
         return reply(200, { access: publicLink(re), adjusted: re.adjusted ?? [] });
       });
     }
