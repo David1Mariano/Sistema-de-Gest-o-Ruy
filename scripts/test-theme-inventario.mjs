@@ -31,6 +31,9 @@ const read = rel => readFile(abs(rel), 'utf8');
 const css = await read('src/index.css');
 const cssLimpo = css.replace(/\/\*[\s\S]*?\*\//g, '');
 
+/** Variantes de estado: o prefixo faz parte do NOME da classe compilada. */
+const VARIANTES = /^(hover|focus|focus-visible|active|visited|selected|group-hover|group-focus|peer-focus|aria-selected):/;
+
 /** Classes que NAO sao cor e por isso nao entram no inventario. */
 const NEUTRAS = /^(transparent|current|inherit|none)$/;
 
@@ -38,22 +41,32 @@ const NEUTRAS = /^(transparent|current|inherit|none)$/;
 const TOKENS = /^(background|foreground|card|popover|primary|secondary|muted|accent|destructive|border|input|ring|sidebar|cash|chart-\d)$/;
 
 function padrao(peca) {
-  return new RegExp(`\\.dark \\.${peca.replace(/\//g, '\\\\/')}(?![\\w-])`);
+  return new RegExp(`\\.dark \\.${peca.replace(/\//g, '\\\\/').replace(/:/g, '\\\\:')}(?![\\w-])`);
 }
 
-/** Extrai classes de cor de um arquivo. */
+/**
+ * Extrai classes de cor INCLUINDO o prefixo de variante.
+ *
+ * Este é o ponto que já falhou uma vez: `hover:bg-slate-50` continha
+ * `bg-slate-50`, o teste antigo conferia a classe BASE — que tinha regra
+ * escura — e dava tudo certo. Só que a classe que o navegador vê é
+ * `.hover\:bg-slate-50:hover`, e ela ficava clara no dark. Por isso a variante
+ * é capturada inteira, com o prefixo, e conferida como um nome só.
+ */
 function classesDeCor(fonte) {
   const encontradas = new Set();
-  // bg-, text- e border- seguidos de familia + numero (+ opacidade opcional).
-  for (const m of fonte.matchAll(/\b(bg|text|border)-([a-z]+)-(\d{2,3})(\/\d+)?\b/g)) {
-    const [, peca, familia, numero, alfa] = m;
-    if (familia === 'white' || familia === 'black') { encontradas.add(`${peca}-${familia}${alfa || ''}`); continue; }
+  for (const m of fonte.matchAll(/\b((?:hover|focus|focus-visible|active|visited|selected|group-hover|group-focus|peer-focus|aria-selected):)?(bg|text|border)-([a-z]+)-(\d{2,3})(\/\d+)?\b/g)) {
+    const [, variante, peca, familia, numero, alfa] = m;
     if (TOKENS.test(familia)) continue;
     if (NEUTRAS.test(familia)) continue;
-    encontradas.add(`${peca}-${familia}-${numero}${alfa || ''}`);
+    const base = familia === 'white' || familia === 'black' ? `${peca}-${familia}` : `${peca}-${familia}-${numero}`;
+    encontradas.add(`${variante || ''}${base}${alfa || ''}`);
   }
   return [...encontradas];
 }
+
+/** A classe base, sem a variante — usada para checar se a familia tem tom dark. */
+const semVariante = classe => classe.replace(VARIANTES, '');
 
 async function jsxEm(diretorio) {
   const achados = [];
@@ -92,6 +105,12 @@ const FIXAS_COM_JUSTIFICATIVA = [
     classe: 'text-red-50', arquivo: 'src/components/ui/toast.jsx',
     contexto: /group-\[\.destructive\]/, motivo: 'hover sobre fundo destrutivo',
   },
+  {
+    // A MESMA coisa na variante hover. O fundo do toast destrutivo e vermelho
+    // nos dois temas, entao texto claro continua correto.
+    classe: 'hover:text-red-50', arquivo: 'src/components/ui/toast.jsx',
+    contexto: /group-\[\.destructive\]/, motivo: 'hover do fechar sobre fundo destrutivo',
+  },
 ];
 
 /** Fundos inline permitidos: a cor e o dado, nao a decoracao. */
@@ -119,6 +138,48 @@ test('1. nenhuma classe de cor fica sem cobertura no dark', async () => {
   }
   const detalhes = [...semCobertura].map(([c, fs]) => `${c} (${fs.length}x, ex.: ${fs[0]})`);
   assert.deepEqual(detalhes, [], `classes de cor SEM variante escura:\n    ${detalhes.join('\n    ')}`);
+});
+
+test('1b. variantes de estado nao escapam pela classe base', async () => {
+  // A armadilha especifica do bug do hover: `hover:bg-slate-50` tem regra para a
+  // classe BASE, o que faz a classe-BASE parecer coberta, enquanto a classe que
+  // o navegador de fato aplica (`.hover\:bg-slate-50:hover`) continua clara.
+  // Este teste confere a classe INTEIRA, com o prefixo.
+  const arquivos = await jsxEm('src');
+  const escapando = new Set();
+  for (const arquivo of arquivos) {
+    const fonte = await read(arquivo);
+    if (/theme-static-light/.test(fonte)) continue;
+    for (const classe of classesDeCor(fonte)) {
+      if (!VARIANTES.test(classe)) continue;
+      if (padrao(classe).test(cssLimpo)) continue;
+      if (FIXAS_COM_JUSTIFICATIVA.some(f => f.classe === classe)) continue;
+      escapando.add(classe);
+    }
+  }
+  assert.deepEqual([...escapando].sort(), [], `variantes sem regra escura: ${[...escapando].sort().join(', ')}`);
+});
+
+test('1c. o hover da tabela de Gastos tem regra escura propria', async () => {
+  // O sintoma reportado: linha de gasto fica quase branca ao passar o mouse.
+  // Este e o teste de regressao do defeito, e nao por numero de linha: ele
+  // procura a classe usada no <tr> da listagem.
+  const painel = await read('src/components/financeiro/DailyExpensesPanel.jsx');
+  const linha = painel.split('\n').find(l => /<tr\b/.test(l) && /hover:bg-/.test(l));
+  assert.ok(linha, 'a listagem de Gastos tem <tr> com hover:bg-');
+  const hover = linha.match(/hover:(bg|text|border)-[a-z]+-\d+(\/\d+)?/)[0];
+  assert.ok(padrao(hover).test(cssLimpo), `o hover "${hover}" da tabela precisa de regra .dark`);
+
+  // E precisa ser escuro de verdade: nada de branco na regra. Monta o seletor
+  // como o CSS realmente o escreve (prefixo com barra invertida) e le o valor
+  // que vem depois — sem depender de regex sobre seletores, que é frágil.
+  const seletor = `.dark .${hover.replace(/:/g, '\\:')}:hover`;
+  const i = cssLimpo.indexOf(seletor);
+  assert.ok(i >= 0, `seletor "${seletor}" ausente no CSS`);
+  const valor = cssLimpo.slice(i, cssLimpo.indexOf('}', i));
+  assert.ok(!/#fff\b|#ffffff/i.test(valor) && !/rgb\(255/.test(valor), 'o hover nao pode ser branco no dark');
+  // Precisa referenciar um token do tema, nao uma cor solta.
+  assert.match(valor, /var\(--(muted|accent|secondary|card)\)|hsl\(\d/, 'o hover deve usar token do tema');
 });
 
 test('2. a allowlist de fixas tem justificativa verificavel no codigo', async () => {
