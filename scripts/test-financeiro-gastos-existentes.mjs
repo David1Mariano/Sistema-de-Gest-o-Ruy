@@ -52,7 +52,7 @@ const GASTOS_REAIS = [
 // "Hoje" da investigação: 2026-09-29. Passado como `reference` para que o
 // teste não dependa do dia em que roda.
 const HOJE = new Date('2026-09-29T12:00:00');
-const comReferencia = (fn) => (...args) => fn(...args, { reference: HOJE });
+const comReferencia = (fn) => (preset, options = {}) => fn(preset, { ...options, reference: HOJE });
 
 // Estado inicial real do DailyExpensesPanel.
 const ESTADO_INICIAL = {
@@ -162,7 +162,7 @@ test('G10 — nenhum setExpenses([]) indevido no caminho do loader', async () =>
   assert.doesNotMatch(painel, /setRows\(\[\]\)/, 'o painel nunca esvazia a lista recebida');
   assert.doesNotMatch(tela, /setData\(\{[^}]*expenses:\s*\[\]/, 'a tela nunca zera expenses por conta própria');
   // A última collection boa é preservada pelo núcleo, via `aplicarFases`.
-  assert.match(tela, /aplicarFases\(/, 'a junção das fases passa pelo núcleo');
+  assert.match(tela, /applyDashboardResult\(/, 'a junção das fases passa pelo núcleo');
   assert.match(tela, /aplicarResultado\(/, 'e a tela aplica por fase');
   const nucleo = await readFile(new URL('../src/lib/financeiroLoad.js', import.meta.url), 'utf8');
   assert.match(nucleo, /aplicarFases[\s\S]{0,600}mesclarPreservando/, 'que preserva a última collection boa');

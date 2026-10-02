@@ -18,9 +18,11 @@ export default function Relatorios() {
   const [records, setRecords] = useState([]);
   const [absences, setAbsences] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [emps, scheds, recs, abs] = await Promise.all([
         base44.entities.Employee.filter({ status: 'ativo' }, 'name', 500),
@@ -29,7 +31,7 @@ export default function Relatorios() {
         base44.entities.Absence.filter({ status: 'ativo' }, 'date', 500),
       ]);
       setEmployees(emps); setSchedules(scheds); setRecords(recs); setAbsences(abs);
-    } finally {
+    } catch { setLoadError(true); } finally {
       setLoading(false);
     }
   };
@@ -75,6 +77,7 @@ export default function Relatorios() {
     incompletos: acc.incompletos + s.incompletos,
   }), { diasPrevistos: 0, diasTrabalhados: 0, faltas: 0, atrasos: 0, minAtraso: 0, antecipadas: 0, incompletos: 0 });
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">

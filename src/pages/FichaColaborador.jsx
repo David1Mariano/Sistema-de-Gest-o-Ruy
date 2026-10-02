@@ -48,12 +48,14 @@ export default function FichaColaborador() {
   const [sangrias, setSangrias] = useState([]);
   const [sangriaOpen, setSangriaOpen] = useState(false);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [editOpen, setEditOpen] = useState(false);
   const [tab, setTab] = useState('visao');
   const [formState, setFormState] = useState({ type: null, editing: null });
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [emp, abs, val, cons, pay, war, evals, docs, sch, tr, secs, rls, sgr] = await Promise.all([
         base44.entities.Employee.get(id),
@@ -73,7 +75,7 @@ export default function FichaColaborador() {
       setEmployee(emp); setAbsences(abs); setVales(val); setConsumptions(cons); setPayments(pay); setWarnings(war);
       setEvaluations(evals); setDocuments(docs); setSchedules(sch); setTimeRecords(tr);
       setSectors(secs); setRoles(rls); setSangrias(sgr);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [id]);
 
@@ -84,7 +86,7 @@ export default function FichaColaborador() {
   const summary = useMemo(() => {
     const faltasMes = absences.filter((a) => a.date?.startsWith(monthPrefix) && ['falta', 'nao_justificada'].includes(a.type) && a.status === 'ativo').length;
     const atrasosMes = absences.filter((a) => a.date?.startsWith(monthPrefix) && a.type === 'atraso' && a.status === 'ativo').length;
-    const valesAberto = vales.filter((v) => v.status === 'pendente').reduce((s, v) => s + (v.amount || 0), 0);
+    const valesAberto = vales.filter((v) => v.status === 'pendente').reduce((s, v) => s + Number(v.amount || 0), 0);
     const advertencias = warnings.filter((w) => w.status !== 'cancelada').length;
     const ultimaAval = evaluations[0];
     const diasTrab = timeRecords.filter((t) => t.date?.startsWith(monthPrefix) && t.entry_time).length;
@@ -99,6 +101,7 @@ export default function FichaColaborador() {
       .sort((a, b) => (b.date || '').localeCompare(a.date || ''));
   }, [sangrias, employee]);
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   if (loading) return <div className="p-10 text-center text-slate-400 text-sm">Carregando ficha...</div>;
   if (!employee) return <div className="p-10 text-center text-slate-400 text-sm">Colaborador não encontrado.</div>;
 
@@ -266,7 +269,7 @@ export default function FichaColaborador() {
         </TabsContent>
 
         <TabsContent value="vales" className="mt-4">
-          <SectionHeader title="Vales" onNew={canRegisterOccurrences ? () => openForm('vale') : null} extra={`Total: ${brl(vales.reduce((s, v) => s + (v.amount || 0), 0))}`} />
+          <SectionHeader title="Vales" onNew={canRegisterOccurrences ? () => openForm('vale') : null} extra={`Total: ${brl(vales.reduce((s, v) => s + Number(v.amount || 0), 0))}`} />
           <SimpleTable
             rows={vales}
             columns={[
