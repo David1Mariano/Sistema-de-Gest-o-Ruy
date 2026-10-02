@@ -3,15 +3,18 @@ import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
-import { Search, Plus, Pencil, Trash2, Users, Eye, Wallet } from 'lucide-react';
+import { Search, Plus, Pencil, Trash2, Users, Eye, Wallet, UserX } from 'lucide-react';
 import { Image } from '@/components/ui/image';
 import EmployeeForm from '@/components/rh/EmployeeForm';
+import EmployeeDeleteDialog from '@/components/rh/EmployeeDeleteDialog';
 import AttachmentPreview from '@/components/rh/AttachmentPreview';
 import { SangriaDialog } from '@/components/financeiro/SangriaPanel';
 import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { EMPLOYEE_STATUS, tenure } from '@/lib/rhUtils';
 import { activeSectorOptions } from '@/lib/sectorUtils';
+import { deleteEmployeeIfUnused } from '@/lib/employeeDelete';
+import { toast } from '@/components/ui/use-toast';
 
 const SANGRIA_ALLOWED = ['fabielle', 'patrick', 'luiz carlos neto', 'jocinei', 'gracielle', 'adriano', 'kamila'];
 const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -31,6 +34,7 @@ export default function Funcionarios() {
   const [editing, setEditing] = useState(null);
   const [sangriaOpen, setSangriaOpen] = useState(false);
   const [sangriaResp, setSangriaResp] = useState('');
+  const [excluindo, setExcluindo] = useState(null);
 
   const load = async () => {
     setLoading(true);
@@ -61,11 +65,25 @@ export default function Funcionarios() {
   const onEdit = (e) => { setEditing(e); setFormOpen(true); };
   const onNew = () => { setEditing(null); setFormOpen(true); };
 
-  const onDelete = async (e) => {
+  // "Desligar" — EXCLUSÃO LÓGICA, intocada. Preserva o histórico: o registro
+  // continua na base com status desligado e nada mais é apagado.
+  const onDesligar = async (e) => {
     if (!confirm(`Inativar o cadastro de ${e.name}? (exclusão lógica)`)) return;
     await base44.entities.Employee.update(e.id, { status: 'desligado' });
     await logAudit({ entity_type: 'Employee', entity_id: e.id, action: 'exclusao_logica', old_value: e.status, new_value: 'desligado', responsible_user: currentUserName() });
     load();
+  };
+
+  // "Excluir" — EXCLUSÃO FÍSICA, ação separada e mais perigosa. Quem apaga é
+  // `deleteEmployeeIfUnused`, que só executa o `Employee.delete` depois de
+  // reconferir TODAS as relações; havendo qualquer vínculo, ele lança o
+  // bloqueio e nada é apagado. A lista só perde a linha no sucesso.
+  const confirmarExclusaoFisica = async (colaborador) => {
+    await deleteEmployeeIfUnused({ entities: base44.entities, employee: colaborador, operator: currentUserName() });
+    setEmployees((lista) => lista.filter((x) => x.id !== colaborador.id));
+    setExcluindo(null);
+    toast({ title: 'Colaborador excluído definitivamente.' });
+    await load();
   };
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
@@ -173,8 +191,19 @@ export default function Funcionarios() {
                               <Wallet className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => onDelete(e)} className="p-1.5 rounded-md hover:bg-rose-50 text-rose-500" title="Desligar">
+                          <button onClick={() => onDesligar(e)} className="p-1.5 rounded-md hover:bg-rose-50 text-rose-500" title="Desligar">
                             <Trash2 className="w-4 h-4" />
+                          </button>
+                          {/* Excluir é DESTRUTIVO e distinto do Desligar: outro ícone,
+                              outra cor e outro tooltip. Nada de exclusão em cascata —
+                              o serviço bloqueia se houver qualquer vínculo. */}
+                          <button
+                            onClick={() => setExcluindo(e)}
+                            className="p-1.5 rounded-md hover:bg-rose-100 text-red-600"
+                            title="Excluir definitivamente"
+                            aria-label={`Excluir definitivamente o cadastro de ${e.name}`}
+                          >
+                            <UserX className="w-4 h-4" />
                           </button>
                         </div>
                       </td>
@@ -188,6 +217,12 @@ export default function Funcionarios() {
       </div>
 
       <EmployeeForm open={formOpen} onOpenChange={setFormOpen} employee={editing} onSaved={load} sectors={sectors} roles={roles} />
+      <EmployeeDeleteDialog
+        open={Boolean(excluindo)}
+        employee={excluindo}
+        onClose={() => setExcluindo(null)}
+        onConfirm={confirmarExclusaoFisica}
+      />
       <SangriaDialog open={sangriaOpen} presetResponsible={sangriaResp} onClose={() => setSangriaOpen(false)} onSaved={async () => {}} />
     </div>
   );
