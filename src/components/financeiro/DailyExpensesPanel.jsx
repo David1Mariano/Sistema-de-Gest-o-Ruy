@@ -13,8 +13,9 @@ import { ExpenseAttachment } from '@/components/financeiro/ExpenseAttachment';
 import {
   dailyExpenseIndicators, deleteDailyExpense, expenseCategoryLabel, expenseDeleteBlocker,
   expenseEditBlocker, expenseMethodLabel, expenseStatusLabel, filterExpenses, findActiveLinkedPayment,
-  formatExpenseAmount, formatExpenseDate, hasExpenseProof, paymentMethodOptions, resolveExpensePeriod,
-  EXPENSE_PERIOD_PRESETS, EXPENSE_ORIGIN_LABELS,
+formatExpenseAmount, formatExpenseDate, hasExpenseProof, paymentMethodOptions, resolveExpensePeriod,
+    resolverFiltroCategoria,
+    EXPENSE_PERIOD_PRESETS, EXPENSE_ORIGIN_LABELS,
 } from '@/lib/dailyExpenses';
 import { selectableCategories, summarizeByCategory, totalOf } from '@/lib/expenseCategories';
 import DailyExpenseHistory from '@/components/financeiro/DailyExpenseHistory';
@@ -218,16 +219,26 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     [effectivePreset, customStart, customEnd],
   );
 
+// Deduplica por nome equivalente, então categoria antiga repetida não aparece
+  // duas vezes na seleção. Fica ANTES do filtro porque o filtro precisa das
+  // categorias para resolver o nome correspondente ao id escolhido.
+  const categories = useMemo(() => selectableCategories(data.categories), [data.categories]);
+
+  // A MESMA regra do histórico: id quando o gasto tem, nome normalizado quando
+  // não tem. Sem o nome, escolher uma categoria zerava a lista aqui também,
+  // porque os gastos antigos só têm `category_name`.
+  const filtroCategoria = useMemo(
+    () => resolverFiltroCategoria(categories, categoryId),
+    [categories, categoryId],
+  );
   const visible = useMemo(() => filterExpenses(rows, {
-    search, start: effectivePeriod.start, end: effectivePeriod.end, categoryId, paymentMethod,
+    search, start: effectivePeriod.start, end: effectivePeriod.end,
+    categoryId: filtroCategoria.id, categoryName: filtroCategoria.nome, paymentMethod,
     beneficiary, status, proof, includeCancelled: view === 'historico',
-  }), [rows, search, effectivePeriod.start, effectivePeriod.end, categoryId, paymentMethod, beneficiary, status, proof, view]);
+  }), [rows, search, effectivePeriod.start, effectivePeriod.end, filtroCategoria.id, filtroCategoria.nome, paymentMethod, beneficiary, status, proof, view]);
 
   // Indicadores sobre todos os gastos carregados, não sobre a busca filtrada.
   const indicators = useMemo(() => dailyExpenseIndicators(rows), [rows]);
-  // Deduplica por nome equivalente, então categoria antiga repetida não aparece
-  // duas vezes na seleção.
-  const categories = useMemo(() => selectableCategories(data.categories), [data.categories]);
   const beneficiaries = useMemo(
     () => [...new Set(rows.map((r) => r.beneficiary_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     [rows],

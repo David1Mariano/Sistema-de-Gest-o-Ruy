@@ -52,7 +52,18 @@ const GASTOS_REAIS = [
 // "Hoje" da investigação: 2026-09-29. Passado como `reference` para que o
 // teste não dependa do dia em que roda.
 const HOJE = new Date('2026-09-29T12:00:00');
-const comReferencia = (fn) => (...args) => fn(...args, { reference: HOJE });
+// `resolveExpensePeriod(preset, { start, end, reference })` — o `reference`
+// vai DENTRO do segundo argumento. Passar como terceiro não tinha efeito
+// nenhum, e o teste passava a usar a data real da máquina: em outubro,
+// "Este mês" virou outubro e os gastos de setembro sumiram do teste. Uma
+// bomba-relógio que só explodia quando o calendário virava.
+const comReferencia = (fn) => (...args) => {
+  // Substitui o último argumento em vez de acrescentar outro: para
+  // resolveExpensePeriod, `reference` mora dentro do objeto de opções.
+  const ultimo = args.at(-1);
+  const objeto = (ultimo && typeof ultimo === 'object') ? ultimo : {};
+  return fn(...args.slice(0, -1), { ...objeto, reference: HOJE });
+};
 
 // Estado inicial real do DailyExpensesPanel.
 const ESTADO_INICIAL = {
