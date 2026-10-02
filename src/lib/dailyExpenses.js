@@ -158,16 +158,81 @@ function inRange(value, start, end) {
 
 export const hasExpenseProof = (expense = {}) => Boolean(expense.proof_url || expense.storage_path);
 
+// ---------------------------------------------------------------------------
+// CATEGORIA — a regra única do sistema
+//
+// O problema: escolher uma categoria no filtro zerava a lista. Os gastos são
+// gravados de duas formas ao longo do tempo — os mais novos levam `category_id`,
+// os antigos só têm `category_name`. Comparar só por `category_id` descartava
+// todo gasto antigo, sem aviso nenhum.
+//
+// A regra, em ordem de confiança:
+//   1. filtro vazio (id E nome) -> mantém tudo. É o "Todas".
+//   2. gasto TEM category_id -> o id manda. Se o dado tem id, ele é a
+//      verdade; não vamos adivinhar pelo nome.
+//   3. gasto NÃO tem category_id -> compara o nome normalizado. É o que
+//      recupera o histórico antigo sem inventar correspondência.
+//
+// Nome normalizado significa sem acento, sem caixa e sem espaço duplo, que é a
+// mesma regra já usada em selectableCategories, historyCategoryOptions e
+// findCategoryIdByKey. Uma regra só para o sistema inteiro.
+// ---------------------------------------------------------------------------
+
+/** Chave comparável de um nome de categoria. */
+export function chaveCategoria(value) {
+  return normalizeExpenseText(value).replace(/\s+/g, ' ');
+}
+
+/** O gasto pertence à categoria escolhida? */
+export function combinaCategoria(expense = {}, filtro = {}) {
+  const alvoId = String(filtro.id ?? '').trim();
+  const alvoNome = chaveCategoria(filtro.nome);
+  if (!alvoId && !alvoNome) return true; // "Todas as categorias"
+
+  const idDoGasto = String(expense.category_id ?? '').trim();
+  // Tem id: o id manda. Não vamos adivinhar pelo nome quando o dado tem o id.
+  if (idDoGasto) return idDoGasto === alvoId;
+
+  // Sem id, o nome é o único vínculo. E um gasto sem id E sem nome é, por
+  // definição, o grupo "Sem categoria" — é o mesmo critério que
+  // `expenseCategoryLabel` usa para o rótulo. Sem isso o card de "Sem categoria"
+  // não filtraria nada.
+  const nomeDoGasto = chaveCategoria(expense.category_name);
+  if (!alvoNome) return false;
+  if (!nomeDoGasto) return alvoNome === chaveCategoria('Sem categoria');
+  return nomeDoGasto === alvoNome;
+}
+
+/**
+ * Resolve o par {id, nome} de um filtro a partir das categorias carregadas.
+ *
+ * `digestKey` é a chave que veio do clique no card do resumo. Ela existe
+ * porque "Sem categoria" NÃO tem id: é um grupo real de gastos, e se
+ * resolvessem para id vazio o clique cairia em "Todas" e mostraria tudo.
+ * Quando há chave do digest, o nome vem dela — é o nome que o card mostrou.
+ */
+export function resolverFiltroCategoria(categories = [], id = '', digestKey = '') {
+  const alvo = String(id ?? '').trim();
+  if (!alvo) {
+    const nomeDigest = String(digestKey ?? '').trim();
+    return nomeDigest ? { id: '', nome: nomeDigest } : { id: '', nome: '' };
+  }
+  const achada = (categories || []).find((c) => String(c?.id ?? '') === alvo);
+  return { id: alvo, nome: achada?.name || '' };
+}
+
 // Filtros do histórico. `includeCancelled` só é usado no histórico completo,
 // para o usuário enxergar o que cancelou — os totais da tela continuam ignorando.
 export function filterExpenses(rows = [], {
-  search = '', start = '', end = '', categoryId = '', paymentMethod = '',
-  beneficiary = '', status = '', proof = '', includeCancelled = false,
+  search = '', start = '', end = '', categoryId = '', categoryName = '',
+  paymentMethod = '', beneficiary = '', status = '', proof = '', includeCancelled = false,
 } = {}) {
   return rows.filter((expense) => {
     if (!includeCancelled && isCancelledExpense(expense)) return false;
     if (!inRange(expense.date, start, end)) return false;
-    if (categoryId && expense.category_id !== categoryId) return false;
+    // Regra única de categoria: id quando existe, nome normalizado quando não.
+    // Ver `combinaCategoria`.
+    if (!combinaCategoria(expense, { id: categoryId, nome: categoryName })) return false;
     if (paymentMethod && expense.payment_method !== paymentMethod) return false;
     if (beneficiary && expense.beneficiary_name !== beneficiary) return false;
     if (status && expense.status !== status) return false;
@@ -825,15 +890,17 @@ function historySearchIndex(row) {
 // Filtros do histórico. `origem` e `evento` são filtros de RASTREABILIDADE;
 // os demais reaproveitam a mesma semântica já validada em `filterExpenses`.
 export function filterHistoryRows(rows = [], {
-  search = '', start = '', end = '', categoryId = '', beneficiary = '', status = '',
-  proof = '', origin = '', event = '',
+  search = '', start = '', end = '', categoryId = '', categoryName = '', beneficiary = '',
+  status = '', proof = '', origin = '', event = '',
 } = {}) {
   const query = normalize(search).trim();
   return (rows || []).filter((row) => {
     const { expense } = row;
     if (start && String(expense.date ?? '').slice(0, 10) < start) return false;
     if (end && String(expense.date ?? '').slice(0, 10) > end) return false;
-    if (categoryId && expense.category_id !== categoryId) return false;
+    // Mesma regra do painel: id quando existe, nome normalizado quando não.
+    // Sem isso, escolher uma categoria no histórico deixava a tabela vazia.
+    if (!combinaCategoria(expense, { id: categoryId, nome: categoryName })) return false;
     if (beneficiary && expense.beneficiary_name !== beneficiary) return false;
     if (status && expense.status !== status) return false;
     if (proof === 'com' && !hasExpenseProof(expense)) return false;

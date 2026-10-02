@@ -10,6 +10,7 @@ import {
   buildHistoryRows, expenseCategoryLabel, expenseMethodLabel, expenseStatusLabel,
   filterHistoryRows, formatExpenseAmount, formatExpenseDate, hasExpenseProof,
   historyCategoryOptions, historyOriginOptions, resolveExpensePeriod, sortHistoryRows,
+  resolverFiltroCategoria,
 } from '@/lib/dailyExpenses';
 
 const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
@@ -154,10 +155,19 @@ export default function DailyExpenseHistory({
   );
   // O card NÃO tem lista própria: ele escreve no filtro de categoria que já
   // existe na tela. A lista abaixo reage sozinha, sem estado duplicado.
+  //
+  // `categoryName` acompanha `categoryId` de propósito: boa parte dos gastos
+  // antigos não tem `category_id`, só `category_name`. Sem o nome, escolher
+  // uma categoria filtraria por id e descartaria todo o histórico antigo.
+  const filtroCategoria = useMemo(
+    () => resolverFiltroCategoria(categoryOptions, categoryId, categoriaDigest),
+    [categoryOptions, categoryId, categoriaDigest],
+  );
   const visible = useMemo(() => sortHistoryRows(filterHistoryRows(allRows, {
-    search, start: period.start, end: period.end, categoryId, beneficiary,
+    search, start: period.start, end: period.end,
+    categoryId: filtroCategoria.id, categoryName: filtroCategoria.nome, beneficiary,
     status, proof, origin, event,
-  })), [allRows, search, period.start, period.end, categoryId, beneficiary, status, proof, origin, event]);
+  })), [allRows, search, period.start, period.end, filtroCategoria.id, filtroCategoria.nome, beneficiary, status, proof, origin, event]);
 
   // Resumo: a lista visível, mas SEM o filtro de categoria. Se o card aplicasse
   // o filtro antes de resumir, o total cairia para o próprio card e o usuário
@@ -244,7 +254,11 @@ export default function DailyExpenseHistory({
 
         <div className="grid sm:grid-cols-2 lg:grid-cols-3 gap-3">
           <label className="text-xs">Categoria
-            <select className={`${inputCls} mt-1`} value={categoryId} onChange={(e) => setCategoryId(e.target.value)}>
+            <select
+              className={`${inputCls} mt-1`}
+              value={categoryId}
+              onChange={(e) => { setCategoryId(e.target.value); setCategoriaDigest(''); }}
+            >
               <option value="">Todas as categorias</option>
               {categoryOptions.map((c) => (
                 <option key={c.id} value={c.id}>{c.name}{c.inativa ? ' (inativa)' : ''}</option>
