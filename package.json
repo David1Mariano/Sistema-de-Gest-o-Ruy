@@ -18,6 +18,8 @@
     "test:financeiro-estabilidade": "node scripts/test-financeiro-estabilidade.mjs",
     "test:financeiro-integrado": "node scripts/test-financeiro-integrado.mjs",
     "check:stock": "node scripts/check-stock-integrity.mjs",
+    "test:rh-exclusao": "node --test scripts/test-employee-delete.mjs",
+    "check:rh-exclusao": "node scripts/check-employee-delete-integrity.mjs",
     "test:freelancer": "node scripts/test-financeiro-freelancer.mjs",
     "test:resumo-categorias": "node scripts/test-financeiro-resumo-categorias.mjs",
     "typecheck": "tsc -p ./jsconfig.json",
