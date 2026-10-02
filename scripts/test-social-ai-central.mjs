@@ -267,23 +267,37 @@ test('16. latest-wins: a segunda chamada prevalece e a primeira e descartada', a
   assert.equal(abortadas, 1, 'a requisicao anterior precisa ter sido abortada');
 });
 
+/**
+ * Stub de `fetch` fiel ao runtime real (docs/redes-sociais.md, latest-wins):
+ *   1. sinal JA abortado -> rejeita na hora com AbortError;
+ *   2. senao registra o listener de abort;
+ *   3. o listener sai junto com a promise, resolvida ou rejeitada.
+ *
+ * Sem (1) a corrida do teste 17 pendura: `suggest()` aguarda o token ANTES de
+ * chamar o fetch, entao o segundo clique aborta o sinal da requisicao anterior
+ * antes de o listener existir, e `addEventListener` num sinal ja abortado nunca
+ * dispara — a promise antiga ficaria pendurada para sempre.
+ */
+function criarFetchStub(liberadas = []) {
+  const erroAbort = () => (typeof DOMException === 'function'
+    ? new DOMException('Aborted', 'AbortError')
+    : Object.assign(new Error('Aborted'), { name: 'AbortError' }));
+  return (url, init) => new Promise((resolve, reject) => {
+    const sinal = init?.signal;
+    if (sinal?.aborted) return reject(erroAbort());
+    const onAbort = () => { sinal?.removeEventListener?.('abort', onAbort); reject(erroAbort()); };
+    sinal?.addEventListener?.('abort', onAbort, { once: true });
+    liberadas.push(() => {
+      sinal?.removeEventListener?.('abort', onAbort);
+      resolve(ok({ text: 'resposta' }));
+    });
+  });
+}
+
 // 17. Resposta antiga nao sobrescreve a nova (latest-wins).
 test('17. resposta antiga nao sobrescreve a nova (latest-wins)', async () => {
   const liberadas = [];
-  const cliente = createSocialAIClient({
-    endpoint: 'https://api.invalid',
-    fetchImpl: (url, init) => new Promise((resolve) => {
-      const abortado = () => { const e = new Error('abortado'); e.name = 'AbortError'; resolve(ok({ _err: e })); };
-      // `fetch` real rejeita com AbortError quando o sinal JA chega abortado.
-      // O stub precisa refletir isso: como `suggest()` aguarda o token antes de
-      // chamar o fetch, o segundo clique aborta o sinal da requisicao anterior
-      // antes do listener existir, e `addEventListener` num sinal abortado nunca
-      // dispara — a promise ficaria pendurada para sempre.
-      if (init.signal?.aborted) return abortado();
-      liberadas.push(() => resolve(ok({ text: 'resposta' })));
-      init.signal.addEventListener('abort', abortado);
-    }),
-  });
+  const cliente = createSocialAIClient({ endpoint: 'https://api.invalid', fetchImpl: criarFetchStub(liberadas) });
   const antiga = cliente.suggest({ id: 'c1', text: 'oi' }).catch(e => e.code);
   const nova = cliente.suggest({ id: 'c1', text: 'oi' });
   assert.equal(cliente.busy, true, 'o cliente precisa reportar loading durante a requisicao');
@@ -296,6 +310,28 @@ test('17. resposta antiga nao sobrescreve a nova (latest-wins)', async () => {
   const b = sequencial.begin();
   assert.equal(sequencial.accept(a.id), false, 'resposta antiga e rejeitada');
   assert.equal(sequencial.accept(b.id), true);
+});
+
+// 17b. Regressao do travamento: sinal JA abortado precisa rejeitar na hora.
+test('17b. sinal ja abortado: rejeita com AbortError e nada fica pendurado', async () => {
+  const controller = new AbortController();
+  controller.abort();
+  assert.equal(controller.signal.aborted, true, 'premissa: o sinal ja chega abortado');
+  await assert.rejects(
+    criarFetchStub()('https://api.invalid', { signal: controller.signal }),
+    (e) => e.name === 'AbortError',
+    'o stub precisa rejeitar imediatamente, como o fetch real',
+  );
+  // E o cliente inteiro nao deixa requisicao viva quando a corrida aborta o
+  // sinal da requisicao anterior antes de o fetch dela existir.
+  const liberadas = [];
+  const cliente = createSocialAIClient({ endpoint: 'https://api.invalid', fetchImpl: criarFetchStub(liberadas) });
+  const antiga = cliente.suggest({ id: 'c1', text: 'oi' }).catch((e) => e.code);
+  const nova = cliente.suggest({ id: 'c1', text: 'oi' });
+  assert.equal(await antiga, 'superseded', 'a requisicao antiga nao fica pendurada');
+  liberadas.at(-1)();
+  assert.equal((await nova).text, 'resposta', 'a mais recente prevalece');
+  assert.equal(cliente.busy, false, 'nenhuma requisicao sobra em voo');
 });
 
 // 18-19. Aprovacao humana e outbox pendente.
