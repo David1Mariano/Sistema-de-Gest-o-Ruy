@@ -272,7 +272,17 @@ test('17. resposta antiga nao sobrescreve a nova (latest-wins)', async () => {
   const liberadas = [];
   const cliente = createSocialAIClient({
     endpoint: 'https://api.invalid',
-    fetchImpl: (url, init) => new Promise((resolve) => { liberadas.push(() => resolve(ok({ text: 'resposta' }))); init.signal.addEventListener('abort', () => { const e = new Error('abortado'); e.name = 'AbortError'; resolve(ok({ _err: e })); }); }),
+    fetchImpl: (url, init) => new Promise((resolve) => {
+      const abortado = () => { const e = new Error('abortado'); e.name = 'AbortError'; resolve(ok({ _err: e })); };
+      // `fetch` real rejeita com AbortError quando o sinal JA chega abortado.
+      // O stub precisa refletir isso: como `suggest()` aguarda o token antes de
+      // chamar o fetch, o segundo clique aborta o sinal da requisicao anterior
+      // antes do listener existir, e `addEventListener` num sinal abortado nunca
+      // dispara — a promise ficaria pendurada para sempre.
+      if (init.signal?.aborted) return abortado();
+      liberadas.push(() => resolve(ok({ text: 'resposta' })));
+      init.signal.addEventListener('abort', abortado);
+    }),
   });
   const antiga = cliente.suggest({ id: 'c1', text: 'oi' }).catch(e => e.code);
   const nova = cliente.suggest({ id: 'c1', text: 'oi' });
@@ -293,15 +303,22 @@ test('18-19. aprovacao continua humana, versionada e com outbox pendente', async
   const chamadas = [];
   const repository = {
     canAccessAccount: async () => true,
-    commentFor: async () => ({ id: 'c1', version: 1, transport: 'instagram', channel: 'instagram', text: 'oi' }),
+    commentFor: async () => ({ id: 'c1', version: 1, provider: 'meta', transport: 'instagram', channel: 'instagram', text: 'oi' }),
     appendDraftAndEvent: async (d) => { chamadas.push(d); return d; },
     enqueueOutbox: async (e) => { chamadas.push(e); return e; },
   };
-  const service = createSocialService({ repository, verifyIdentity: async () => ({ id: 'u1', active: true, app_metadata: { system_role: 'admin' } }) });
+  const providers = { meta: { capabilities: { replyComment: true } } };
+  const service = createSocialService({ repository, providers, verifyIdentity: async () => ({ id: 'u1', active: true, app_metadata: { system_role: 'admin' } }) });
   await assert.rejects(service.approveAndReply('t', { commentId: 'c1', text: 'respondido', expectedVersion: 1 }), { code: 'REVIEW_REQUIRED' }, 'sem confirmar humano, nao aprova');
-  const aprovado = await service.approveAndReply('t', { commentId: 'c1', text: 'respondido', confirmHuman: true, expectedVersion: 1 });
-  assert.equal(aprovado.status, 'pending', 'a resposta aprovada entra na outbox como pendente');
+  // Fase 1 nao tem envio real: aprovada a revisao humana, a chamada bate no portao
+  // NOT_CONFIGURED e nada entra na outbox. Mesmo contrato de test-social.mjs.
+  await assert.rejects(
+    service.approveAndReply('t', { commentId: 'c1', text: 'respondido', confirmHuman: true, expectedVersion: 1 }),
+    { code: 'NOT_CONFIGURED' },
+    'a revisao humana nao habilita envio nesta fase',
+  );
   assert.equal(SOCIAL_AUTOMATION.enabled, false, 'automacao continua desligada');
+  assert.deepEqual(chamadas, [], 'nem rascunho nem outbox sao gravados');
   assert.ok(!chamadas.some(c => c.status === 'sent'), 'nada pode sair como enviado');
 });
 
