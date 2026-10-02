@@ -10,6 +10,7 @@ export default function Consumo() {
   const [items, setItems] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [period, setPeriod] = useState('mes');
@@ -18,13 +19,14 @@ export default function Consumo() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [it, emps] = await Promise.all([
         base44.entities.Consumption.list('-date', 500),
         base44.entities.Employee.list('-created_date', 500),
       ]);
       setItems(it); setEmployees(emps);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -36,15 +38,17 @@ export default function Consumo() {
     return true;
   }), [items, range, statusFilter, empFilter]);
 
-  const totalGeral = filtered.reduce((s, c) => s + (c.amount || 0), 0);
+  const totalGeral = filtered.reduce((s, c) => s + Number(c.amount || 0), 0);
   const porColaborador = useMemo(() => {
     const map = {};
-    filtered.forEach((c) => { map[c.employee_name] = (map[c.employee_name] || 0) + (c.amount || 0); });
+    filtered.forEach((c) => { map[c.employee_name] = (map[c.employee_name] || 0) + Number(c.amount || 0); });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [filtered]);
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
+  if (loading) return <div>Carregando indicadores...</div>;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">

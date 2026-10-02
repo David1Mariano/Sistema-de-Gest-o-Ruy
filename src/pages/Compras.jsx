@@ -24,20 +24,22 @@ export default function Compras(){
   const [supplierOpen,setSupplierOpen]=useState(false);
   const [receiving,setReceiving]=useState(null);
 
+  const [loadError,setLoadError]=useState(false);
   const load=async()=>{
     setLoading(true);
     try{
       const [purchases,purchaseItems,suppliers,inventory,payables,categories,centers]=await Promise.all([
-        base44.entities.Purchase.list('-date',500).catch(()=>[]),
-        base44.entities.PurchaseItem.list('-created_date',1000).catch(()=>[]),
-        base44.entities.Supplier.list('name',500).catch(()=>[]),
-        base44.entities.InventoryItem.list('name',500).catch(()=>[]),
-        base44.entities.AccountsPayable.list('-due_date',1000).catch(()=>[]),
-        base44.entities.ExpenseCategory.list('name',300).catch(()=>[]),
-        base44.entities.CostCenter.list('name',300).catch(()=>[]),
+        base44.entities.Purchase.list('-date',500),
+        base44.entities.PurchaseItem.list('-created_date',1000),
+        base44.entities.Supplier.list('name',500),
+        base44.entities.InventoryItem.list('name',500),
+        base44.entities.AccountsPayable.list('-due_date',1000),
+        base44.entities.ExpenseCategory.list('name',300),
+        base44.entities.CostCenter.list('name',300),
       ]);
       setData({purchases,purchaseItems,suppliers,inventory,payables,categories,centers});
-    }finally{setLoading(false)}
+      setLoadError(false);
+    }catch{setLoadError(true)}finally{setLoading(false)}
   };
   useEffect(()=>{load()},[]);
 
@@ -48,6 +50,8 @@ export default function Compras(){
   const awaiting=active.filter(x=>x.status==='aguardando_recebimento').length;
   const received=active.filter(x=>x.status==='recebida').length;
 
+  if(loading)return <div>Carregando indicadores...</div>;
+  if(loadError)return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return <div className="space-y-5">
     <div className="flex flex-wrap items-end justify-between gap-3">
       <div><h1 className="text-2xl font-semibold">Compras & Fornecedores</h1><p className="text-sm text-slate-500">Fornecedor → compra → conta a pagar → recebimento → estoque</p></div>

@@ -26,7 +26,7 @@ export default function Ponto() {
   const [tolerance, setTolerance] = useState(5);
   const [adjustRow, setAdjustRow] = useState(null);
 
-  const { schedules, records, loading, reload } = usePontoData(date);
+  const { schedules, records, loading, error, reload } = usePontoData(date);
 
   useEffect(() => {
     base44.entities.SystemSettings.list('-created_date', 1).then((s) => {
@@ -54,6 +54,7 @@ export default function Ponto() {
 
   const handleAdjust = (row) => setAdjustRow(row);
 
+  if (error) return <div role="alert">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">

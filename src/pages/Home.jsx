@@ -8,7 +8,7 @@ import { Users, UserCheck, UserX, Clock4, Coffee, CalendarDays, ArrowRight, Rece
 
 export default function Home() {
   const date = todayISO();
-  const { schedules, records, loading } = usePontoData(date);
+  const { schedules, records, loading, error, reload } = usePontoData(date);
   const [tolerance, setTolerance] = useState(5);
 
   useEffect(() => {
@@ -21,6 +21,7 @@ export default function Home() {
   const counts = useMemo(() => summarizeRows(rows), [rows]);
   const escalados = rows.filter((r) => r.schedule).length;
 
+  if (error) return <div role="alert">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>;
   return (
     <div className="space-y-6">
       <div>
