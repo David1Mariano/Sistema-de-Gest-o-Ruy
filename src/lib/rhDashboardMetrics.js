@@ -1,4 +1,19 @@
+// Contadores de advertências dos dashboards.
+//
+// Aqui convivem DOIS escopos diferentes, de propósito. Misturá-los foi um bug
+// real: a Direção mostrava o total do mês e contava também as canceladas.
+//
+// - RH ("Advertências no mês"): mantém o contrato MENSAL que já tinha.
+//   `countMonthlyWarnings` continua mensal, sem alteração nenhuma.
+// - Direção ("Advertências"): TOTAL de advertências válidas cadastradas, sem
+//   filtro de data. A regra vem do modelo real (`WARNING_STATUS` em rhUtils):
+//   pendente | tratada | cancelada. Só `cancelada` fica de fora — uma ocorrência
+//   cancelada não ocorreu, e contá-la inflaria o número mostrado à diretoria.
+
 export const countMonthlyWarnings = (warnings, month) => warnings.filter(w => w.date?.startsWith(month)).length;
+
+/** Total de advertências VÁLIDAS cadastradas, sem filtro de data. */
+export const countRegisteredWarnings = (warnings) => (warnings || []).filter(w => w.status !== 'cancelada').length;
 
 export function buildRHMetrics({ employees, schedules, absences, vales, warnings }, today) {
   const linked = row => employees.some(e => e.id === row.employee_id);

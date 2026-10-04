@@ -19,3 +19,23 @@ export const warnings = [
   { id: 'w3', date: '2026-08-31', employee_id: 'a', status: 'pendente' },
   { id: 'w4', date: end, employee_id: 'b', status: 'cancelada' },
 ];
+
+// 5 advertências, 1 cancelada — o cenário exigido para a Direção.
+// Status taken from the real model (WARNING_STATUS): pendente | tratada | cancelada.
+export const warningsFive = [
+  { id: 'f1', date: end, employee_id: 'a', status: 'pendente' },
+  { id: 'f2', date: end, employee_id: 'b', status: 'pendente' },
+  { id: 'f3', date: '2026-05-04', employee_id: 'a', status: 'tratada' },
+  { id: 'f4', date: '2025-11-20', employee_id: 'b', status: 'tratada' },
+  { id: 'f5', date: end, employee_id: 'c', status: 'cancelada' },
+];
+
+// Datas misturadas de propósito, para provar que a Direção NÃO é a mensal:
+// mês atual, mês anterior, antiga e uma cancelada. As três válidas contam
+// independentemente da data; a cancelada nunca conta na Direção.
+export const warningsMultiMonth = [
+  { id: 'm1', date: end, employee_id: 'a', status: 'pendente' },
+  { id: 'm2', date: '2026-08-15', employee_id: 'b', status: 'tratada' },
+  { id: 'm3', date: '2025-01-10', employee_id: 'c', status: 'tratada' },
+  { id: 'm4', date: end, employee_id: 'c', status: 'cancelada' },
+];

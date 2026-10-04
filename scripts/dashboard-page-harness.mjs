@@ -70,7 +70,7 @@ export async function financePageHarness(entities, page = 'Financeiro') {
   }
   return {
     async flush() { for (let i = 0; i < 12; i++) { if (dirty) render(); await new Promise(resolve => setImmediate(resolve)); } },
-    html: () => renderToStaticMarkup(find(tree, node => page === 'Financeiro' ? node.type?.name === 'FinancialOverviewCards' : node.props?.label === 'Advertências no mês')),
+    html: () => renderToStaticMarkup(find(tree, node => page === 'Financeiro' ? node.type?.name === 'FinancialOverviewCards' : node.props?.label === 'Advertências')),
     refresh: () => find(tree, node => node.props?.title === 'Recarregar os dados do Financeiro').props.onClick(),
     unmount: () => slots.forEach(slot => slot?.cleanup?.()),
   };

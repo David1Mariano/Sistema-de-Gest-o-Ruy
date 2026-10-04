@@ -58,14 +58,14 @@ test('real Direção page: Warning arrives after core data and updates its rende
   entities.Warning.list = async () => warningRead.promise;
   const page = await financePageHarness(entities, 'Direcao');
   try {
-    await page.flush(); assert.equal(cardText(page.html(), 'Advertências no mês'), 'Carregando…');
-    warningRead.resolve([{ date: todayISO(), employee_id: 'a' }, { date: todayISO(), employee_id: 'b' }]);
-    await page.flush(); assert.equal(cardText(page.html(), 'Advertências no mês'), '2');
+    await page.flush(); assert.equal(cardText(page.html(), 'Advertências'), 'Carregando…');
+    warningRead.resolve([{ date: todayISO(), employee_id: 'a', status: 'pendente' }, { date: '2020-01-01', employee_id: 'b', status: 'tratada' }, { date: todayISO(), employee_id: 'c', status: 'cancelada' }]);
+    await page.flush(); assert.equal(cardText(page.html(), 'Advertências'), '2');
     entities.Warning.list = async () => [];
     await subscriptions.Warning(); await page.flush();
-    assert.equal(cardText(page.html(), 'Advertências no mês'), '0');
+    assert.equal(cardText(page.html(), 'Advertências'), '0');
     entities.Warning.list = async () => { throw new Error('offline fixture'); };
     await subscriptions.Warning(); await page.flush();
-    assert.equal(cardText(page.html(), 'Advertências no mês'), 'Indisponível');
+    assert.equal(cardText(page.html(), 'Advertências'), 'Indisponível');
   } finally { page.unmount(); }
 });

@@ -1,4 +1,4 @@
-import { countMonthlyWarnings } from './rhDashboardMetrics.js';
+import { countMonthlyWarnings, countRegisteredWarnings } from './rhDashboardMetrics.js';
 const value = (item, field) => Number(item?.[field] || 0);
 const active = (item) => item.status !== 'cancelado';
 
@@ -37,5 +37,10 @@ export function buildDirectionMetrics(data, today = localISO()) {
   const peopleCost = payments.filter((x) => inMonth(x.payment_date)).reduce((s, x) => s + value(x, 'net_amount'), 0);
   const channels = Object.entries(revenues.filter((x) => inMonth(x.date)).reduce((acc, x) => ({ ...acc, [x.source_type || 'outro']: (acc[x.source_type || 'outro'] || 0) + value(x, 'net_amount') }), {})).sort((a, b) => b[1] - a[1]);
   const warningsMonth = countMonthlyWarnings(data.warnings || [], month);
-  return { warningsMonth, today, revenueToday, expenseToday, balanceToday: revenueToday - expenseToday, revenueMonth, grossRevenueMonth, deductionsMonth, expenseMonth, peopleCost, resultMonth: revenueMonth - expenseMonth, currentBalance, payable30, receivable30, projectedBalance: currentBalance + receivable30 - payable30, activeEmployees: data.employees.filter((x) => !['desligado', 'inativo'].includes(x.status)).length, absencesToday, overdue, dueToday, lowStock, productionPending, experienceEnding, channels };
+  // A Direção quer o TOTAL de advertências válidas cadastradas — sem filtro de
+  // mês, porque o card do RH já cobre o recorte mensal. Mantemos as duas
+  // métricas lado a lado para que cada tela use a sua.
+  const warningsRegistered = countRegisteredWarnings(data.warnings || []);
+  const warningsRegisteredPending = (data.warnings || []).filter(w => w.status === 'pendente').length;
+  return { warningsMonth, warningsRegistered, warningsRegisteredPending, today, revenueToday, expenseToday, balanceToday: revenueToday - expenseToday, revenueMonth, grossRevenueMonth, deductionsMonth, expenseMonth, peopleCost, resultMonth: revenueMonth - expenseMonth, currentBalance, payable30, receivable30, projectedBalance: currentBalance + receivable30 - payable30, activeEmployees: data.employees.filter((x) => !['desligado', 'inativo'].includes(x.status)).length, absencesToday, overdue, dueToday, lowStock, productionPending, experienceEnding, channels };
 }
