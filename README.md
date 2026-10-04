@@ -406,6 +406,39 @@ O comando oficial de publicação também executa verificações antes de ativar
 
 ---
 
+# 📦 Armazenamento de arquivos (R2)
+
+O armazenamento de anexos (comprovantes, notas fiscais, documentos e fotos)
+está em migração do Supabase Storage (bucket `anexos`) para o Cloudflare R2
+(bucket `ruy-gestao-arquivos`, prefixo `anexos/`).
+
+A leitura continua aceitando, ao mesmo tempo:
+
+- arquivo no R2 (registro marcado com `storage_provider: 'r2'`);
+- arquivo legado no Supabase Storage (bucket `anexos`);
+- arquivo em base64 gravado dentro do próprio registro.
+
+Para o backend de arquivos:
+
+```powershell
+npm.cmd run storage:check   # informa o que falta de configuração (nunca imprime segredo)
+npm.cmd run storage:dev     # backend em primeiro plano
+npm.cmd run test:storage    # suíte de comprovantes/anexos em R2, Supabase e base64
+node scripts/audit-arquivos-referencias.mjs   # auditoria dos registros (somente leitura)
+```
+
+As credenciais do R2 existem **somente no backend**. O frontend conhece
+apenas `VITE_STORAGE_API_URL` (endereço interno, sem segredo).
+
+A documentação completa da migração — inventário de campos, arquitetura,
+regras de compatibilidade e o que ainda não foi feito — está em:
+
+```text
+docs/storage-r2.md
+```
+
+---
+
 # 📁 Estrutura geral
 
 Estrutura simplificada do projeto:

@@ -7,9 +7,9 @@
 // Gastos Diários, Contas a Pagar, Vales, Ficha do Colaborador e Pagamentos.
 // É assim que continua existindo UM ÚNICO visualizador no sistema.
 //
-// Nada aqui grava ou altera armazenamento: o arquivo continua vindo por
-// `loadPaymentProof` (Data URL legado ou storage_path assinado) exatamente
-// como sempre veio.
+// Nada aqui grava ou altera. O arquivo continua vindo por
+// `loadPaymentProof` (base64 legado, caminho assinado do Supabase ou URL
+// assinada do R2) exatamente como sempre veio.
 
 export const ZOOM_MIN = 0.25; // 25%
 export const ZOOM_MAX = 4; // 400%
