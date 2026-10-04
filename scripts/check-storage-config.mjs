@@ -30,6 +30,13 @@ for (const [nome, valor, uso] of OPCIONAIS) {
 
 console.log(`\nBucket configurado: ${config.bucket}`);
 console.log(`Exclusao real de arquivo: ${config.allowDelete ? 'LIGADA' : 'DESLIGADA'}`);
+console.log(`Novos comprovantes vao para: ${config.writeProvider}`);
+if (config.writeProviderDeclarado && config.writeProvider !== config.writeProviderDeclarado) {
+  console.warn(`Aviso: STORAGE_WRITE_PROVIDER="${config.writeProviderDeclarado}" nao e valido; usando "${config.writeProvider}".`);
+}
+if (config.writeProvider === 'r2' && faltando.length) {
+  console.warn('Aviso: a flag pede R2, mas falta credencial. A flag sera ignorada e o upload vai para o Supabase.');
+}
 
 if (faltando.length) {
   console.error(`\nOBRIGATORIAS AUSENTES: ${faltando.join(', ')}`);

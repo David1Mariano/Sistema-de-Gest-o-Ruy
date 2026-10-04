@@ -422,10 +422,20 @@ Para o backend de arquivos:
 
 ```powershell
 npm.cmd run storage:check   # informa o que falta de configuração (nunca imprime segredo)
+npm.cmd run storage:smoke   # prova o R2 de verdade (pula se não houver credencial)
 npm.cmd run storage:dev     # backend em primeiro plano
 npm.cmd run test:storage    # suíte de comprovantes/anexos em R2, Supabase e base64
 node scripts/audit-arquivos-referencias.mjs   # auditoria dos registros (somente leitura)
 ```
+
+Para gravar no R2, defina a feature flag **no backend**:
+
+```powershell
+set STORAGE_WRITE_PROVIDER=r2
+```
+
+Com a flag em `supabase` (padrão) nada muda: novos comprovantes de
+colaborador continuam indo para o bucket `anexos` do Supabase.
 
 As credenciais do R2 existem **somente no backend**. O frontend conhece
 apenas `VITE_STORAGE_API_URL` (endereço interno, sem segredo).

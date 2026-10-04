@@ -32,6 +32,7 @@
     "social:check": "node scripts/check-social-config.mjs",
     "storage:dev": "node server/storage/storageApi.mjs",
     "storage:check": "node scripts/check-storage-config.mjs",
+    "storage:smoke": "node scripts/storage-smoke.mjs",
     "test:storage": "node --test scripts/test-storage-r2.mjs"
   },
   "dependencies": {

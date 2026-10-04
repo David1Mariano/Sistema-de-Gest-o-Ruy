@@ -1,8 +1,11 @@
 # Migração de arquivos: Supabase Storage → Cloudflare R2
 
-> Etapa 1 — **auditoria e preparação segura**.
-> Nenhum dado real foi alterado, nenhum arquivo foi copiado, nenhum objeto foi
-> apagado, nenhuma credencial existe no repositório.
+> **Etapa 1 — auditoria e preparação segura** (concluída em `f0fc148`)
+> **Etapa 2 — ativação real e migração controlada** (branch `codex-storage-r2`)
+>
+> Em ambas: **nenhum dado real foi apagado**, nenhum objeto do Supabase foi
+> removido, base64 **não** foi migrado em massa e nenhuma credencial real
+> existe no repositório.
 
 ---
 
@@ -169,7 +172,8 @@ lista os `storage_path`. Não imprime byte de arquivo nem trecho de base64.
 | `server/storage/storageApi.mjs` | host Node + leitura de ambiente + `storage:dev` |
 | `scripts/check-storage-config.mjs` | `storage:check`: diz o que falta, sem imprimir valor |
 | `scripts/audit-arquivos-referencias.mjs` | auditoria somente-leitura dos registros |
-| `scripts/test-storage-r2.mjs` | suíte (24 testes, sem rede real) |
+| `scripts/test-storage-r2.mjs` | suíte (30 testes, sem rede real) |
+| `scripts/storage-smoke.mjs` | `storage:smoke`: prova real do R2, pula sem credencial |
 
 `server/storage/*.mjs` importa `src/lib/storage/attachmentPath.js`: o backend e
 o frontend compartilham **o mesmo arquivo** de contrato. Não existem duas
@@ -306,8 +310,9 @@ precisa da aprovação do dono.
 
 ```bash
 npm run storage:check   # o que falta de configuração (nunca imprime valor)
+npm run storage:smoke   # prova real do R2 (pula sem credencial)
 npm run storage:dev     # backend de arquivos em primeiro plano
-npm run test:storage    # 24 testes, sem rede real
+npm run test:storage    # 30 testes, sem rede real
 node scripts/audit-arquivos-referencias.mjs   # auditoria somente-leitura
 ```
 
@@ -325,3 +330,148 @@ node scripts/audit-arquivos-referencias.mjs   # auditoria somente-leitura
   "Baixar como PDF" e imprimir **não foram refatorados** — as suítes
   `test-attachment-preview.mjs` e `test-theme-superficies.mjs` continuam
   passando sem alteração.
+
+---
+
+# ETAPA 2 — ATIVAÇÃO REAL
+
+## 12. Auditoria real (somente leitura)
+
+`node scripts/audit-arquivos-referencias.mjs` — 876 registros, 16 entidades,
+221 registros com algum campo de anexo preenchido.
+
+| Entidade | Registros |
+|---|---|
+| AuditLog | 408 |
+| FinancialExpense | 123 |
+| Consumption | 93 |
+| EmployeePayment | 92 |
+| Employee | 62 |
+| Vale | 52 |
+| JobRole | 17 |
+| Warning | 6 |
+| Sector | 6 |
+| Absence | 5 |
+| ExpenseCategory | 4 |
+| AccountsPayable | 3 |
+| FechamentoCaixa | 2 |
+| AuthUser / InventoryItem / StockMovement | 1 cada |
+
+| Entidade.campo | Tipo | Total |
+|---|---|---|
+| FinancialExpense.proof_url | base64 | 111 |
+| EmployeePayment.proof_url | base64 | 52 |
+| Vale.proof_url | base64 | 27 |
+| FinancialExpense.invoice_url | base64 | 5 |
+| AccountsPayable.document_url | base64 | 1 |
+| Employee.photo_url | base64 | 1 |
+| **EmployeePayment.storage_path** | **caminho** | **29** |
+
+- **base64: 197** · **http(s): 0** · **blob: 0** · **caminho de bucket: 29**
+- **29 `storage_path`, 29 caminhos distintos**, todos em `EmployeePayment`,
+  todos com `storage_provider` **ausente** (= legados do Supabase).
+- MIME dos 29: `image/jpeg=27`, `application/pdf=2`.
+- **0 registros** com `storage_path` **e** campo legado ao mesmo tempo — os
+  29 e os 197 não se sobrepõem, então trocar o provider não perde nada.
+- Os 29 `storage_path` são registros de **EmployeePayment** (id `id_muo*…`),
+  anexos enviados entre 23/09/2026 e 01/10/2026.
+
+### 29 referências × 33 objetos
+
+O banco referencia **29** caminhos; o R2 tem **33** objetos. A diferença
+(≈4) só é resolvida com a lista de chaves do R2:
+
+```bash
+rclone lsf r2:ruy-gestao-arquivos > chaves-r2.txt
+node scripts/audit-arquivos-referencias.mjs --r2-list=chaves-r2.txt
+```
+
+O cruzamento separa **referência sem objeto** (arquito quebrado) de
+**objeto sem referência** (órfão). As duas hipóteses — 4 órfãos ou 4
+referências quebradas — são benignas e detectáveis, mas **não podem ser
+afirmadas sem a lista**, e esta etapa não a fabricou.
+
+---
+
+## 13. Feature flag: `STORAGE_WRITE_PROVIDER`
+
+A escrita **não** está no código. É uma variável do backend.
+
+| Valor | Efeito |
+|---|---|
+| `supabase` (**padrão**) | comportamento idêntico ao de antes: bucket `anexos` |
+| `r2` | novo comprovante de **EmployeePayment** vai para o Cloudflare |
+
+Rollback é trocar a variável e reiniciar o backend. **Nenhum código muda.**
+
+Regras de segurança da flag:
+
+- valor desconhecido cai para `supabase` (falha para o lado seguro);
+- `r2` **sem credencial configurada é ignorado** — o backend anuncia
+  `supabase`, para o Operador nunca ver "não configurado" ao anexar;
+- o frontend lê a flag em `GET /storage/health`; sem backend alcançável ele
+  assume `supabase`.
+
+Quem usa `uploadPaymentProof` é **só** `PaymentForm.jsx`. O teste 27 trava
+esse invariante: se outro fluxo passar a chamar, a ativação fica maior do
+que o aprovado.
+
+---
+
+## 14. Falha fechada
+
+Se o R2 estiver indisponível, `uploadPaymentProof` **lança**:
+
+- não grava base64;
+- não aciona o caminho do Supabase como "plano B";
+- não devolve `storage_path` sem objeto confirmado;
+- não devolve sucesso simulado.
+
+O `PaymentForm` já trata erro de upload: mantém o comprovante anterior,
+mostra a mensagem e **bloqueia o salvamento** enquanto houver erro.
+
+---
+
+## 15. Smoke test real
+
+```bash
+npm run storage:smoke
+```
+
+Com credencial no ambiente, ele:
+
+1. lê um objeto **já existente** (`exists`, `signed URL`, `download` pela URL
+   assinada, `download` autenticado) — **não grava nada**;
+2. grava `anexos/_r2_test/r2-healthcheck.txt` (conteúdo sem dado real) e
+   valida `upload` → `exists` → `download` → `signed URL`;
+3. remove **apenas** esse objeto, e só se o caminho começar exatamente com
+   `anexos/_r2_test/` (`--manter` preserva).
+
+Sem credencial no ambiente ele **imprime que pulou e sai com 0**. Nunca
+inventa chave.
+
+O objeto de teste é `.txt`. Os buckets de anexo aceitam só JPG/PNG/WEBP/PDF,
+então ele fica fora do alcance dos validadores de anexo — proposital.
+
+---
+
+## 16. Como ativar de fato
+
+```bash
+# 1. credenciais, SÓ no ambiente do backend
+set R2_ACCOUNT_ID=... & set R2_ACCESS_KEY_ID=... & set R2_SECRET_ACCESS_KEY=...
+
+# 2. conferir (imprime nomes, nunca valores)
+npm run storage:check
+
+# 3. provar o R2 de verdade
+npm run storage:smoke
+
+# 4. subir o backend com a flag ligada
+set STORAGE_WRITE_PROVIDER=r2 & npm run storage:dev
+
+# 5. apontar o frontend (apenas a URL)
+#    .env.local:  VITE_STORAGE_API_URL=http://127.0.0.1:8789
+```
+
+Rollback imediato: `set STORAGE_WRITE_PROVIDER=supabase` e reiniciar.

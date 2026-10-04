@@ -180,11 +180,20 @@ async function authorizeStorage(accessToken) {
  * mesmo conjunto de metadados do caminho legado, acrescido de
  * `storage_provider`/`storage_bucket` — que é o que faz a próxima leitura
  * saber de onde buscar.
+ *
+ * FALHA FECHADA (requisito da Fase 2): se o upload não acontecer, este
+ * método LANÇA. Ele nunca devolve `proof_url` em base64, nunca devolve
+ * caminho sem objeto e nunca "simula" sucesso. O `PaymentForm` trata o erro
+ * e mantém o comprovante anterior — o Operator vê a mensagem, e o registro
+ * não nasce com anexo que não existe.
  */
 async function uploadR2Attachment({ recordId, file, prefix, storageApiClient }) {
   const path = buildPaymentProofPath(recordId, file, prefix);
   try {
     const reference = await storageApiClient.upload({ prefix, recordId, file });
+    if (!reference?.storage_path || reference?.storage_provider !== STORAGE_PROVIDER.R2) {
+      throw new Error('O armazenamento não confirmou onde o comprovante foi gravado.');
+    }
     console.info(PAYMENT_PROOF_DIAG, 'upload R2 ok', {
       recordId, path: reference.storage_path, mimeType: file.type, fileSize: file.size,
     });
@@ -195,9 +204,12 @@ async function uploadR2Attachment({ recordId, file, prefix, storageApiClient }) 
       errorCode: error?.code ?? null, errorStatus: error?.status ?? null,
     });
     if (error?.code === 'not_configured') {
-      throw new Error('O envio para o novo armazenamento ainda não está configurado neste ambiente.');
+      throw new Error('O envio para o novo armazenamento ainda não está configurado neste ambiente. Nada foi anexado.');
     }
-    throw new Error('Falha ao enviar comprovante. Tente novamente.');
+    if (error?.code === 'unauthorized' || error?.code === 'forbidden') {
+      throw new Error('Sua sessão não autorizou o envio do comprovante. Nada foi anexado.');
+    }
+    throw new Error('Falha ao enviar o comprovante. Nada foi anexado — tente novamente.');
   }
 }
 
@@ -218,7 +230,7 @@ async function uploadR2Attachment({ recordId, file, prefix, storageApiClient }) 
 export async function uploadPaymentProof({
   recordId,
   file,
-  provider = STORAGE_PROVIDER.SUPABASE,
+  provider,
   prefix = PAYMENT_PROOF_PREFIX,
   storageClient = supabase.storage.from(PAYMENT_PROOF_BUCKET),
   accessToken = getAccessToken,
@@ -227,8 +239,19 @@ export async function uploadPaymentProof({
   validatePaymentProofFile(file);
   await validateContent(file);
 
-  if (provider === STORAGE_PROVIDER.R2) {
+  // Sem provider explícito, quem decide é o BACKEND (feature flag
+  // STORAGE_WRITE_PROVIDER). O padrão é o comportamento de antes desta fase:
+  // bucket `anexos` do Supabase. `paymentProof.js` é o ÚNICO chamador de
+  // `uploadPaymentProof`, então a flag liga exatamente o EmployeePayment.
+  const destino = provider || await storageApiClient.writeProvider();
+
+  if (destino === STORAGE_PROVIDER.R2) {
     return uploadR2Attachment({ recordId, file, prefix, storageApiClient });
+  }
+  if (destino !== STORAGE_PROVIDER.SUPABASE) {
+    // Provider desconhecido é falha, não palpite: arquivo silêncio no lugar
+    // errado é pior do que erro na tela.
+    throw new Error('Provedor de armazenamento desconhecido. Nada foi enviado.');
   }
 
   const path = buildPaymentProofPath(recordId, file);

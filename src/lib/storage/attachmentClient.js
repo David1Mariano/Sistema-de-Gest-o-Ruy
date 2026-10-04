@@ -75,8 +75,28 @@ export function createAttachmentStorageClient({ endpoint, getToken, fetchImpl } 
     return text ? `?${text}` : '';
   };
 
+  const cache = { writeProvider: null };
+
   return Object.freeze({
     get configured() { return Boolean(base); },
+
+    /**
+     * FEATURE FLAG de escrita, lida do BACKEND (única autoridade).
+     * `r2` só é devolvido se o backend realmente tem R2 configurado.
+     * Sem backend alcançável, devolve `supabase` — que é exatamente o
+     * comportamento de antes desta fase, sem risco de mandar anexo para o
+     * lugar errado.
+     */
+    async writeProvider() {
+      if (!base) return STORAGE_PROVIDER.SUPABASE;
+      if (cache.writeProvider) return cache.writeProvider;
+      const health = await this.health();
+      const provider = health?.ready && health?.write_provider === STORAGE_PROVIDER.R2
+        ? STORAGE_PROVIDER.R2
+        : STORAGE_PROVIDER.SUPABASE;
+      cache.writeProvider = provider;
+      return provider;
+    },
 
     /** Estado do backend. Nunca lança: a UI precisa sempre renderizar. */
     async health() {

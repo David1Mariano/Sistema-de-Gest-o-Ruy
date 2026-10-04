@@ -26,11 +26,15 @@ import { localPeer } from '../../scripts/production/server.mjs';
 import { createR2Client } from './r2Client.mjs';
 import { createStorageService } from './storageService.mjs';
 import { createStorageHandler } from './storageHandler.mjs';
-import { STORAGE_BUCKET_R2, STORAGE_R2_PREFIX } from '../../src/lib/storage/attachmentPath.js';
+import { STORAGE_BUCKET_R2, STORAGE_PROVIDER, STORAGE_R2_PREFIX } from '../../src/lib/storage/attachmentPath.js';
 
 export const STORAGE_API_PORT = 8789;
 const STORAGE_PREFIX = '/storage/';
 const DEFAULT_ORIGINS = Object.freeze(['http://localhost:5173', 'http://127.0.0.1:5173', 'http://ADM-RUY:8080']);
+
+// Valores aceitos em STORAGE_WRITE_PROVIDER. Qualquer outra coisa cai para
+// `supabase`: flag mal escrita não pode mandar anexo para o lugar errado.
+const WRITE_PROVIDERS = Object.freeze([STORAGE_PROVIDER.SUPABASE, STORAGE_PROVIDER.R2]);
 
 const num = (value, fallback) => {
   const n = Number(value);
@@ -63,6 +67,12 @@ export function storageAPIConfigFromEnvironment(env = process.env) {
     enforceLocal: env.STORAGE_API_ENFORCE_LOCAL !== 'false',
     // Exclusão real de arquivo é uma decisão separada e desligada por padrão.
     allowDelete: env.STORAGE_DELETE_ENABLED === 'true',
+    // FEATURE FLAG de escrita. `supabase` (padrão) = comportamento idêntico
+    // ao de antes desta fase. `r2` = novo anexo de EmployeePayment vai para o
+    // Cloudflare. Rollback é trocar esta variável; não é mexer em código.
+    // Valor desconhecido cai para `supabase` — falhar para o lado seguro.
+    writeProvider: WRITE_PROVIDERS.includes(env.STORAGE_WRITE_PROVIDER) ? env.STORAGE_WRITE_PROVIDER : STORAGE_PROVIDER.SUPABASE,
+    writeProviderDeclarado: env.STORAGE_WRITE_PROVIDER || '',
   };
 }
 
@@ -104,7 +114,10 @@ export function buildStorageAPI({ config, request = fetch, client = undefined, s
 
   const service = createStorageService({ client: r2, allowDelete: config.allowDelete, r2Prefix: config.r2Prefix });
   const verifyIdentity = createSupabaseIdentityVerifier({ url: config.supabaseUrl, anonKey: config.supabaseAnonKey, request });
-  const handler = createStorageHandler({ service, verifyIdentity });
+  // A flag só vale se existe cliente de R2 por trás. Sem cliente, anunciar
+  // `r2` faria todo Operator ver "não configurado" no momento de anexar.
+  const writeProvider = service.configured ? config.writeProvider : STORAGE_PROVIDER.SUPABASE;
+  const handler = createStorageHandler({ service, verifyIdentity, writeProvider });
 
   return http.createServer(async (req, res) => {
     const started = Date.now();
@@ -168,7 +181,13 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].rep
     process.exit(1);
   }
   if (config.bucket !== STORAGE_BUCKET_R2) {
-    console.warn(`Aviso: R2_BUCKET="${config.bucket}" difere do bucket do contrato (${STORAGE_BUCKET_R2}).`);
+    console.warn(`Aviso: o bucket configurado difere do bucket do contrato (${STORAGE_BUCKET_R2}).`);
+  }
+  if (config.writeProviderDeclarado && !WRITE_PROVIDERS.includes(config.writeProviderDeclarado)) {
+    console.warn(`Aviso: STORAGE_WRITE_PROVIDER="${config.writeProviderDeclarado}" nao e valido. Usando "${STORAGE_PROVIDER.SUPABASE}".`);
+  }
+  if (config.writeProvider === STORAGE_PROVIDER.R2 && !missingStorageConfig(config).length) {
+    console.warn('ATENCAO: novos comprovantes de EmployeePayment vao para o R2.');
   }
   const server = buildStorageAPI({ config, sink: (linha) => console.log(JSON.stringify(linha)) });
   server.on('error', (error) => {
@@ -177,8 +196,9 @@ if (process.argv[1] && import.meta.url === new URL(`file://${process.argv[1].rep
   });
   server.listen(config.port, config.host, () => {
     console.log(`Backend de arquivos (DEV): http://${config.host}:${config.port}`);
-    console.log(`  ${STORAGE_PREFIX}*          anexos no R2`);
+    console.log(`  /storage/*          anexos no R2`);
     console.log(`  exclusao real: ${config.allowDelete ? 'LIGADA' : 'desligada'}`);
+    console.log(`  novos anexos vao para: ${config.writeProvider}`);
   });
   for (const sinal of ['SIGINT', 'SIGTERM']) process.on(sinal, () => server.close(() => process.exit(0)));
 }

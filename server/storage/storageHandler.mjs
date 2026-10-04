@@ -66,7 +66,7 @@ const mensagem = (code) => MENSAGEM[code] || MENSAGEM.storage_error;
  * @param {object} o.service          `createStorageService(...)`
  * @param {Function} o.verifyIdentity obrigatório; devolve `null` sem identidade
  */
-export function createStorageHandler({ service, verifyIdentity } = {}) {
+export function createStorageHandler({ service, verifyIdentity, writeProvider = STORAGE_PROVIDER.SUPABASE } = {}) {
   if (typeof verifyIdentity !== 'function') throw new Error('createStorageHandler requer verifyIdentity()');
 
   const falharCom = (error) => {
@@ -89,17 +89,23 @@ export function createStorageHandler({ service, verifyIdentity } = {}) {
       return reply(403, { error: 'delete_disabled', message: mensagem('delete_disabled') });
     }
 
-    // 2. Saúde: nunca revela segredo. Só "tem cliente?" e "pode apagar?".
+    // 2. Saúde: nunca revela segredo. Só "tem cliente?", "pode apagar?" e
+    //    para onde gravar. O `write_provider` é a FEATURE FLAG: é daqui que
+    //    o frontend descobre se novo anexo vai para o R2 ou para o Supabase.
     if (rota === '/storage/health' && metodo === 'GET') {
       return reply(200, {
         provider: STORAGE_PROVIDER.R2,
         bucket: STORAGE_BUCKET_R2,
         configured: service?.configured === true,
         delete_enabled: service?.allowDelete === true,
+        write_provider: writeProvider,
         max_bytes: ATTACHMENT_MAX_BYTES,
       });
     }
 
+    // O provider de escrita só pode ser `r2` quando existe cliente de R2.
+    // Anunciar `r2` sem serviço atrás faria o frontend tentar um upload que
+    // só pode falhar — e o Operador veria "não configurado" no pior momento.
     if (!service?.configured) return reply(503, { error: 'not_configured', message: mensagem('not_configured') });
 // 3. Upload: corpo binário puro, metadados na query. O prefixo NUNCA
     //    vem do corpo — ele é escolhido pelo backend a partir da rota.

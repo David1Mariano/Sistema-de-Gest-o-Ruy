@@ -399,7 +399,8 @@ test('18. sem credencial o backend responde 503 honesto em vez de subir quebrado
   const health = await pedir(handler, '/storage/health');
   assert.equal(health.status, 200);
   assert.deepEqual(await health.json(), {
-    provider: 'r2', bucket: STORAGE_BUCKET_R2, configured: false, delete_enabled: false, max_bytes: 15 * 1024 * 1024,
+    provider: 'r2', bucket: STORAGE_BUCKET_R2, configured: false, delete_enabled: false,
+    write_provider: 'supabase', max_bytes: 15 * 1024 * 1024,
   });
   const leitura = await pedir(handler, '/storage/signed-url?path=EmployeePayment/p/a.pdf');
   assert.equal(leitura.status, 503);
@@ -503,4 +504,144 @@ test('22. nenhum componente React importa o cliente de armazenamento ou o backen
     const fonte = await read(arquivo);
     assert.ok(!/storageApi|storageClient|attachmentClient/.test(fonte), `${arquivo} não deve falar com o backend de arquivos`);
   }
+});
+
+// ===========================================================================
+// 8. FASE 2 — FEATURE FLAG DE ESCRITA, FAIL CLOSED E ATIVAÇÃO DO R2
+// ===========================================================================
+
+const clienteDeTeste = (health, extras = {}) => ({
+  writeProvider: async () => (health?.write_provider === 'r2' && health?.configured !== false ? 'r2' : 'supabase'),
+  health: async () => ({ provider: 'r2', configured: true, ready: true, ...health }),
+  upload: async () => { throw new Error('upload nao deveria ter sido chamado'); },
+  ...extras,
+});
+
+test('23. feature flag: sem provider explícito, o destino vem do BACKEND', async () => {
+  // Backend com a flag em `supabase`: comportamento de antes, byte a byte.
+  const gravados = [];
+  const legado = await uploadPaymentProof({
+    recordId: 'flag_1',
+    file: arquivo('image/jpeg', jpeg, 'a.jpg'),
+    storageApiClient: clienteDeTeste({ write_provider: 'supabase', configured: true }),
+    accessToken: async () => 'jwt',
+    storageClient: {
+      upload: async (path, f, opts) => { gravados.push({ path, opts }); return { data: { path }, error: null }; },
+      list: async () => ({ data: [], error: null }),
+    },
+  });
+  assert.match(legado.storage_path, /^EmployeePayment\/flag_1\/[0-9a-f-]{36}\.jpg$/);
+  assert.equal(gravados.length, 1, 'o bucket do Supabase foi usado');
+  assert.equal(legado.storage_provider, undefined, 'o caminho legado não ganha campo novo');
+
+  // Backend com a flag em `r2`: o arquivo vai para o R2, com provider marcado.
+  const enviado = [];
+  const r2 = await uploadPaymentProof({
+    recordId: 'flag_2',
+    file: arquivo('application/pdf', pdf, 'b.pdf'),
+    storageApiClient: clienteDeTeste({ write_provider: 'r2', configured: true }, {
+      upload: async (dados) => {
+        enviado.push(dados);
+        return { storage_path: 'EmployeePayment/flag_2/uuid.pdf', storage_provider: 'r2', storage_bucket: STORAGE_BUCKET_R2, file_name: dados.file.name, mime_type: dados.file.type, file_size: dados.file.size };
+      },
+    }),
+  });
+  assert.equal(enviado.length, 1);
+  assert.equal(enviado[0].prefix, 'EmployeePayment');
+  assert.equal(r2.storage_provider, 'r2');
+  assert.equal(r2.storage_bucket, STORAGE_BUCKET_R2);
+  assert.equal(r2.mime_type, 'application/pdf');
+});
+
+test('24. rollback da flag: voltar para supabase e um comando de ambiente', async () => {
+  // Trocar STORAGE_WRITE_PROVIDER é rollback; não existe constante no código.
+  const fonte = await read('server/storage/storageApi.mjs');
+  assert.match(fonte, /STORAGE_WRITE_PROVIDER/);
+  assert.match(fonte, /WRITE_PROVIDERS/, 'o valor é validado contra uma lista');
+  // Valor inventado não vira caminho de escrita: cai no lado seguro.
+  assert.equal(storageAPIConfigFromEnvironment({ STORAGE_WRITE_PROVIDER: 'banana' }).writeProvider, 'supabase');
+  assert.equal(storageAPIConfigFromEnvironment({ STORAGE_WRITE_PROVIDER: 'r2' }).writeProvider, 'r2');
+  assert.equal(storageAPIConfigFromEnvironment({}).writeProvider, 'supabase', 'padrão é o comportamento antigo');
+});
+
+test('25. fail closed: R2 indisponível NÃO grava base64 e NÃO finge sucesso', async () => {
+  for (const code of ['not_configured', 'unauthorized', 'forbidden', 'unavailable']) {
+    let supabaseChamou = false;
+    await assert.rejects(
+      uploadPaymentProof({
+        recordId: 'falha_1',
+        file: arquivo('image/jpeg', jpeg, 'a.jpg'),
+        storageApiClient: clienteDeTeste({ write_provider: 'r2', configured: true }, {
+          upload: async () => { const e = new Error('x'); e.code = code; throw e; },
+        }),
+        // O caminho legado NÃO pode ser acionado como "plano B": se fosse,
+        // o comprovante nasceria no bucket errado sem o Operador saber.
+        storageClient: { upload: async () => { supabaseChamou = true; return { data: {}, error: null }; } },
+      }),
+      /Nada foi anexado|não autorizou|não está configurado/i,
+      `código ${code} deve virar erro de tela`,
+    );
+    assert.equal(supabaseChamou, false, `código ${code}: nada foi gravado em outro lugar`);
+  }
+
+  // Resposta incompleta do backend (sem provider) também é falha fechada:
+  // devolver caminho sem objeto criaria registro apontando para arquivo morto.
+  await assert.rejects(
+    uploadPaymentProof({
+      recordId: 'falha_2',
+      file: arquivo('image/jpeg', jpeg, 'a.jpg'),
+      storageApiClient: clienteDeTeste({ write_provider: 'r2', configured: true }, {
+        upload: async () => ({ storage_path: 'EmployeePayment/falha_2/a.jpg' }),
+      }),
+    }),
+    /Nada foi anexado/,
+  );
+
+  // Provider desconhecido é erro, nunca palpite.
+  await assert.rejects(
+    uploadPaymentProof({
+      recordId: 'falha_3',
+      file: arquivo('image/jpeg', jpeg, 'a.jpg'),
+      provider: 'dropbox',
+      storageApiClient: clienteDeTeste({}),
+    }),
+    /desconhecido/,
+  );
+});
+
+test('26. o health anuncia a flag, e nunca anuncia r2 sem cliente', async () => {
+  const comCliente = handlerDe(createStorageService({ client: r2DeTeste().client }));
+  const health = await pedir(comCliente, '/storage/health');
+  assert.equal((await health.json()).write_provider, 'supabase', 'padrão continua supabase');
+
+  const semCliente = handlerDe(createStorageService({ client: null }));
+  const body = await (await pedir(semCliente, '/storage/health')).json();
+  assert.equal(body.configured, false);
+  assert.equal(body.write_provider, 'supabase', 'sem R2 configurado, nunca anuncia r2');
+});
+
+test('27. só o EmployeePayment usa uploadPaymentProof (nenhum outro fluxo mudou)', async () => {
+  // A flag liga exatamente UM fluxo. Se outro fluxo chamar isto, a ativação
+  // seria maior do que a aprovada.
+  const fontes = (await Promise.all([
+    'src/components/rh/PaymentForm.jsx', 'src/components/rh/ValeForm.jsx', 'src/components/rh/DocumentForm.jsx',
+    'src/components/rh/EmployeeForm.jsx', 'src/components/financeiro/DailyExpenseForm.jsx',
+    'src/pages/Financeiro.jsx', 'src/pages/Compras.jsx',
+  ].map(read))).join('\n');
+  assert.equal((fontes.match(/uploadPaymentProof\(/g) || []).length, 1,
+    'apenas o PaymentForm anexa comprovante via uploadPaymentProof');
+  // Os outros fluxos continuam no base64 (não migrar em massa).
+  assert.ok((fontes.match(/UploadFile\(/g) || []).length >= 4,
+    'os fluxos legados continuam em base64');
+});
+
+test('28. o smoke real pula sem credencial e não toca em nada', async () => {
+  const fonte = await read('scripts/storage-smoke.mjs');
+  assert.match(fonte, /SMOKE R2: PULADO/);
+  // O cleanup só aceita o prefixo isolado de teste.
+  assert.match(fonte, /PREFIXO_TESTE = `\$\{STORAGE_R2_PREFIX\}_r2_test\/`/);
+  assert.match(fonte, /!chaveTeste\.startsWith\(PREFIXO_TESTE\)/);
+  assert.match(fonte, /RECUSADO: caminho fora de/);
+  // E nenhuma credencial real está no arquivo.
+  assert.ok(!/AKIA[A-Z0-9]{8,}/.test(fonte), 'sem access key que pareça real');
 });
