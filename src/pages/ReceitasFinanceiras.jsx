@@ -16,9 +16,10 @@ const CHANNELS={loja:'Loja',delivery_proprio:'Delivery próprio',ifood:'iFood','
 export default function ReceitasFinanceiras(){
  const [tab,setTab]=useState('receitas'); const [open,setOpen]=useState(''); const [period,setPeriod]=useState(today().slice(0,7)); const [receivingId,setReceivingId]=useState('');
  const [data,setData]=useState({revenues:[],receivables:[],cards:[],delivery:[],reconciliations:[],accounts:[],expenses:[]});
- const load=async()=>{const [revenues,receivables,cards,delivery,reconciliations,accounts,expenses]=await Promise.all([
-  base44.entities.Revenue.list('-date',1000).catch(()=>[]),base44.entities.AccountsReceivable.list('expected_date',1000).catch(()=>[]),base44.entities.CardReceivable.list('expected_date',1000).catch(()=>[]),base44.entities.DeliverySettlement.list('expected_date',500).catch(()=>[]),base44.entities.ManualReconciliation.list('-date',500).catch(()=>[]),base44.entities.FinancialAccount.list('name',200).catch(()=>[]),base44.entities.FinancialExpense.list('-date',1500).catch(()=>[])
- ]);setData({revenues,receivables,cards,delivery,reconciliations,accounts,expenses})};
+ const [loading,setLoading]=useState(true);const [loadError,setLoadError]=useState(false);
+ const load=async()=>{setLoading(true);try{const [revenues,receivables,cards,delivery,reconciliations,accounts,expenses]=await Promise.all([
+  base44.entities.Revenue.list('-date',1000),base44.entities.AccountsReceivable.list('expected_date',1000),base44.entities.CardReceivable.list('expected_date',1000),base44.entities.DeliverySettlement.list('expected_date',500),base44.entities.ManualReconciliation.list('-date',500),base44.entities.FinancialAccount.list('name',200),base44.entities.FinancialExpense.list('-date',1500)
+ ]);setData({revenues,receivables,cards,delivery,reconciliations,accounts,expenses});setLoadError(false)}catch{setLoadError(true)}finally{setLoading(false)}};
  useEffect(()=>{load()},[]);
  const gross=data.revenues.filter(x=>x.status!=='cancelado').reduce((s,x)=>s+Number(x.gross_amount||0),0);
  const net=data.revenues.filter(x=>x.status!=='cancelado').reduce((s,x)=>s+Number(x.net_amount||0),0);
@@ -26,6 +27,8 @@ export default function ReceitasFinanceiras(){
  const divergent=data.reconciliations.filter(x=>x.status==='divergente').length;
  const confirmReceipt=async(x)=>{if(receivingId)return;setReceivingId(x.id);try{const receivedDate=today();await base44.entities.AccountsReceivable.update(x.id,{status:'recebido',received_date:receivedDate,reconciled:false,responsible_user:currentUserName()});if(x.source_type==='cartao'&&x.source_id){await base44.entities.CardReceivable.update(x.source_id,{status:'recebido',received_date:receivedDate})}if(x.source_type==='delivery'&&x.source_id){await base44.entities.DeliverySettlement.update(x.source_id,{status:'recebido',received_date:receivedDate})}await load()}finally{setReceivingId('')}};
  const monthly=useMemo(()=>buildMonthlySummary(data,period),[data,period]);
+ if(loading)return <div>Carregando indicadores...</div>;
+ if(loadError)return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
  return <div className="space-y-5">
   <div className="flex flex-wrap justify-between gap-3"><div><h1 className="text-2xl font-semibold">Receitas & Conciliação</h1><p className="text-sm text-slate-500">Controle manual de vendas, cartões, repasses e recebimentos</p></div><Button onClick={()=>setOpen('receita')} className="gap-2"><Plus className="w-4 h-4"/> Nova receita</Button></div>
   <div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><Stat label="Receita bruta" value={brl(gross)} icon={Wallet}/><Stat label="Receita líquida" value={brl(net)} icon={CheckCircle2}/><Stat label="A receber" value={brl(pending)} icon={CreditCard} danger={pending>0}/><Stat label="Divergências" value={divergent} icon={AlertTriangle} danger={divergent>0}/></div>

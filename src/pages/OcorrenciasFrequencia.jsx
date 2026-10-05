@@ -10,6 +10,7 @@ export default function OcorrenciasFrequencia() {
   const [absences, setAbsences] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [period, setPeriod] = useState('mes');
@@ -18,13 +19,14 @@ export default function OcorrenciasFrequencia() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [abs, emps] = await Promise.all([
         base44.entities.Absence.list('-date', 500),
         base44.entities.Employee.list('-created_date', 500),
       ]);
       setAbsences(abs); setEmployees(emps);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -43,6 +45,7 @@ export default function OcorrenciasFrequencia() {
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">

@@ -1,3 +1,7 @@
+import Stat from '@/components/financeiro/FinancialStat';
+import FinancialOverviewCards from '@/components/financeiro/FinancialOverviewCards';
+import { buildFinancialDashboard, dashboardValue, applyDashboardResult, currentDashboardResult, inDashboardPeriod } from '@/lib/financialDashboard';
+import { todayISO, hasExpenseProof } from '@/lib/dailyExpenses';
 import { useEffect, useMemo, useRef, useState } from 'react';
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
@@ -6,15 +10,13 @@ import { hasDraftChanged } from '@/lib/draftStore';
 import {
   FONTE_FINANCEIRO,
   aliasesInvalidos,
-  aplicarFases,
   ehFalhaDeSessao,
   executarFontes,
-  juntarFalhas,
   resumirFalhas,
   separarPorPrioridade,
 } from '@/lib/financeiroLoad';
 import { renovarSessao } from '@/lib/supabaseClient';
-import { lerComRevalidacao, marcar } from '@/lib/financeiroPrefetch';
+import { lerComRevalidacao, guardarPrefetch, marcar } from '@/lib/financeiroPrefetch';
 import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
 import DraftNotice from '@/components/shared/DraftNotice';
 import { Button } from '@/components/ui/button';
@@ -22,7 +24,7 @@ import { Input } from '@/components/ui/input';
 import { Label } from '@/components/ui/label';
 import { Textarea } from '@/components/ui/textarea';
 import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '@/components/ui/dialog';
-import { Wallet, Receipt, Users, Bike, Package, AlertTriangle, Plus, Upload, Paperclip, Search, Settings2, BadgeDollarSign, CalendarClock, CheckCircle2, Pencil } from 'lucide-react';
+import { Wallet, Receipt, Users, Package, AlertTriangle, Plus, Upload, Paperclip, Search, Settings2, CalendarClock, CheckCircle2, Pencil } from 'lucide-react';
 import FechamentoCaixaPanel from '@/components/financeiro/FechamentoCaixaPanel';
 import SangriaPanel from '@/components/financeiro/SangriaPanel';
 import CashMovementPanel from '@/components/financeiro/CashMovementPanel';
@@ -32,7 +34,7 @@ import { useUserRole } from '@/lib/useUserRole';
 import PaymentProof from '@/components/rh/PaymentProof';
 import { PayableAttachment, PayableAttachmentUpload } from '@/components/financeiro/PayableAttachment';
 
-const today = () => new Date().toISOString().slice(0, 10);
+const today = todayISO;
 const monthStart = () => `${today().slice(0, 7)}-01`;
 const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmt = (v) => v ? String(v).slice(0,10).split('-').reverse().join('/') : '—';
@@ -42,11 +44,6 @@ const PAYMENT_LABELS = {
   salario: 'Salário', diaria_motoboy: 'Diária de motoboy', diaria_freelancer: 'Diária de freelancer',
   vale: 'Vale', adiantamento: 'Adiantamento', hora_extra: 'Hora extra', comissao: 'Comissão',
   ferias: 'Férias', decimo_terceiro: '13º salário', acerto: 'Acerto', outros: 'Outros',
-};
-const CLASS_LABELS = {
-  despesa_operacional:'Despesa operacional', compra_insumo:'Compra de insumo', pagamento_colaborador:'Pagamento de colaborador',
-  adiantamento_colaborador:'Vale/adiantamento', manutencao:'Manutenção', taxa_imposto:'Taxa/Imposto',
-  conta_fixa:'Conta fixa', logistica_delivery:'Logística/Delivery', outros:'Outros',
 };
 const METHOD_LABELS = { dinheiro:'Dinheiro', pix:'Pix', cartao_debito:'Cartão débito', cartao_credito:'Cartão crédito', transferencia:'Transferência', boleto:'Boleto', outro:'Outro' };
 
@@ -74,11 +71,17 @@ export default function Financeiro() {
   // Toda carga recebe um número. Só a mais recente pode escrever: sem isso, uma
   // requisição antiga que resolve por último sobrescreve dados mais novos.
   const seqRef = useRef(0);
+  const aliveRef = useRef(true);
+  const targetedPending = useRef(0);
+  const targetedFlights = useRef(new Map());
+  const [targetedRefreshing, setTargetedRefreshing] = useState(false);
   // Espelho do estado para decidir "primeira carga" e montar o próximo objeto
   // sem depender de closure defasada.
   const carregouRef = useRef(false);
   const dataRef = useRef(data);
-  dataRef.current = data;
+  const resultRef = useRef({ data, states: {}, errors: {} });
+  const [sourceStates, setSourceStates] = useState({});
+  const aliasVersions = useRef({});
   // Quais collections NÃO foram lidas na última carga. Um card alimentado por
   // uma delas não pode mostrar um número como se fosse verdade: "R$ 0,00" e
   // "não consegui ler" precisam ser coisas diferentes na tela.
@@ -87,14 +90,10 @@ export default function Financeiro() {
   // FALHA NÃO pode virar lista vazia. O `catch(() => [])` antigo transformava
   // uma queda de rede em "Nenhum gasto encontrado", apagando da tela gastos que
   // já estavam corretos e sem deixar rastro do que aconteceu.
-  const safe = async fn => {
-    try { return { ok: true, value: await fn() }; }
-    catch { return { ok: false, value: null }; }
-  };
-
   const apply = (parcial, seq) => {
     // Chegou uma carga antiga: ela não tem mais nada a dizer.
-    if (seq !== seqRef.current) return false;
+    if (!aliveRef.current || seq !== seqRef.current) return false;
+    dataRef.current = { ...dataRef.current, ...parcial };
     setData(atual => ({ ...atual, ...parcial }));
     return true;
   };
@@ -103,12 +102,15 @@ export default function Financeiro() {
     marcar('financeiro:gastos:start');
     const seq = ++seqRef.current;
     if (carregouRef.current) setRefreshing(true); else setInitialLoading(true);
+    const versions = { ...aliasVersions.current };
+    const revalidacoes = [];
+    const aceitar = fase => currentDashboardResult(fase, versions, aliasVersions.current);
     const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
       alias,
-      entity,
+      entity, sort, limit,
       entidade: base44.entities[entity],
     }));
-    // Um administrador não vê caixa; para ele a collection resolve como vazia,
+    // Quem não é administrador não vê caixa; para ele a collection resolve como vazia,
     // o que é um valor legítimo e não uma falha.
     if (!isAdmin) fontes[13] = { ...fontes[13], entidade: { list: async () => [] } };
 
@@ -121,7 +123,9 @@ export default function Financeiro() {
     const comCache = (alias, entidade) => ({
       ...entidade,
       list: async (sort, limit) => {
+        versions[alias] = aliasVersions.current[alias] = (aliasVersions.current[alias] || 0) + 1;
         const r = await lerComRevalidacao(alias, () => entidade.list(sort, limit));
+        if (r.revalidacao) revalidacoes.push({ alias, promise: r.revalidacao });
         return r.dados;
       },
     });
@@ -144,7 +148,13 @@ export default function Financeiro() {
 
     if (seq !== seqRef.current) return;
     // CAMADA 0 APLICADA. A lista desenha agora. `initialLoading` desliga aqui.
-    aplicarResultado(fase0, seq);
+    aplicarResultado(aceitar(fase0), seq);
+    for (const { alias, promise } of revalidacoes) {
+      promise.then(
+        dados => aplicarResultado(aceitar({ valores: { [alias]: dados }, falhas: [] }), seq),
+        erro => aplicarResultado(aceitar({ valores: {}, falhas: [{ alias, mensagem: erro.message }] }), seq),
+      );
+    }
     carregouRef.current = true;
     setInitialLoading(false);
     marcar('financeiro:gastos:data-ready');
@@ -154,66 +164,69 @@ export default function Financeiro() {
 
     // Camada 1: o complemento (rótulos de categoria, filtros). Não bloqueia.
     if (proxima.length) {
+      for (const { alias } of proxima) versions[alias] = aliasVersions.current[alias] = (aliasVersions.current[alias] || 0) + 1;
       const fase1 = await executarFontes(proxima);
       if (seq !== seqRef.current) return;
-      aplicarResultado(fase1, seq, { anteriores: [fase0] });
+      aplicarResultado(aceitar(fase1), seq);
     }
 
     // Camada 2: as demais, em segundo plano. Nada aqui impede a tela de ser
     // usada, e uma falha aqui não desfaz o que a camada 0 já entregou.
     if (!resto.length) { setRefreshing(false); return; }
+    for (const { alias } of resto) versions[alias] = aliasVersions.current[alias] = (aliasVersions.current[alias] || 0) + 1;
     const fase2 = await executarFontes(resto);
     if (seq !== seqRef.current) return;
-    aplicarResultado(fase2, seq, { anteriores: [fase0] });
+    aplicarResultado(aceitar(fase2), seq);
     setRefreshing(false);
   };
 
   // Aplica uma fase preservando a última collection boa.
-  const aplicarResultado = (fase, seq, { anteriores = [] } = {}) => {
-    if (seq !== seqRef.current) return false;
-    const anterior = aplicarFases([...anteriores, fase], dataRef.current);
-    apply(anterior, seq);
-    const falhas = juntarFalhas(...anteriores, fase);
+  const aplicarResultado = (fase, seq) => {
+    if (!aliveRef.current || seq !== seqRef.current) return false;
+    const next = applyDashboardResult({ ...resultRef.current, data: dataRef.current }, fase);
+    resultRef.current = next;
+    apply(fase.valores, seq);
+    setSourceStates(next.states);
+    const falhas = Object.values(next.errors);
     setInvalidAliases(aliasesInvalidos(falhas));
     setFailure(resumirFalhas(falhas, { carregouAntes: carregouRef.current }));
     return true;
   };
 
+  // A targeted refresh supersedes only its alias, never another loading phase.
+  const refreshAlias = alias => {
+    if (targetedFlights.current.has(alias)) return targetedFlights.current.get(alias);
+    const versions = { [alias]: aliasVersions.current[alias] = (aliasVersions.current[alias] || 0) + 1 };
+    const source = FONTE_FINANCEIRO.find(f => f.alias === alias);
+    const promise = executarFontes([{ ...source, entidade: base44.entities[source.entity] }]).then(fase => {
+      const current = currentDashboardResult(fase, versions, aliasVersions.current);
+      for (const [key, rows] of Object.entries(current.valores)) guardarPrefetch(key, rows);
+      aplicarResultado(current, seqRef.current);
+    }).finally(() => targetedFlights.current.delete(alias));
+    targetedFlights.current.set(alias, promise);
+    return promise;
+  };
+  const reloadAliases = async aliases => {
+    targetedPending.current += 1;
+    setTargetedRefreshing(true);
+    try { await Promise.all(aliases.map(refreshAlias)); }
+    finally {
+      targetedPending.current -= 1;
+      if (aliveRef.current && !targetedPending.current) setTargetedRefreshing(false);
+    }
+  };
+
   // Reload APURADO de gastos: salvar um gasto não precisa reconsultar
   // pagamentos, colaboradores, sangrias e mais 11 entidades.
-  const reloadExpenses = async () => {
-    const seq = ++seqRef.current;
-    setRefreshing(true);
-    const r = await safe(base44.entities.FinancialExpense.list('-date', 1000));
-    // Na falha, `value` é null: aplicar assim TROCCARIA a lista boa por null e
-    // quebraria a tabela inteira. O último estado válido é mantido.
-    if (!apply({ expenses: r.ok ? r.value : dataRef.current.expenses }, seq)) return;
-    setFailure(r.ok ? '' : 'Não foi possível atualizar os gastos. Exibindo os últimos dados carregados.');
-    if (seq === seqRef.current) setRefreshing(false);
-  };
+  const reloadExpenses = () => reloadAliases(['expenses']);
+  const reloadCategories = () => reloadAliases(['categories', 'expenses']);
 
-  // Criar categoria é operação de cadastro, não de gasto: recarrega só as
-  // categorias e os gastos que dependem delas.
-  const reloadCategories = async () => {
-    const seq = ++seqRef.current;
-    setRefreshing(true);
-    const [cats, expenses] = await Promise.all([
-      safe(base44.entities.ExpenseCategory.list('name', 300)),
-      safe(base44.entities.FinancialExpense.list('-date', 1000)),
-    ]);
-    if (!apply({ categories: cats.value ?? dataRef.current.categories, expenses: expenses.value ?? dataRef.current.expenses }, seq)) return;
-    setFailure(cats.ok && expenses.ok ? '' : 'Não foi possível atualizar as categorias. Exibindo os últimos dados carregados.');
-    // O indicador é da OPERAÇÃO mais recente: se esta for a última, ela é quem
-    // desliga. Sem isso, uma carga de categorias superada deixava o "Atualizando"
-    // preso na tela para sempre.
-    if (seq === seqRef.current) setRefreshing(false);
-  };
-
-  useEffect(() => { load(); }, [isAdmin]);
+  useEffect(() => { load(); }, [isAdmin, tab]);
+  useEffect(() => { aliveRef.current = true; return () => { aliveRef.current = false; ++seqRef.current; }; }, []);
   // Trocar de aba refaz SÓ a fase prioritária daquela aba. O que já veio antes
   // fica em memória: voltar para Gastos não mostra vazio nem loading, mostra a
   // lista que já estava lá e revalida por baixo. Não é preciso esperar as 15.
-  useEffect(() => { if (tab) load(); }, [tab]);
+
   useEffect(() => {
     // Subscriptions ESPECÍFICAS. Antes, qualquer evento relevante acabava no
     // loader das 15 entidades; agora cada entity recarrega só a si mesma.
@@ -222,12 +235,16 @@ export default function Financeiro() {
       base44.entities.FinancialExpense.subscribe(() => reloadExpenses()),
       base44.entities.ExpenseCategory.subscribe(() => reloadCategories()),
     ];
+    for (const alias of ['payments', 'vales', 'consumptions', 'payables', 'recurrings', 'closes', 'fechamentosCaixa', 'sangrias', 'accounts', 'centers']) {
+      const fonte = FONTE_FINANCEIRO.find(f => f.alias === alias);
+      unsub.push(base44.entities[fonte.entity].subscribe(() => reloadAliases([alias])));
+    }
     // Employee e Supplier alimentam várias abas de uma vez; para eles uma
     // recarga agrupada, com atraso curto para não disparar a cada evento.
     let timer;
     const onMudancaAmpla = () => {
       clearTimeout(timer);
-      timer = setTimeout(() => load(), 800);
+      timer = setTimeout(() => reloadAliases(['employees', 'suppliers']), 800);
     };
     unsub.push(base44.entities.Employee.subscribe(onMudancaAmpla));
     unsub.push(base44.entities.Supplier.subscribe(onMudancaAmpla));
@@ -237,19 +254,14 @@ export default function Financeiro() {
     if (!isAdmin) return undefined;
     // A subscription de caixa não pode reconsultar as 15 entidades: só o que a
     // tela de caixa realmente usa.
-    const unsubscribe = base44.entities.CashMovement.subscribe(async () => {
-      const seq = ++seqRef.current;
-      const r = await safe(base44.entities.CashMovement.list('-date', 1500));
-      if (!r.ok) return;
-      apply({ cashMovements: r.value }, seq);
-    });
+    const unsubscribe = base44.entities.CashMovement.subscribe(() => reloadAliases(['cashMovements']));
     return unsubscribe;
   }, [isAdmin]);
 
-  const periodExpenses = useMemo(() => data.expenses.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.expenses,start,end]);
-  const periodPayments = useMemo(() => data.payments.filter(x => x.status !== 'cancelado' && (x.payment_date || x.work_date || x.reference_start || '') >= start && (x.payment_date || x.work_date || x.reference_start || '') <= end), [data.payments,start,end]);
-  const periodVales = useMemo(() => data.vales.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.vales,start,end]);
-  const periodConsumptions = useMemo(() => data.consumptions.filter(x => x.status !== 'cancelado' && x.date >= start && x.date <= end), [data.consumptions,start,end]);
+  const stats = useMemo(() => buildFinancialDashboard(data, start, end), [data.expenses, data.payments, start, end]);
+  const periodPayments = stats.payments;
+  const periodVales = useMemo(() => data.vales.filter(x => x.status !== 'cancelado' && inDashboardPeriod(x.date, start, end)), [data.vales,start,end]);
+  const periodConsumptions = useMemo(() => data.consumptions.filter(x => x.status !== 'cancelado' && inDashboardPeriod(x.date, start, end)), [data.consumptions,start,end]);
   const employeePaymentSummary = useMemo(() => data.employees.map(employee => {
     const payments = periodPayments.filter(x => x.employee_id === employee.id);
     const vales = periodVales.filter(x => x.employee_id === employee.id);
@@ -260,18 +272,16 @@ export default function Financeiro() {
     return { employee, payments, vales, consumptions, paymentsTotal, pendingVales, pendingConsumptions, pendingDiscounts: pendingVales + pendingConsumptions };
   }).filter(x => x.payments.length || x.vales.length || x.consumptions.length), [data.employees,periodPayments,periodVales,periodConsumptions]);
   const employeeSummaryFiltered = useMemo(() => employeePaymentSummary.filter(x => `${x.employee.name || ''} ${x.employee.sector || ''} ${x.employee.function || ''}`.toLowerCase().includes(search.toLowerCase())), [employeePaymentSummary,search]);
-  const stats = useMemo(() => {
-    const paid = periodExpenses.filter(x=>x.status==='pago').reduce((s,x)=>s+Number(x.amount||0),0);
-    const personnel = periodExpenses.filter(x=>x.classification==='pagamento_colaborador').reduce((s,x)=>s+Number(x.amount||0),0);
-    const advances = periodExpenses.filter(x=>x.classification==='adiantamento_colaborador').reduce((s,x)=>s+Number(x.amount||0),0);
-    const inputs = periodExpenses.filter(x=>x.classification==='compra_insumo').reduce((s,x)=>s+Number(x.amount||0),0);
-    const motoboy = periodPayments.filter(x=>x.payment_type==='diaria_motoboy' && x.status==='pago').reduce((s,x)=>s+Number(x.net_amount||0),0);
-    const pending = periodExpenses.filter(x=>x.status==='pendente').reduce((s,x)=>s+Number(x.amount||0),0);
-    const noProof = periodExpenses.filter(x=>x.status==='pago' && !x.proof_url).length;
-    return { paid, personnel, advances, inputs, motoboy, pending, noProof };
-  }, [periodExpenses, periodPayments]);
-
   const paymentFiltered = useMemo(() => periodPayments.filter(x => `${x.employee_name||''} ${PAYMENT_LABELS[x.payment_type]||''}`.toLowerCase().includes(search.toLowerCase())), [periodPayments,search]);
+  const panelAliases = {
+    visao: ['expenses'], contas: ['payables', 'suppliers', 'categories', 'accounts'],
+    recorrentes: ['recurrings', 'categories'], pagamentos: ['payments', 'employees', 'vales', 'consumptions'],
+    vales: ['vales'], fechamento: ['expenses', 'payables', 'closes'],
+    fechamentocaixa: ['fechamentosCaixa'], sangrias: ['sangrias'],
+    caixasdelivery: ['cashMovements', 'accounts'], cadastros: ['accounts', 'centers', 'categories'],
+  };
+  const panelState = dashboardValue('', panelAliases[tab] || [], sourceStates);
+
 
   return <div className="space-y-5">
     {tab !== 'caixasdelivery' && <>
@@ -285,16 +295,7 @@ export default function Financeiro() {
         </div>
       </div>
 
-      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <Stat label="Saídas pagas" value={brl(stats.paid)} icon={Wallet}/>
-        <Stat label="Pagamentos de pessoas" value={brl(stats.personnel)} icon={Users}/>
-        <Stat label="Diárias de motoboy" value={brl(stats.motoboy)} icon={Bike}/>
-        <Stat label="Insumos" value={brl(stats.inputs)} icon={Package}/>
-        <Stat label="Vales/adiantamentos" value={brl(stats.advances)} icon={BadgeDollarSign}/>
-        <Stat label="Pendentes" value={brl(stats.pending)} icon={Receipt} danger={stats.pending>0}/>
-        <Stat label="Pagos sem comprovante" value={stats.noProof} icon={AlertTriangle} danger={stats.noProof>0}/>
-        <Stat label="Lançamentos no período" value={periodExpenses.length} icon={Receipt}/>
-      </div>
+      <FinancialOverviewCards stats={stats} sourceStates={sourceStates}/>
     </>}
 
     <div className="flex items-center gap-1 overflow-x-auto">{[['visao','Visão geral'],...(isAdmin ? [['caixasdelivery','Caixas & Delivery']] : []),['contas','Contas a pagar'],['recorrentes','Recorrentes'],['gastos','Gastos'],['pagamentos','Pagamentos'],['vales','Vales'],['fechamento','Fechamento diário'],['fechamentocaixa','Fechamento de Caixa'],['sangrias','Sangrias'],['cadastros','Contas/Cadastros']].map(([k,l])=><button key={k} onClick={()=>setTab(k)} className={`whitespace-nowrap px-3.5 py-2 rounded-lg text-sm font-medium ${tab===k?'bg-slate-900 text-white':'bg-slate-100 text-slate-600'}`}>{l}</button>)}
@@ -304,21 +305,24 @@ export default function Financeiro() {
       <button onClick={() => load()} disabled={initialLoading || refreshing}
         title="Recarregar os dados do Financeiro"
         className="ml-auto whitespace-nowrap px-3 py-2 rounded-lg text-sm font-medium bg-slate-100 text-slate-600 hover:bg-slate-200 disabled:opacity-50 disabled:cursor-not-allowed">
-        {refreshing ? 'Atualizando…' : 'Atualizar'}
+        {refreshing || targetedRefreshing ? 'Atualizando…' : 'Atualizar'}
       </button>
     </div>
 
-    {tab==='visao' && <Overview expenses={periodExpenses}/>} 
-    {tab==='contas' && <PayablePanel rows={data.payables} data={data} onSaved={load}/>} 
-    {tab==='recorrentes' && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>} 
-    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading && !data.expenses.length} refreshing={refreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
-    {tab==='pagamentos' && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
-    {tab==='vales' && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>} 
-    {tab==='fechamento' && <DailyClosePanel data={data} onSaved={load}/>} 
-    {tab==='fechamentocaixa' && <FechamentoCaixaPanel records={data.fechamentosCaixa} onSaved={load}/>} 
-    {tab==='sangrias' && <SangriaPanel records={data.sangrias} onSaved={load}/>} 
-    {tab==='caixasdelivery' && isAdmin && <CashMovementPanel records={data.cashMovements} accounts={data.accounts} onSaved={load}/>} 
-    {tab==='cadastros' && <Settings data={data} onSaved={load}/>} 
+    {failure && tab !== 'gastos' && <p role="alert" className="text-sm text-destructive">{failure}</p>}
+    <div className="flex items-center gap-2 text-sm"><Label>Período dos indicadores</Label><Input aria-label="Início dos indicadores" type="date" value={start} onChange={e=>setStart(e.target.value)} className="w-auto"/><Input aria-label="Fim dos indicadores" type="date" value={end} onChange={e=>setEnd(e.target.value)} className="w-auto"/></div>
+    {panelState && tab !== 'gastos' && <p role="status">{panelState}</p>}
+    {tab==='visao' && <Overview rows={stats.byCategory} status={sourceStates.expenses}/>}
+    {tab==='contas' && !panelState && <PayablePanel rows={data.payables} data={data} onSaved={load}/>}
+    {tab==='recorrentes' && !panelState && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>}
+    {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading && !data.expenses.length} refreshing={refreshing || targetedRefreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
+    {tab==='pagamentos' && !panelState && <><SearchBox value={search} setValue={setSearch}/><EmployeePaymentSummary rows={employeeSummaryFiltered} loading={initialLoading}/><div className="pt-2"><h3 className="font-semibold mb-2">Histórico de pagamentos registrados</h3><PaymentTable rows={paymentFiltered} loading={initialLoading} onEdit={(r)=>{setPaymentEditing(r);setPaymentOpen(true)}}/></div></>}
+    {tab==='vales' && !panelState && <ValeFinanceTable rows={data.vales} onLaunch={setValeSelected}/>}
+    {tab==='fechamento' && !panelState && <DailyClosePanel data={data} onSaved={load}/>}
+    {tab==='fechamentocaixa' && !panelState && <FechamentoCaixaPanel records={data.fechamentosCaixa} onSaved={load}/>}
+    {tab==='sangrias' && !panelState && <SangriaPanel records={data.sangrias} onSaved={load}/>}
+    {tab==='caixasdelivery' && !panelState && isAdmin && <CashMovementPanel records={data.cashMovements} accounts={data.accounts} onSaved={load}/>}
+    {tab==='cadastros' && !panelState && <Settings data={data} onSaved={load}/>}
 
     <PaymentDialog open={paymentOpen} onClose={()=>{setPaymentOpen(false);setPaymentEditing(null)}} onSaved={load} data={data} editing={paymentEditing}/>
     <BatchPaymentDialog open={batchOpen} onClose={()=>setBatchOpen(false)} onSaved={load} data={data}/>
@@ -330,13 +334,11 @@ export default function Financeiro() {
 const MAX_TENTATIVAS = 2;
 const PAUSA_ENTRE_TENTATIVAS_MS = 1500;
 
-function Stat({label,value,icon:Icon,danger}) { return <div className={`rounded-xl border p-4 ${danger?'border-rose-200 bg-rose-50':'border-slate-200 bg-white'}`}><div className="flex justify-between"><div><p className={`text-xs ${danger?'text-rose-600':'text-slate-500'}`}>{label}</p><p className={`text-xl font-semibold mt-1 ${danger?'text-rose-700':'text-slate-900'}`}>{value}</p></div><Icon className={`w-5 h-5 ${danger?'text-rose-500':'text-amber-600'}`}/></div></div> }
+
 function SearchBox({value,setValue}) { return <div className="relative max-w-md"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><Input className="pl-9" placeholder="Buscar..." value={value} onChange={e=>setValue(e.target.value)}/></div> }
 
-function Overview({expenses}) {
-  const map={}; expenses.forEach(x=>{const k=x.category_name||CLASS_LABELS[x.classification]||'Sem categoria'; map[k]=(map[k]||0)+Number(x.amount||0)});
-  const rows=Object.entries(map).sort((a,b)=>b[1]-a[1]);
-  return <div className="grid lg:grid-cols-2 gap-4"><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-3">Gastos por categoria</h3>{rows.length?rows.map(([k,v])=><div key={k} className="flex justify-between py-2 border-b text-sm"><span>{k}</span><strong>{brl(v)}</strong></div>):<p className="text-sm text-slate-400">Sem lançamentos no período.</p>}</div><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-2">Como usar</h3><div className="text-sm text-slate-600 space-y-2"><p>• Gastos comuns entram em <b>Novo gasto</b>.</p><p>• Salários, diárias, extras e acertos entram em <b>Pagamento</b>.</p><p>• Vales já cadastrados no RH são lançados pela aba <b>Vales</b>, evitando duplicidade.</p><p>• Todo pagamento pode receber comprovante e nota/documento fiscal.</p></div></div></div>
+function Overview({rows, status}) {
+  return <div className="grid lg:grid-cols-2 gap-4"><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-3">Gastos por categoria</h3>{status !== 'ready' ? <p>{status === 'error' ? 'Indisponível' : 'Carregando…'}</p> : rows.length?rows.map(({chave:k,total:v,nome})=><div key={k} className="flex justify-between py-2 border-b text-sm"><span>{nome}</span><strong>{brl(v)}</strong></div>):<p className="text-sm text-slate-400">Sem lançamentos no período.</p>}</div><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-2">Como usar</h3><div className="text-sm text-slate-600 space-y-2"><p>• Gastos comuns entram em <b>Novo gasto</b>.</p><p>• Salários, diárias, extras e acertos entram em <b>Pagamento</b>.</p><p>• Vales já cadastrados no RH são lançados pela aba <b>Vales</b>, evitando duplicidade.</p><p>• Todo pagamento pode receber comprovante e nota/documento fiscal.</p></div></div></div>
 }
 
 function EmployeePaymentSummary({rows,loading}) {
@@ -577,7 +579,7 @@ function RecurringDialog({open,onClose,data,onSaved}) {
 
 function DailyClosePanel({data,onSaved}) {
   const [date,setDate]=useState(today()); const [closing,setClosing]=useState(false); const [pending,setPending]=useState(''); const [obs,setObs]=useState('');
-  const expenses=data.expenses.filter(x=>x.status==='pago'&&(x.paid_date||x.date)===date); const total=expenses.reduce((s,x)=>s+Number(x.amount||0),0); const people=expenses.filter(x=>['pagamento_colaborador','adiantamento_colaborador','logistica_delivery'].includes(x.classification)).reduce((s,x)=>s+Number(x.amount||0),0); const vales=expenses.filter(x=>x.origin_type==='vale').reduce((s,x)=>s+Number(x.amount||0),0); const missing=expenses.filter(x=>!x.proof_url).length; const pendingPayables=data.payables.filter(x=>!['pago','cancelado'].includes(x.status)&&x.due_date<=date); const pendingTotal=pendingPayables.reduce((s,x)=>s+Number(x.amount||0),0); const existing=data.closes.find(x=>x.date===date);
+  const expenses=data.expenses.filter(x=>x.status==='pago'&&(x.paid_date||x.date)===date); const total=expenses.reduce((s,x)=>s+Number(x.amount||0),0); const people=expenses.filter(x=>['pagamento_colaborador','adiantamento_colaborador','logistica_delivery'].includes(x.classification)).reduce((s,x)=>s+Number(x.amount||0),0); const vales=expenses.filter(x=>x.origin_type==='vale').reduce((s,x)=>s+Number(x.amount||0),0); const missing=expenses.filter(x=>!hasExpenseProof(x)).length; const pendingPayables=data.payables.filter(x=>!['pago','cancelado'].includes(x.status)&&x.due_date<=date); const pendingTotal=pendingPayables.reduce((s,x)=>s+Number(x.amount||0),0); const existing=data.closes.find(x=>x.date===date);
   const save=async()=>{setClosing(true);try{const payload={date,expenses_total:total,employee_payments_total:people,vales_total:vales,pending_payables_total:pendingTotal,pending_items:pending,observation:obs,closed_by:currentUserName(),closed_at:new Date().toISOString(),status:(missing>0||pendingPayables.length>0)?'fechado_com_pendencia':'fechado'};if(existing)await base44.entities.DailyFinancialClose.update(existing.id,payload);else await base44.entities.DailyFinancialClose.create(payload);await onSaved()}finally{setClosing(false)}};
   return <div className="space-y-4"><div className="flex flex-wrap justify-between items-end gap-3"><div><h3 className="font-semibold">Fechamento financeiro diário</h3><p className="text-sm text-slate-500">Conferência das saídas, comprovantes e pendências do dia.</p></div><div><Label className="text-xs">Data</Label><Input type="date" value={date} onChange={e=>setDate(e.target.value)} className="w-44"/></div></div><div className="grid grid-cols-2 lg:grid-cols-4 gap-3"><Stat label="Saídas pagas" value={brl(total)} icon={Wallet}/><Stat label="Pagamentos de pessoas" value={brl(people)} icon={Users}/><Stat label="Sem comprovante" value={missing} icon={AlertTriangle} danger={missing>0}/><Stat label="Pendências vencidas/hoje" value={brl(pendingTotal)} icon={CalendarClock} danger={pendingPayables.length>0}/></div>{existing&&<div className={`rounded-xl border p-4 ${existing.status==='fechado'?'border-emerald-200 bg-emerald-50':'border-amber-200 bg-amber-50'}`}><p className="font-semibold">Fechamento já registrado: {existing.status==='fechado'?'Concluído':'Com pendências'}</p><p className="text-sm mt-1">Responsável: {existing.closed_by||'—'}</p></div>}<div className="rounded-xl border bg-white p-4 space-y-3"><Field l="Pendências para o próximo dia"><Textarea rows={3} value={pending} onChange={e=>setPending(e.target.value)} placeholder="Ex.: solicitar comprovante, pagar fornecedor, conferir diária..."/></Field><Field l="Observações do fechamento"><Textarea rows={3} value={obs} onChange={e=>setObs(e.target.value)}/></Field><div className="flex justify-end"><Button onClick={save} disabled={closing}>{closing?'Salvando...':existing?'Atualizar fechamento':'Fechar financeiro do dia'}</Button></div></div></div>
 }

@@ -10,6 +10,7 @@ export default function Advertencias() {
   const [warnings, setWarnings] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [period, setPeriod] = useState('mes');
@@ -18,13 +19,14 @@ export default function Advertencias() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [w, emps] = await Promise.all([
         base44.entities.Warning.list('-date', 500),
         base44.entities.Employee.list('-created_date', 500),
       ]);
       setWarnings(w); setEmployees(emps);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -38,6 +40,7 @@ export default function Advertencias() {
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">
