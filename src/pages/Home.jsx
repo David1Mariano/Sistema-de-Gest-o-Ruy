@@ -14,14 +14,13 @@ export default function Home() {
   useEffect(() => {
     base44.entities.SystemSettings.list('-created_date', 1).then((s) => {
       if (s[0]?.tolerance_minutes != null) setTolerance(s[0].tolerance_minutes);
-    });
+    }).catch(() => { /* Mantém a tolerância padrão se a configuração não chegar. */ });
   }, []);
 
   const rows = useMemo(() => buildDayRows(schedules, records, tolerance), [schedules, records, tolerance]);
   const counts = useMemo(() => summarizeRows(rows), [rows]);
   const escalados = rows.filter((r) => r.schedule).length;
 
-  if (error) return <div role="alert">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>;
   return (
     <div className="space-y-6">
       <div>
@@ -43,7 +42,9 @@ export default function Home() {
           </Link>
         </div>
 
-        {loading ? (
+        {error ? (
+          <div role="alert" className="py-8 text-center">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>
+        ) : loading ? (
           <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
         ) : (
           <>

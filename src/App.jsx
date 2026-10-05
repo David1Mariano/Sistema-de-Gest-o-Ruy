@@ -2,7 +2,7 @@ import { Toaster } from "@/components/ui/toaster"
 import { QueryClientProvider } from '@tanstack/react-query'
 import { queryClientInstance } from '@/lib/query-client'
 import { BrowserRouter as Router, Route, Routes, Navigate } from 'react-router-dom';
-import { useEffect } from 'react';
+import { lazy } from 'react';
 import { usePrefetchFinanceiro } from '@/lib/usePrefetchFinanceiro';
 import PageNotFound from './lib/PageNotFound';
 import { AuthProvider, useAuth } from '@/lib/AuthContext';
@@ -15,36 +15,34 @@ import Register from '@/pages/Register';
 import ForgotPassword from '@/pages/ForgotPassword';
 import ResetPassword from '@/pages/ResetPassword';
 import Home from '@/pages/Home';
-import Funcionarios from '@/pages/Funcionarios';
-import Ponto from '@/pages/Ponto';
-import Escalas from '@/pages/Escalas';
-import Relatorios from '@/pages/Relatorios';
-import Configuracoes from '@/pages/Configuracoes';
-import RH from '@/pages/RH';
-import FichaColaborador from '@/pages/FichaColaborador';
-import Setores from '@/pages/Setores';
-import Funcoes from '@/pages/Funcoes';
-import OcorrenciasFrequencia from '@/pages/OcorrenciasFrequencia';
-import Vales from '@/pages/Vales';
-import Consumo from '@/pages/Consumo';
-import Advertencias from '@/pages/Advertencias';
-import Financeiro from '@/pages/Financeiro';
-import GastosDiarios from '@/pages/GastosDiarios';
-import Compras from '@/pages/Compras';
-import Estoque from '@/pages/Estoque';
-import ReceitasFinanceiras from '@/pages/ReceitasFinanceiras';
-import Producao from '@/pages/Producao';
-import RelatorioFinanceiro from '@/pages/RelatorioFinanceiro';
-import Direcao from '@/pages/Direcao';
-import Auditoria from '@/pages/Auditoria';
-import RedesSociais from '@/pages/RedesSociais';
-// Add page imports here
+const Funcionarios = lazy(() => import('@/pages/Funcionarios'));
+const Ponto = lazy(() => import('@/pages/Ponto'));
+const Escalas = lazy(() => import('@/pages/Escalas'));
+const Relatorios = lazy(() => import('@/pages/Relatorios'));
+const Configuracoes = lazy(() => import('@/pages/Configuracoes'));
+const RH = lazy(() => import('@/pages/RH'));
+const FichaColaborador = lazy(() => import('@/pages/FichaColaborador'));
+const Setores = lazy(() => import('@/pages/Setores'));
+const Funcoes = lazy(() => import('@/pages/Funcoes'));
+const OcorrenciasFrequencia = lazy(() => import('@/pages/OcorrenciasFrequencia'));
+const Vales = lazy(() => import('@/pages/Vales'));
+const Consumo = lazy(() => import('@/pages/Consumo'));
+const Advertencias = lazy(() => import('@/pages/Advertencias'));
+const Financeiro = lazy(() => import('@/pages/Financeiro'));
+const GastosDiarios = lazy(() => import('@/pages/GastosDiarios'));
+const Compras = lazy(() => import('@/pages/Compras'));
+const Estoque = lazy(() => import('@/pages/Estoque'));
+const ReceitasFinanceiras = lazy(() => import('@/pages/ReceitasFinanceiras'));
+const Producao = lazy(() => import('@/pages/Producao'));
+const RelatorioFinanceiro = lazy(() => import('@/pages/RelatorioFinanceiro'));
+const Direcao = lazy(() => import('@/pages/Direcao'));
+const Auditoria = lazy(() => import('@/pages/Auditoria'));
+const RedesSociais = lazy(() => import('@/pages/RedesSociais'));
 
 const AuthenticatedApp = () => {
   const { isLoadingAuth, isLoadingPublicSettings, authError, navigateToLogin } = useAuth();
-  // Um único ponto de prefetch no aplicativo inteiro. Dispara depois que a
-  // sessão está resolvida, no tempo ocioso do navegador — nunca no caminho
-  // crítico do primeiro render.
+  // Prefetch leve de categorias no tempo ocioso. Gastos só são consultados
+  // quando o usuário entra no Financeiro.
   usePrefetchFinanceiro();
 
   // Show loading spinner while checking app public settings or auth
