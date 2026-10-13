@@ -227,9 +227,8 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
   aguardam o envio das abas de resultado; Etapa 3 entregue para revisão.
 - Procedimento separado de verificação de download dos 59 anexos:
   `scripts/verificar-download-anexos.ps1` — testa o GET de cada objeto via API
-  **sem** tornar o bucket público; o relatório contém apenas status HTTP, bytes
-  e hash md5+sal do caminho (nunca conteúdo, nome de arquivo ou chave).
-  **NÃO executado; aguarda autorização.**
+  **sem** tornar o bucket público; o relatório contém apenas estatísticas
+  agregadas (ver §7.6). **NÃO executado; aguarda autorização.**
 
 ### 7.5 Revisão da Etapa 3 — integridade relacional ampliada (NÃO executada)
 
@@ -263,4 +262,28 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
   Etapa 3 no SQL Editor. Nenhuma escrita foi feita em Supabase ou PostgreSQL.
 - `scripts/verificar-download-anexos.ps1` revisado junto; **NÃO executado;
   aguarda autorização separada.**
+
+### 7.6 Script de verificação de download corrigido conforme revisão (NÃO executado)
+
+Seis exigências do proprietário aplicadas em `scripts/verificar-download-anexos.ps1`:
+
+1. **Listagem recursiva + paginação**: subpastas percorridas em recursão
+   (detecção de pasta por `id`/`metadata` nulos ou `/` no nome), paginação
+   `limit=100`/`offset` por prefixo — garante localizar os 59 objetos.
+2. **Somente anon key**: `-KeyMode service` removido; permissões mínimas;
+   nenhum service_role (credencial privilegiada) neste momento.
+3. **Validação HTTP antes do JSON**: na listagem, checa exit do curl, presença
+   do marcador HTTP e código `200` **antes** de qualquer `ConvertFrom-Json`;
+   resposta de erro aborta com mensagem sem segredos.
+4. **Relatório só agregado**: removidos os hashes MD5+sal dos caminhos; saída
+   restrita a listados/testados, HTTP 200 (+ bytes), HTTP 401/403, HTTP 404,
+   outros códigos agrupados e divergência vs. 59 objetos / 2.928.141 bytes.
+5. **Credencial sem exposição**: leitura via env (intacta) ou
+   `Read-Host -MaskInput`, com fallback `Read-Host -AsSecureString` + BSTR
+   zerado (compatível PowerShell 5.1); entrega ao curl por config **via
+   stdin** (`curl -K -`), nunca em argv; env não é escrita nem limpa; memória
+   anulada ao final; UTF-8 sem BOM para prefixos acentuados.
+6. **Nenhuma mutação**: só `POST /object/list` (leitura) e `GET /object`;
+   bucket, RLS e objetos intactos. Nenhuma exportação/importação/restauração/
+   migração.
 
