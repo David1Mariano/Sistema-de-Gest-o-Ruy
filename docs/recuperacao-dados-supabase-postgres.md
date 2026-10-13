@@ -230,7 +230,7 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
   **sem** tornar o bucket público; o relatório contém apenas estatísticas
   agregadas (ver §7.6). **NÃO executado; aguarda autorização.**
 
-### 7.5 Revisão da Etapa 3 — integridade relacional ampliada (NÃO executada)
+### 7.5 Revisão da Etapa 3 — integridade relacional ampliada (executada; ver §7.7)
 
 - Motivo: o proprietário pediu conferência dos vínculos ainda não verificados,
   com destaque para `Vale` e `Warning`, antes de autorizar a execução.
@@ -258,8 +258,9 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
 - Espelho exato aplicado em `scripts/recuperacao/04-validar-staging.sql`
   (seção 6), com coluna `grupo` (4a/4b) nos dois lados para comparação
   linha a linha entre origem e staging.
-- Ainda **NÃO executado**: aguarda autorização do proprietário para rodar a
-  Etapa 3 no SQL Editor. Nenhuma escrita foi feita em Supabase ou PostgreSQL.
+- Etapa 3 **executada** pelo proprietário em 13/10/2026: 23 verificações, 22
+  com zero órfãos e 1 com 1 órfão (ver §7.7). Nenhuma escrita foi feita em
+  Supabase ou PostgreSQL.
 - `scripts/verificar-download-anexos.ps1` revisado junto; **NÃO executado;
   aguarda autorização separada.**
 
@@ -286,4 +287,62 @@ Seis exigências do proprietário aplicadas em `scripts/verificar-download-anexo
 6. **Nenhuma mutação**: só `POST /object/list` (leitura) e `GET /object`;
    bucket, RLS e objetos intactos. Nenhuma exportação/importação/restauração/
    migração.
+
+### 7.7 Execução da Etapa 3 e investigação do 1 órfão (diagnóstico NÃO executado)
+
+A Etapa 3 foi executada pelo proprietário no SQL Editor em 13/10/2026:
+**23 verificações, 22 com zero órfãos e 1 com 1 órfão** —
+
+- `4a — EmployeePayment.financial_expense_id → FinancialExpense`: **1 órfão**.
+
+**Investigação no código (somente leitura, sem tocar no banco):**
+
+- A checagem 4a conta vínculo preenchido cujo alvo não existe, **sem filtrar
+  `status` do pagamento** — pagamento `cancelado` conta igual.
+- `deleteDailyExpense` (`src/lib/dailyExpenses.js`) segue a ordem aprovada
+  *cancelar pagamento → auditar → excluir gasto*: o pagamento recebe
+  `status='cancelado'` mas **mantém** `financial_expense_id` (decisão de
+  produto "nunca apagamos pagamento"); depois o `FinancialExpense` é apagado.
+  Se o pagamento já estava cancelado, `findActiveLinkedPayment` devolve `null`
+  e o gasto é excluído sem novo cancelamento — **é o cenário que produz
+  exatamente este órfão, sem nenhuma falha**.
+- Caminhos que *não* explicam o achado: `FichaColaborador.deletePayment`
+  apaga o pagamento inteiro (sobraria gasto, não órfão); a compensação em
+  `saveDailyExpense` só apaga o gasto quando o pagamento nem chegou a ser
+  criado (link vazio, ignorado por `nullif`); a ordem pagamento→gasto→link em
+  `Financeiro.jsx` também só deixa link vazio em falha parcial.
+- Histórico disponível: `AuditLog` (504 linhas) grava `exclusao_logica` de
+  `FinancialExpense` apenas a partir de versão recente do app; ausência de
+  evento não descarta exclusão antiga.
+
+**Diagnóstico preparado — `scripts/diagnostico-orfao-employeepayment.sql`
+(NÃO executado; aguarda autorização).** Transação `read only`, 7 consultas:
+
+| Consulta | O que responde |
+|---|---|
+| Q0 | Reproduz a checagem 4a (deve voltar 1) |
+| Q1 | Identifica o registro: `payment_id`, `financial_expense_id` bruto, tamanho/ espaços, `status`, `payment_type`, `employee_id`, datas — **sem** nome, valor, forma de pagamento, observação ou PIX |
+| Q2 | Confirma ausência do alvo (`gasto_com_este_id`), testa artefato de espaço (`..._apos_trim`) e procura gasto reverso por `origin_id` (link desatualizado vs. gasto realmente removido) |
+| Q3 | Eventos de `AuditLog` para o gasto faltante e para o pagamento (sem `old_value`/`new_value`/`responsible_user`) |
+| Q4 | Prova linha a linha que `Vale`/`AccountsPayable` não apontam para o mesmo id faltante |
+| Q5 | Saúde geral dos vínculos por `status` (órfão isolado vs. sistemático; ativo vs. cancelado) |
+| Q6 | Descarta vínculo que é só espaço em branco |
+
+**Proposta de tratamento para a migração (preservando o original):**
+
+1. **Nenhuma correção na origem.** O registro é preservado como está; a
+   inconsistência é *documentada*, não reparada (reparo exigiria migração
+   própria, com autorização explícita, fora do escopo atual).
+2. O `records.csv` (Etapa 4) exporta o pagamento **idêntico** à origem; o
+   checksum por entity garante paridade.
+3. Em `04-validar-staging.sql` a seção 6 deve acusar **o mesmo 1 órfão no
+   staging** — iguauldade origem/staging é o critério de sucesso da cópia.
+4. Registrar na §7.7, após a execução autorizada do diagnóstico, o `payment_id`,
+   o `financial_expense_id` e o status encontrado (Q1/Q5), sem dados pessoais
+   nem valores, e classificar a causa (exclusão legítima do passado vs.
+   link desatualizado).
+5. Nada é excluído, modificado, recriado ou corrigido; nenhuma migration,
+   importação ou restauração é executada por este passo.
+
+
 
