@@ -230,3 +230,37 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
   **sem** tornar o bucket público; o relatório contém apenas status HTTP, bytes
   e hash md5+sal do caminho (nunca conteúdo, nome de arquivo ou chave).
   **NÃO executado; aguarda autorização.**
+
+### 7.5 Revisão da Etapa 3 — integridade relacional ampliada (NÃO executada)
+
+- Motivo: o proprietário pediu conferência dos vínculos ainda não verificados,
+  com destaque para `Vale` e `Warning`, antes de autorizar a execução.
+- Seção 4 da Etapa 3 revisada com base no código real (`employeeDelete.js`,
+  `ValeForm.jsx`, `WarningForm.jsx`, `Financeiro.jsx`, `dailyExpenses.js`,
+  `Compras.jsx`, `standardScheduleData.js`, `evaluationsData.js`,
+  `employeeDocumentStorage.js`):
+  - **4a — fonte COM linhas na origem (17 checagens):** as 5 já existentes
+    (EmployeePayment→Employee, Absence→Employee, JobRole→Sector,
+    StockMovement→InventoryItem, FinancialExpense→ExpenseCategory) + 12 novas:
+    `Vale.employee_id`, `Warning.employee_id`, `Consumption.employee_id`,
+    `FinancialExpense.employee_id`, `FinancialExpense.beneficiary_id`,
+    `EmployeePayment.financial_expense_id`, `Vale.financial_expense_id`,
+    `AccountsPayable.financial_expense_id`, `AccountsPayable.category_id` e
+    `FinancialExpense.origin_id` polimórfico (origin_type `vale`→Vale,
+    `conta_pagar`→AccountsPayable, `pagamento_colaborador`→EmployeePayment).
+  - **4b — checagens válidas porém fonte vazia hoje (6):** `Schedule.employee_id`,
+    `Schedule.substitute_id`, `TimeRecord.employee_id` e
+    StandardSchedule/Evaluation/EmployeeDocument → Employee (entidades sem
+    linhas na origem; mantidas por paridade com o staging).
+  - **4c — pendentes (não checadas):** `AuditLog.entity_id` (polimórfico),
+    `origin_id` dos tipos `recorrencia`/`lote` (escritor/alvo não confirmados)
+    e `*_id` → CostCenter/FinancialAccount/Supplier/Purchase (alvos com 0
+    linhas no records) — exigem decisão do proprietário.
+- Espelho exato aplicado em `scripts/recuperacao/04-validar-staging.sql`
+  (seção 6), com coluna `grupo` (4a/4b) nos dois lados para comparação
+  linha a linha entre origem e staging.
+- Ainda **NÃO executado**: aguarda autorização do proprietário para rodar a
+  Etapa 3 no SQL Editor. Nenhuma escrita foi feita em Supabase ou PostgreSQL.
+- `scripts/verificar-download-anexos.ps1` revisado junto; **NÃO executado;
+  aguarda autorização separada.**
+
