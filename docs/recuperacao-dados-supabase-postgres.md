@@ -288,7 +288,7 @@ Seis exigências do proprietário aplicadas em `scripts/verificar-download-anexo
    bucket, RLS e objetos intactos. Nenhuma exportação/importação/restauração/
    migração.
 
-### 7.7 Execução da Etapa 3 e investigação do 1 órfão (diagnóstico NÃO executado)
+### 7.7 Execução da Etapa 3 e investigação do 1 órfão (diagnóstico executado em 13/10/2026)
 
 A Etapa 3 foi executada pelo proprietário no SQL Editor em 13/10/2026:
 **23 verificações, 22 com zero órfãos e 1 com 1 órfão** —
@@ -315,8 +315,8 @@ A Etapa 3 foi executada pelo proprietário no SQL Editor em 13/10/2026:
   `FinancialExpense` apenas a partir de versão recente do app; ausência de
   evento não descarta exclusão antiga.
 
-**Diagnóstico preparado — `scripts/diagnostico-orfao-employeepayment.sql`
-(NÃO executado; aguarda autorização).** Transação `read only`, 7 consultas:
+**Diagnóstico — `scripts/diagnostico-orfao-employeepayment.sql`.** Transação
+`read only`, 7 consultas (Q0–Q6).
 
 **Autorização limitada recebida do proprietário:** executar exclusivamente
 Q0–Q6 no SQL Editor, após conferência de que tudo é somente leitura. Conferência
@@ -325,10 +325,9 @@ prévia realizada (201 linhas): único statement transacional
 automática por regex em busca de qualquer verbo de escrita
 (`insert/update/delete/create/alter/drop/copy/call/do/execute/grant/select into/
 nextval/setval/pg_terminate` etc.) → **zero ocorrências**; nenhum comportamento
-inesperado. Não autorizado e não realizado: qualquer alteração, exclusão,
-correção, migration, exportação ou restauração. **Execução pendente** — este
-ambiente não possui canal para o SQL Editor (sem psql, CLI ou credenciais);
-segue o fluxo das etapas anteriores, com o proprietário colando o script.
+inesperado. Não autorizado: qualquer alteração, exclusão, correção, migration,
+exportação ou restauração. **Executado pelo proprietário em 13/10/2026:** 7 abas
+sem erro; **nenhum comando de escrita**; banco de origem não modificado.
 
 | Consulta | O que responde |
 |---|---|
@@ -340,21 +339,73 @@ segue o fluxo das etapas anteriores, com o proprietário colando o script.
 | Q5 | Saúde geral dos vínculos por `status` (órfão isolado vs. sistemático; ativo vs. cancelado) |
 | Q6 | Descarta vínculo que é só espaço em branco |
 
-**Proposta de tratamento para a migração (preservando o original):**
+**Resultados da execução autorizada (13/10/2026, 7 abas sem erro):**
+
+| Consulta | Resultado |
+|---|---|
+| Q0 | **1** órfão — reproduz exatamente a checagem 4a |
+| Q1 | `payment_id = id_muln2ix6_nf7ydysd`; `financial_expense_id = id_muln2jab_wd0ptqo4`; `status = cancelado`; **sem** espaços nas extremidades |
+| Q2 | `gasto_com_este_id = 0` (alvo realmente ausente); `gasto_com_este_id_apos_trim = 0` (não é artefato de espaço); `gasto_que_aponta_pra_este_pagamento = 0` (nenhum gasto reverso por `origin_id` — não é link desatualizado) |
+| Q3 | `AuditLog` registra `exclusao_logica` de `FinancialExpense` em **2026-09-28 21:29:35.238+00** |
+| Q4 | Vazio — nenhum Vale/AccountsPayable aponta para a despesa ausente |
+| Q5 | 133 pagamentos `pago`, 70 com vínculo financeiro, **0 órfãos**; 1 pagamento `cancelado`, **com o vínculo órfão** |
+| Q6 | **0** vínculos preenchidos somente com espaços |
+
+**Classificação da causa: fortemente compatível com cancelamento do pagamento
+seguido de exclusão lógica da despesa — sem afirmar causalidade absoluta.**
+
+Evidências convergentes (todas obtidas sem escrever no banco):
+
+- O pagamento órfão está com `status = cancelado` (Q1); é o **único** órfão do
+  sistema e está justamente no pagamento cancelado, enquanto os 70 vínculos de
+  pagamentos `pago` estão todos íntegros (Q5) — cenário isolado, não sistemático.
+- O alvo está realmente ausente (Q2: `0` por id exato, `0` após trim, `0`
+  gasto reverso por `origin_id`) — descarta artefato de espaço e descarta
+  link desatualizado.
+- Há evento `exclusao_logica` de `FinancialExpense` no AuditLog em
+  2026-09-28 21:29:35.238+00 (Q3), compatível com o fluxo documentado em
+  `deleteDailyExpense` (cancela mantendo `financial_expense_id` → audita →
+  exclui o gasto).
+- Nenhum Vale/AccountsPayable depende do alvo (Q4) e nenhum vínculo é só
+  espaço em branco (Q6).
+
+**Limites da classificação** (por isso *fortemente compatível* e não
+causalidade absoluta): o AuditLog cobre apenas versões recentes do app, o
+evento do Q3 não expõe o id do pagamento e a ordem exata dos passos em
+2026-09-28 não é reconstruível apenas com estas abas.
+
+**Preservação integral (exigida pelo proprietário):**
+
+- O pagamento cancelado `id_muln2ix6_nf7ydysd` e a referência histórica
+  `financial_expense_id = id_muln2jab_wd0ptqo4` são **preservados como estão**.
+- A `FinancialExpense` ausente **não será recriada**.
+- Nenhum registro do Supabase ou PostgreSQL foi modificado; nenhuma migration,
+  importação ou restauração foi executada.
+
+**Critério de staging:** `scripts/recuperacao/04-validar-staging.sql` (seção 6)
+deve acusar **exatamente o mesmo 1 vínculo órfão** — mesmo `payment_id`, mesmo
+`financial_expense_id` e mesmo `status = cancelado` em origem e staging.
+Divergência (0 órfãos ou ≠ 1) = defeito de exportação/importação a investigar
+antes de considerar a cópia válida.
+
+**Tratamento definido para a migração (preservando o original) — itens 1, 4 e 5
+já cumpridos; itens 2 e 3 valem para a Etapa 4 em diante:**
 
 1. **Nenhuma correção na origem.** O registro é preservado como está; a
    inconsistência é *documentada*, não reparada (reparo exigiria migração
-   própria, com autorização explícita, fora do escopo atual).
+   própria, com autorização explícita, fora do escopo atual). **Cumprido** —
+   nada foi alterado.
 2. O `records.csv` (Etapa 4) exporta o pagamento **idêntico** à origem; o
-   checksum por entity garante paridade.
+   checksum por entity garante paridade. **Pendente** — Etapa 4 não executada.
 3. Em `04-validar-staging.sql` a seção 6 deve acusar **o mesmo 1 órfão no
-   staging** — iguauldade origem/staging é o critério de sucesso da cópia.
-4. Registrar na §7.7, após a execução autorizada do diagnóstico, o `payment_id`,
-   o `financial_expense_id` e o status encontrado (Q1/Q5), sem dados pessoais
-   nem valores, e classificar a causa (exclusão legítima do passado vs.
-   link desatualizado).
+   staging** (idêntico em `payment_id`, `financial_expense_id` e `status`) —
+   iguauldade origem/staging é o critério de sucesso da cópia. **Pendente** —
+   importação não executada.
+4. `payment_id`, `financial_expense_id`, status e classificação da causa
+   registrados acima nesta §7.7, sem dados pessoais nem valores.
+   **Cumprido em 13/10/2026.**
 5. Nada é excluído, modificado, recriado ou corrigido; nenhuma migration,
-   importação ou restauração é executada por este passo.
+   importação ou restauração é executada por este passo. **Cumprido.**
 
 
 
