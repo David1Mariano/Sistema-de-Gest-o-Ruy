@@ -318,6 +318,18 @@ A Etapa 3 foi executada pelo proprietário no SQL Editor em 13/10/2026:
 **Diagnóstico preparado — `scripts/diagnostico-orfao-employeepayment.sql`
 (NÃO executado; aguarda autorização).** Transação `read only`, 7 consultas:
 
+**Autorização limitada recebida do proprietário:** executar exclusivamente
+Q0–Q6 no SQL Editor, após conferência de que tudo é somente leitura. Conferência
+prévia realizada (201 linhas): único statement transacional
+`begin transaction read only` → `commit`; 7 consultas `SELECT` com CTEs; varredura
+automática por regex em busca de qualquer verbo de escrita
+(`insert/update/delete/create/alter/drop/copy/call/do/execute/grant/select into/
+nextval/setval/pg_terminate` etc.) → **zero ocorrências**; nenhum comportamento
+inesperado. Não autorizado e não realizado: qualquer alteração, exclusão,
+correção, migration, exportação ou restauração. **Execução pendente** — este
+ambiente não possui canal para o SQL Editor (sem psql, CLI ou credenciais);
+segue o fluxo das etapas anteriores, com o proprietário colando o script.
+
 | Consulta | O que responde |
 |---|---|
 | Q0 | Reproduz a checagem 4a (deve voltar 1) |
