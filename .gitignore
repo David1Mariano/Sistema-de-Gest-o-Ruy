@@ -41,3 +41,7 @@ base44/.app.jsonc
 
 # Artefato gerado pelos checks (regerado a cada execução)
 /scripts/*.out.txt
+
+# Backups/exportações de recuperação — dados reais nunca versionados
+/backups_recuperacao/*
+!/backups_recuperacao/README.md

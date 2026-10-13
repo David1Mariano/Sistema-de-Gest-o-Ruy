@@ -159,3 +159,55 @@ autorização explícita.**
    Supabase (3a/3b/3c); escopo confirmado (records+Auth / +social / +anexos).
 2. Rodar Fase 1 (inventário somente leitura) e anexar resultados a este documento.
 3. Apresentar contagens e divergências ao usuário antes de qualquer exportação.
+
+## 7. Progresso da Fase 1 (atualizado em 13/10/2026)
+
+### 7.1 Etapa 1 concluída — inventário do Supabase (confirmado pelo usuário)
+
+`public.records` tem **1.067 registros em 16 entidades**:
+
+| Entity | Linhas |
+|---|---:|
+| AuditLog | 504 |
+| FinancialExpense | 165 |
+| EmployeePayment | 134 |
+| Consumption | 93 |
+| Employee | 63 |
+| Vale | 55 |
+| JobRole | 17 |
+| Absence | 8 |
+| Warning | 6 |
+| Sector | 6 |
+| ExpenseCategory | 5 |
+| AccountsPayable | 4 |
+| FechamentoCaixa | 4 |
+| AuthUser | 1 |
+| StockMovement | 1 |
+| InventoryItem | 1 |
+
+Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
+
+### 7.2 Etapas 2 e 3 prontas para execução (somente leitura, SQL Editor do Supabase)
+
+- `scripts/inventario-recuperacao-etapa2.sql`: existência/contagem das tabelas
+  `social_*`; perfil do `AuthUser` SEM valores sensíveis (só nomes de chaves do
+  JSONB, papel e status — nunca senha/hash); contagem de `auth.users`
+  (metadados); bucket `anexos` (política, MIME, tamanho, objetos, prefixos).
+- `scripts/inventario-recuperacao-etapa3.sql`: checksums globais e por entity,
+  totais financeiros (`amount`, `net_amount`, `current_stock`), anexos embutidos
+  no JSON (`proof_url`/`invoice_url`: data URI vs URL vs caminho) e checagens
+  relacionais informativas. Estas saídas são a referência oficial de validação.
+
+### 7.3 Exportação e staging preparados (NÃO executados; aguardam autorização)
+
+- Exportação alvo: CSV da tabela `records` via Dashboard → Table Editor →
+  Export (entity, id, data, created_date, updated_date), salvo em
+  `backups_recuperacao/` (pasta ignorada pelo git). **Não abrir no Excel.**
+- Staging local preparado em `scripts/recuperacao/`:
+  `01` cria banco separado `gestao_ruy_staging`; `02` cria schema/tabela de
+  estágio (colunas TEXT, sem casts); `03` importa via `\copy`; `04` valida
+  total (1.067), contagem por entity, integridade básica, checksums, totais
+  financeiros e referências por id — tudo comparado com as Etapas 1 e 3.
+- Senha do PostgreSQL local: digitada pelo proprietário no próprio terminal.
+  Nada de senhas/chaves em conversa, scripts ou repositório.
+- Nenhuma escrita foi feita no Supabase; nenhum banco local foi criado ainda.
