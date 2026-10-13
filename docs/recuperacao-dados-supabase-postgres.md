@@ -217,3 +217,16 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
 - Senha do PostgreSQL local: digitada pelo proprietário no próprio terminal.
   Nada de senhas/chaves em conversa, scripts ou repositório.
 - Nenhuma escrita foi feita no Supabase; nenhum banco local foi criado ainda.
+
+### 7.4 Resultados parciais da Etapa 2 — parte Storage (executada pelo proprietário)
+
+- Bucket `anexos`: `public=false`, limite 15 MB/arquivo, MIME permitidos
+  JPEG/PNG/WEBP/PDF.
+- **59 objetos, total 2.928.141 bytes.**
+- Partes A (tabelas `social_*`) e B (AuthUser/auth.users) da Etapa 2 ainda
+  aguardam o envio das abas de resultado; Etapa 3 entregue para revisão.
+- Procedimento separado de verificação de download dos 59 anexos:
+  `scripts/verificar-download-anexos.ps1` — testa o GET de cada objeto via API
+  **sem** tornar o bucket público; o relatório contém apenas status HTTP, bytes
+  e hash md5+sal do caminho (nunca conteúdo, nome de arquivo ou chave).
+  **NÃO executado; aguarda autorização.**
