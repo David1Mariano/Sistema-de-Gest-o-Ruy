@@ -228,7 +228,8 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
 - Procedimento separado de verificação de download dos 59 anexos:
   `scripts/verificar-download-anexos.ps1` — testa o GET de cada objeto via API
   **sem** tornar o bucket público; o relatório contém apenas estatísticas
-  agregadas (ver §7.6). **NÃO executado; aguarda autorização.**
+  agregadas (ver §7.6). Executado em 13/10/2026 e **interrompido com HTTP 402**
+  (cota do projeto; nenhum GET emitido) — ver §7.7.
 
 ### 7.5 Revisão da Etapa 3 — integridade relacional ampliada (executada; ver §7.7)
 
@@ -261,10 +262,11 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
 - Etapa 3 **executada** pelo proprietário em 13/10/2026: 23 verificações, 22
   com zero órfãos e 1 com 1 órfão (ver §7.7). Nenhuma escrita foi feita em
   Supabase ou PostgreSQL.
-- `scripts/verificar-download-anexos.ps1` revisado junto; **NÃO executado;
-  aguarda autorização separada.**
+- `scripts/verificar-download-anexos.ps1` revisado junto; executado com
+  autorização em 13/10/2026 e **interrompido com HTTP 402** (cota do projeto) —
+  ver registro na §7.7.
 
-### 7.6 Script de verificação de download corrigido conforme revisão (NÃO executado)
+### 7.6 Script de verificação de download corrigido conforme revisão (executado; interrompido com HTTP 402 — ver §7.7)
 
 Seis exigências do proprietário aplicadas em `scripts/verificar-download-anexos.ps1`:
 
@@ -406,6 +408,36 @@ já cumpridos; itens 2 e 3 valem para a Etapa 4 em diante:**
    **Cumprido em 13/10/2026.**
 5. Nada é excluído, modificado, recriado ou corrigido; nenhuma migration,
    importação ou restauração é executada por este passo. **Cumprido.**
+
+**Teste de download dos anexos — executado em 13/10/2026 e interrompido com
+HTTP 402 (`exceed_egress_quota`).** Registro autorizado pelo proprietário
+(atualização apenas documental):
+
+- **O que rodou:** `scripts/verificar-download-anexos.ps1` (idêntico ao commit
+  `1979197`) com a chave anônima local, entregue ao curl por stdin (nunca em
+  argv nem em log). Única chamada emitida: a listagem `POST /object/list`
+  (operação de leitura).
+- **Interrupção:** a API respondeu **HTTP 402** —
+  `Service for this project is restricted due to the following violations:
+  exceed_egress_quota` — e o script abortou **antes** de interpretar JSON,
+  exatamente como desenhado (validação HTTP anterior ao parse).
+- **Nenhum GET de arquivo foi executado** (0 objetos testados): o teste parou
+  na listagem, então nenhum download foi sequer emitido; nenhum conteúdo,
+  nome ou caminho foi salvo, exibido ou compartilhado.
+- **Os 59 anexos (2.928.141 bytes) permanecem como identificados no inventário
+  da Etapa 2 — ainda NÃO recuperados e NÃO validados.** A comparação
+  listados/testados vs. 59 objetos segue pendente.
+- **Natureza do bloqueio:** restrição de serviço/cota do projeto (o plano
+  precisa de upgrade ou remoção dos spend caps), **não** uma comprovação de
+  perda de arquivos. Não houve 401/403 (não é permissão/RLS) nem 404 (não é
+  ausência de objeto) — nenhum indício de perda.
+- **Enquanto o serviço estiver restringido, nenhum novo teste de download
+  será executado** (condição do proprietário). O reaproveitamento do mesmo
+  script só volta a fazer sentido após a cota ser resolvida; rodar em
+  qualquer ambiente antes disso reproduziria o mesmo 402.
+- Nenhum registro do Supabase ou PostgreSQL foi alterado, nenhum arquivo
+  histórico foi tocado; nenhuma migration, exportação, importação ou
+  restauração foi executada. Branch `main` não modificada.
 
 
 
