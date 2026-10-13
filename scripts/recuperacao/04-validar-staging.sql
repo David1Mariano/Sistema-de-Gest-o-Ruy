@@ -2,19 +2,26 @@
 -- RECUPERACAO — 04/04: validacao do staging LOCAL (somente leitura)
 -- Conectar em gestao_ruy_staging e rodar este arquivo apos a importacao.
 -- Confere: quantidades, entities, integridade, checksum, totais financeiros
--- e referencias — contra os valores de referencia da Etapa 1/3 do Supabase.
+-- e referencias — contra os valores de referencia da Etapa 1/4 do Supabase.
 -- ============================================================================
 
 begin transaction read only;
 
 -- ---------------------------------------------------------------------------
--- 1) QUANTIDADE TOTAL (referencia Etapa 1: 1067)
+-- 1) QUANTIDADE TOTAL (referencia Etapa 1: 1067, menos AuthUser = 1066)
 -- ---------------------------------------------------------------------------
 
 select count(*) as total_obtido,
-       1067 as total_esperado,
-       count(*) = 1067 as ok
+       1066 as total_esperado,
+       count(*) = 1066 as ok
 from recuperacao.records_stage;
+
+-- AuthUser exportado SEPARADAMENTE e ja REDIGIDO na origem
+select count(*) as authuser_obtido,
+       1 as authuser_esperado,
+       count(*) = 1 as ok,
+       count(*) filter (where id is null or id = '') as sem_id
+from recuperacao.authuser_stage;
 
 -- ---------------------------------------------------------------------------
 -- 2) CONTAGEM POR ENTITY vs REFERENCIA (FULL OUTER JOIN pega tambem
@@ -25,7 +32,7 @@ with expected(entity, linhas) as (values
   ('AuditLog',504),('FinancialExpense',165),('EmployeePayment',134),
   ('Consumption',93),('Employee',63),('Vale',55),('JobRole',17),
   ('Absence',8),('Warning',6),('Sector',6),('ExpenseCategory',5),
-  ('AccountsPayable',4),('FechamentoCaixa',4),('AuthUser',1),
+  ('AccountsPayable',4),('FechamentoCaixa',4),
   ('StockMovement',1),('InventoryItem',1)),
 actual as (select entity, count(*) as linhas
            from recuperacao.records_stage group by entity)
@@ -48,17 +55,30 @@ select count(*) filter (where entity is null or entity = '')   as sem_entity,
 from recuperacao.records_stage;
 
 -- ---------------------------------------------------------------------------
--- 4) CHECKSUM GLOBAL (comparar com 1a/1b da Etapa 3 da origem)
+-- 4) CHECKSUMS (comparar com Q1b/Q2b da Etapa 4 da origem)
 --    Ver observacao no README: divergencia so de data/formato nao e perda.
 -- ---------------------------------------------------------------------------
 
+-- 4a) Checksum do recorte principal (mesma formula insensivel a ordem da Q1b
+--     da Etapa 4 — as datas de exportacao continuam valendo como referencia)
 select count(*) as total,
-       md5(string_agg(
-             md5(entity || '|' || id || '|' || coalesce(data,'')
-                 || '|' || coalesce(created_date,'')
-                 || '|' || coalesce(updated_date,'')),
-             '|' order by entity, id)) as checksum_global_staging
-from recuperacao.records_stage;
+       md5(string_agg(lm, '|' order by lm)) as checksum_main_staging
+from (
+  select md5(entity || '|' || id || '|' || coalesce(data,'')
+             || '|' || coalesce(created_date,'')
+             || '|' || coalesce(updated_date,'')) as lm
+  from recuperacao.records_stage
+) s;
+
+-- 4b) Checksum do AuthUser redigido (comparar com Q2b da Etapa 4)
+select count(*) as authuser_rows,
+       md5(string_agg(lm, '|' order by lm)) as checksum_authuser_staging
+from (
+  select md5(id || '|' || coalesce(data,'')
+             || '|' || coalesce(created_date,'')
+             || '|' || coalesce(updated_date,'')) as lm
+  from recuperacao.authuser_stage
+) s;
 
 -- ---------------------------------------------------------------------------
 -- 5) TOTAIS FINANCEIROS (mesmas formulas da Etapa 3 origem)

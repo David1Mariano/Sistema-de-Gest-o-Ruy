@@ -14,12 +14,16 @@
 
 1. Senha do PostgreSQL local digitada apenas no seu terminal (`PGPASSWORD` ou prompt).
    **Nunca** cole senha em chat, script, issue ou arquivo versionado.
-2. CSV exportado conforme `docs/recuperacao-dados-supabase-postgres.md` (Etapa 2/3),
-   salvo em `backups_recuperacao/supabase-AAAA-MM-DD/records.csv`.
-   - **Não abra o CSV no Excel** (corrompe UUIDs, datas e JSON com vírgulas).
+2. CSVs exportados pela **Etapa 4** (`scripts/inventario-recuperacao-etapa4-exportacao.sql`),
+   baixados direto do SQL Editor ("Download CSV" no painel de resultados) e
+   salvos em `backups_recuperacao/supabase-AAAA-MM-DD/`:
+   - `records.csv` — records SEM AuthUser (1.066 linhas; cabeçalho
+     `entity,id,data,created_date,updated_date`).
+   - `authuser.csv` — AuthUser **redigido** (1 linha; cabeçalho
+     `id,data,created_date,updated_date`; já sem chaves de credencial/hash).
+   - **Não abra os CSVs no Excel** (corrompe UUIDs, datas e JSON com vírgulas).
      Para inspecionar, use o Visual Studio Code ou Bloco de Notas.
-   - Confira se a primeira linha do CSV é exatamente o cabeçalho:
-     `entity,id,data,created_date,updated_date`
+   - Nunca cole o conteúdo dos CSVs ou das queries em chat/issue/arquivo.
 
 ## Sequência de execução (quando autorizada)
 
@@ -36,8 +40,8 @@ $env:PGPASSWORD = Read-Host -MaskInput "Senha do postgres (aparece so na sua ses
 # 2) Criar schema + tabela de estagio (arquivo 02)
 & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d gestao_ruy_staging -f "C:\Users\Pichau\gestao-ruy-agente-5\scripts\recuperacao\02-criar-tabelas-staging.sql"
 
-# 3) Importar o CSV (arquivo 03 — ajuste o caminho do CSV se necessário)
-& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d gestao_ruy_staging -c "\copy recuperacao.records_stage (entity, id, data, created_date, updated_date) from 'C:\Users\Pichau\gestao-ruy-agente-5\backups_recuperacao\supabase-2026-10-13\records.csv' with (format csv, header true, encoding 'UTF8')"
+# 3) Importar os dois CSVs (arquivo 03 — ajuste os caminhos se necessario)
+& "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d gestao_ruy_staging -f "C:\Users\Pichau\gestao-ruy-agente-5\scripts\recuperacao\03-importar-csv-copy.sql"
 
 # 4) Validar (arquivo 04) e enviar os resultados para análise
 & "C:\Program Files\PostgreSQL\17\bin\psql.exe" -U postgres -d gestao_ruy_staging -f "C:\Users\Pichau\gestao-ruy-agente-5\scripts\recuperacao\04-validar-staging.sql"
@@ -47,10 +51,11 @@ Remove-Item Env:\PGPASSWORD
 
 ## O que a validação confere
 
-- Total de linhas = 1.067 e contagem por entity = tabela da Etapa 1 (inclusive
-  entities inesperadas ou faltantes via FULL OUTER JOIN).
+- Total de linhas = 1.066 (records) + 1 (AuthUser redigido) e contagem por
+  entity = tabela da Etapa 1 sem AuthUser (inclusive entities inesperadas ou
+  faltantes via FULL OUTER JOIN).
 - ID semântico: sem entity vazia, sem id vazio, data válida como JSON.
-- Checksum global e por entity comparáveis com a Etapa 3 da origem.
+- Checksums (insensíveis à ordem) comparáveis com a Etapa 4 da origem.
 - Totais financeiros (amount / net_amount / current_stock) por entity.
 - Referências por id (ex.: EmployeePayment→Employee); órfãos são informativos.
 

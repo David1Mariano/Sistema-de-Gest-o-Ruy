@@ -19,6 +19,15 @@ create table if not exists recuperacao.records_stage (
   updated_date text
 );
 
+-- AuthUser exportado SEPARADAMENTE e ja REDIGIDO na origem
+-- (sem chaves de credencial/hash no JSON). Nunca colar aqui hash real.
+create table if not exists recuperacao.authuser_stage (
+  id           text,
+  data         text,
+  created_date text,
+  updated_date text
+);
+
 create index if not exists records_stage_entity_idx on recuperacao.records_stage (entity);
 create index if not exists records_stage_id_idx     on recuperacao.records_stage (id);
 

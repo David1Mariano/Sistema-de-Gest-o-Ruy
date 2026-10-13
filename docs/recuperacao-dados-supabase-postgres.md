@@ -197,17 +197,23 @@ Não há, nesta contagem, linhas sem `entity` (nenhuma entity extra apareceu).
   totais financeiros (`amount`, `net_amount`, `current_stock`), anexos embutidos
   no JSON (`proof_url`/`invoice_url`: data URI vs URL vs caminho) e checagens
   relacionais informativas. Estas saídas são a referência oficial de validação.
+- `scripts/inventario-recuperacao-etapa4-exportacao.sql`: exportação em dois
+  CSVs baixados do próprio SQL Editor ("Download CSV"): `records.csv` **sem**
+  AuthUser (1.066 linhas) e `authuser.csv` com AuthUser **redigido** (chaves de
+  credencial/hash removidas do JSON), cada um com checksum insensível à ordem
+  para conferência bit a bit no staging.
 
 ### 7.3 Exportação e staging preparados (NÃO executados; aguardam autorização)
 
-- Exportação alvo: CSV da tabela `records` via Dashboard → Table Editor →
-  Export (entity, id, data, created_date, updated_date), salvo em
-  `backups_recuperacao/` (pasta ignorada pelo git). **Não abrir no Excel.**
+- Exportação alvo (Etapa 4): `records.csv` (records sem AuthUser) + `authuser.csv`
+  (AuthUser redigido), baixados do SQL Editor e salvos em `backups_recuperacao/`
+  (pasta ignorada pelo git). **Não abrir no Excel.**
 - Staging local preparado em `scripts/recuperacao/`:
   `01` cria banco separado `gestao_ruy_staging`; `02` cria schema/tabela de
   estágio (colunas TEXT, sem casts); `03` importa via `\copy`; `04` valida
-  total (1.067), contagem por entity, integridade básica, checksums, totais
-  financeiros e referências por id — tudo comparado com as Etapas 1 e 3.
+  total (1.066 + AuthUser redigido), contagem por entity, integridade básica,
+  checksums, totais financeiros e referências por id — tudo comparado com as
+  Etapas 1 e 4.
 - Senha do PostgreSQL local: digitada pelo proprietário no próprio terminal.
   Nada de senhas/chaves em conversa, scripts ou repositório.
 - Nenhuma escrita foi feita no Supabase; nenhum banco local foi criado ainda.
