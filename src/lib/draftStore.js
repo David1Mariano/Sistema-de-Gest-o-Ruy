@@ -227,6 +227,7 @@ const validEnvelope = (env) => (
  * Rascunho inválido, expirado, de outra versão ou corrompido é REMOVIDO no
  * ato — nunca fica morando no storage falhando silenciosamente.
  */
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: number, version?: number, ttlMs?: number}} options */
 export function readDraft({
   userKey,
   formKey,
@@ -289,6 +290,7 @@ export function readDraft({
  * vence, sem bloqueio e sem collaboration. É o comportamento previsível que
  * duas abas precisam ter entre si.
  */
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: number, version?: number, ttlMs?: number, data?: Record<string, unknown>, excludeFields?: string[]}} options */
 export function writeDraft({
   userKey,
   formKey,
@@ -315,6 +317,7 @@ export function writeDraft({
   return ok(DRAFT_REASONS.OK, { key, updatedAt: now, dropped, draft: envelope });
 }
 
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: number, version?: number, ttlMs?: number}} options */
 export function clearDraft({ userKey, formKey, storage } = {}) {
   if (!userKey) return fail(DRAFT_REASONS.NO_USER);
   const store = getStorage(storage);
@@ -381,6 +384,7 @@ export function isDraftStaleAgainst(draft, recordUpdatedAt) {
 // ---------------------------------------------------------------------------
 
 /** Rascunhos válidos, opcionalmente só os de um usuário. Não remove nada. */
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: number, version?: number, ttlMs?: number}} options */
 export function listDrafts({ userKey, storage, now = Date.now(), version = DRAFT_VERSION, ttlMs = DRAFT_TTL_MS } = {}) {
   const store = getStorage(storage);
   if (!store) return [];
@@ -412,6 +416,7 @@ function parseFormKeyFrom(key) {
  * informado, somente o prefixo daquele usuário. Nenhum outro site/aplicativo
  * no mesmo navegador é tocado.
  */
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: number, version?: number, ttlMs?: number}} options */
 export function cleanupExpiredDrafts({ userKey, storage, now = Date.now(), version = DRAFT_VERSION, ttlMs = DRAFT_TTL_MS } = {}) {
   const store = getStorage(storage);
   if (!store) return { scanned: 0, removed: 0, removedKeys: [] };
@@ -450,6 +455,7 @@ export function cleanupExpiredDrafts({ userKey, storage, now = Date.now(), versi
  * `discard`. Nada aqui fala com o banco: `saved()` só é chamado pelo
  * formulário DEPOIS de o backend confirmar.
  */
+/** @param {{userKey?: string, formKey?: string, storage?: Storage, now?: () => number, version?: number, ttlMs?: number, debounceMs?: number, excludeFields?: string[]}} options */
 export function createDraftSession({
   userKey,
   formKey,

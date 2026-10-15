@@ -15,6 +15,7 @@ const TONE = {
   [DRAFT_STATUS.UNAVAILABLE]: 'border-slate-200 bg-slate-50 text-slate-600',
 };
 
+/** @param {{status: string, message: string, onDiscard?: () => void, onDismiss?: () => void, hint?: string}} props */
 export default function DraftNotice({
   status,
   message,

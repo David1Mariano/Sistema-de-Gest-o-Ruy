@@ -18,7 +18,10 @@ node node_modules/vite/bin/vite.js build --config lab/d1/vite.config.mjs
 npm.cmd --prefix desktop run dist
 ```
 
-Resultado atual: `artifacts/windows-lab/Sistema-Gestao-Ruy-Lab-0.2.0-Setup.exe`.
+Resultado atual: `artifacts/windows-lab/Sistema-Gestao-Ruy-Lab-0.3.0-Setup.exe`.
+Ver [integrações e bloqueios da etapa E](../docs/etapa-e-producao-financeiro.md).
+No laboratório já existente, aplicar `node scripts/d1-lab/prepare-domain.mjs`
+antes de iniciar a versão 0.3. Não executar init novamente.
 O pacote tem Chromium/Node via Electron, dependência `pg` e frontend compilado.
 Não inclui banco, backups, usuários, `.env`, tokens ou diretórios privados.
 Ícone R experimental e atalho com sufixo Laboratório; ainda sem assinatura digital.

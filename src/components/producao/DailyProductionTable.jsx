@@ -168,7 +168,7 @@ export default function DailyProductionTable({ records, products, onEdit, onDele
                 filtered.map((r) => (
                   <tr key={r.id}>
                     <td className="px-4 py-3">{fmtDate(r.date)}</td>
-                    <td className="px-4 py-3 font-medium">{text(r.product_name)}</td>
+                    <td className="px-4 py-3 font-medium">{text(r.product_name)}{r.local_status&&<span className="block text-xs text-muted-foreground">{r.local_status}</span>}</td>
                     <td className="px-4 py-3">{qty(r.produced_quantity)}</td>
                     <td className="px-4 py-3">{text(unitOf(r), '—')}</td>
                     <td className={`px-4 py-3 ${lossOf(r) > 0 ? 'text-destructive font-semibold' : ''}`}>
@@ -181,7 +181,7 @@ export default function DailyProductionTable({ records, products, onEdit, onDele
                     </td>
                     <td className="px-4 py-3">
                       <div className="flex items-center gap-1">
-                        <Button size="icon" variant="ghost" title="Editar" onClick={() => onEdit(r)}>
+                        <Button size="icon" variant="ghost" title="Editar" disabled={!!r.local_status&&r.local_status!=='rascunho'} onClick={() => onEdit(r)}>
                           <Pencil className="w-4 h-4" />
                         </Button>
                         <Button
@@ -196,7 +196,8 @@ export default function DailyProductionTable({ records, products, onEdit, onDele
                           size="icon"
                           variant="ghost"
                           className="text-destructive"
-                          title="Excluir"
+                          title={r.local_status ? 'Cancelar produção local' : 'Excluir'}
+                          disabled={r.local_status==='cancelado'}
                           onClick={() => onDelete(r)}
                         >
                           <Trash2 className="w-4 h-4" />

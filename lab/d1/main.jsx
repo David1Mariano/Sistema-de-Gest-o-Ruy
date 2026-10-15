@@ -6,12 +6,18 @@ import Funcoes from '@/pages/Funcoes';
 import Funcionarios from '@/pages/Funcionarios';
 import Configuracoes from '@/pages/Configuracoes';
 import Estoque from '@/pages/Estoque';
+import Producao from '@/pages/Producao';
+import Financeiro from '@/pages/Financeiro';
+import ReceitasFinanceiras from '@/pages/ReceitasFinanceiras';
+import RelatorioFinanceiro from '@/pages/RelatorioFinanceiro';
 import Layout from '@/components/Layout';
 import {ThemeProvider,useTheme} from '@/lib/theme/ThemeProvider';
 import {setCurrentUser} from '@/lib/currentUserStore';
 import {D1Auth} from './auth';
-import {request,setSession} from './client.mjs';
+import {request,setSession,localDomain} from './client.mjs';
+import ConsumptionControls from './ConsumptionControls';
 import '@/index.css';
+localDomain.ConsumptionControls=ConsumptionControls;
 function App(){
  const [session,update]=useState(null),[ready,setReady]=useState(false),[error,setError]=useState(''),[pending,setPending]=useState(0);
  const {alternar}=useTheme();
@@ -28,7 +34,7 @@ function App(){
  return <D1Auth.Provider value={{user:{...session.user,full_name:'Operador fictício D1'},logout:async()=>{await request('/logout',{});adopt(null);}}}>
   <div className="border-b border-amber-500 bg-amber-100 p-2 text-sm text-amber-950" role="status">LAB D1 · Somente dados fictícios · Sincronização real DESATIVADA · {pending} alteração(ões) pendente(s) · Perfil {session.user.role} <button className="underline ml-3" onClick={alternar}>Alternar claro/escuro</button></div>
   {error&&<div role="alert" className="border border-red-500 bg-red-100 p-3 text-red-950">{error}<button className="ml-3 underline" onClick={()=>setError('')}>Fechar aviso</button></div>}
-  <Routes><Route element={<Layout/>}><Route path="/setores" element={<Setores/>}/><Route path="/funcoes" element={<Funcoes/>}/><Route path="/funcionarios" element={<Funcionarios/>}/><Route path="/configuracoes" element={<Configuracoes/>}/><Route path="/estoque" element={<Estoque/>}/><Route path="/" element={<Navigate to="/setores" replace/>}/><Route path="*" element={<p>Esta tela aguarda integração offline validada. <a href="/setores">Voltar a Setores</a></p>}/></Route></Routes>
+  <Routes><Route element={<Layout/>}><Route path="/setores" element={<Setores/>}/><Route path="/funcoes" element={<Funcoes/>}/><Route path="/funcionarios" element={<Funcionarios/>}/><Route path="/configuracoes" element={<Configuracoes/>}/><Route path="/estoque" element={<Estoque/>}/><Route path="/producao" element={<Producao/>}/><Route path="/financeiro" element={<><p className="rounded border p-3">Laboratório: documentos financeiros locais não executam pagamentos externos. Lotes, vales/RH, fechamento global e anexos privados aguardam integração e homologação; comandos não portados são recusados.</p><Financeiro/></>}/><Route path="/ReceitasFinanceiras" element={<ReceitasFinanceiras/>}/><Route path="/RelatorioFinanceiro" element={<RelatorioFinanceiro/>}/><Route path="/receitas-financeiras" element={<ReceitasFinanceiras/>}/><Route path="/relatorio-financeiro" element={<RelatorioFinanceiro/>}/><Route path="/" element={<Navigate to="/setores" replace/>}/><Route path="*" element={<p>Esta tela aguarda integração offline validada. <a href="/setores">Voltar a Setores</a></p>}/></Route></Routes>
  </D1Auth.Provider>;
 }
 createRoot(document.getElementById('root')).render(<ThemeProvider><BrowserRouter><App/></BrowserRouter></ThemeProvider>);

@@ -1,6 +1,7 @@
 import {transaction,fail,digest} from '../d1-lab/core.mjs';
 import {validateEnvelope,syncHash} from '../d1-lab/sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
+import {domainSyncFields} from '../d1-lab/domain-contract.mjs';
 async function authorize(c,token){
  const p=(await c.query('SELECT * FROM d1_principals WHERE token_hash=$1',[digest(token||'')])).rows[0];
  if(!p?.active||p.role!=='admin')throw fail(403,'Ponte D1 restrita a administrador sintético autorizado.');
@@ -26,6 +27,17 @@ export async function acceptD1(pool,token,command){
   const values=[...records.values()];
   for(const change of command.changes){
    const d=change.data;
+   if(domainSyncFields[change.entity]){
+    const payload=JSON.parse(d.payload_json);
+    const reference=(id,entity)=>{if(id&&records.get(id)?.entity!==entity)throw fail(409,'Referência de domínio remoto inexistente.');};
+    if(['ProductionOrder','DailyProduction'].includes(change.entity))reference(payload.product_id,'ProductionProduct');
+    if(change.entity==='ProductionProduct')for(const line of payload.ingredients)reference(line.inventory_item_id,'InventoryItem');
+    if(change.entity==='EmployeePayment'){reference(payload.employee_id,'Employee');reference(payload.financial_expense_id,'FinancialExpense');}
+    if(change.entity==='FinancialExpense'){reference(payload.linked_payment_id,'EmployeePayment');reference(payload.accounts_payable_id,'AccountsPayable');}
+    if(['CardReceivable','DeliverySettlement'].includes(change.entity))reference(payload.accounts_receivable_id,'AccountsReceivable');
+    if(change.entity==='AccountsReceivable'&&payload.source_id)reference(payload.source_id,payload.source_type==='cartao'?'CardReceivable':'DeliverySettlement');
+    if(change.entity==='AccountsPayable')reference(payload.recurring_expense_id,'RecurringExpense');
+   }
    if(change.entity==='JobRole'&&d.sector_id){const sector=records.get(d.sector_id);if(!sector||sector.entity!=='Sector'||sector.data.name!==d.sector_name)throw fail(409,'Referência de setor remota inválida.');}
    if(change.entity==='Employee'&&d.sector&&!values.some(r=>r.entity==='Sector'&&r.data.name===d.sector))throw fail(409,'Setor de colaborador remoto inexistente.');
    if(change.entity==='Employee'&&d.function&&!values.some(r=>r.entity==='JobRole'&&r.data.name===d.function&&(!r.data.sector_name||r.data.sector_name===d.sector)))throw fail(409,'Função remota incompatível.');

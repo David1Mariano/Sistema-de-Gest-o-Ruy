@@ -24,8 +24,8 @@ async function changeStock(c,actor,operationId,input,delta,type,unitCents){
  await c.query('INSERT INTO d1_stock_movements(id,owner_id,operation_id,item_id,item_name,unit,quantity_milli,unit_cents,balance_after,movement_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[movement.id,actor,operationId,input.itemId,item.data.name,item.data.unit,delta,cost,quantity,type]);
  return movement;
 }
-async function apply(c,user,deviceId,body,hook){
- if(!uuid(body?.operationId)||!['entry','exit','adjust','production','journal'].includes(body.kind))throw fail(400,'Comando operacional inválido.');
+export async function applyOperational(c,user,deviceId,body,hook=async()=>{}){
+ if(!uuid(body?.operationId)||!['entry','exit','adjust','production','consume','journal'].includes(body.kind))throw fail(400,'Comando operacional inválido.');
  if(Object.keys(body).some(k=>!['operationId','kind','itemId','baseVersion','quantityMilli','targetMilli','unitCents','inputs','output','entries'].includes(k)))throw fail(400,'Campos operacionais não permitidos.');
  const actor=(await c.query("SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE",[user.id])).rows[0];
  if(actor?.role!=='admin')throw fail(403,'Operações críticas exigem administrador sintético neste piloto.');
@@ -40,11 +40,11 @@ async function apply(c,user,deviceId,body,hook){
    delta=body.targetMilli-Number(previous?.quantity_milli??0);
   }else if(!integer(body.quantityMilli,1))throw fail(400,'Quantidade inválida.');
   effects.push(await changeStock(c,actor.id,body.operationId,body,delta,body.kind==='entry'?'entrada_manual':body.kind==='exit'?'saida_manual':'inventario',body.unitCents??0));
- }else if(body.kind==='production'){
-  if(!Array.isArray(body.inputs)||!body.inputs.length||body.inputs.length>20||new Set(body.inputs.map(i=>i.itemId)).size!==body.inputs.length||!body.output||body.inputs.some(i=>i.itemId===body.output.itemId)||!integer(body.output.quantityMilli,1))throw fail(400,'Insumos e produto inválidos.');
+ }else if(['production','consume'].includes(body.kind)){
+  if(!Array.isArray(body.inputs)||!body.inputs.length||body.inputs.length>20||new Set(body.inputs.map(i=>i.itemId)).size!==body.inputs.length||(body.kind==='production'&&(!body.output||body.inputs.some(i=>i.itemId===body.output.itemId)||!integer(body.output.quantityMilli,1))))throw fail(400,'Insumos e produto inválidos.');
   let total=0n;
   for(const input of body.inputs){if(!integer(input.quantityMilli,1))throw fail(400,'Quantidade de insumo inválida.');const used=await changeStock(c,actor.id,body.operationId,input,-input.quantityMilli,'consumo_producao');effects.push(used);total+=BigInt(input.quantityMilli)*BigInt(used.unitCents);}
-  effects.push(await changeStock(c,actor.id,body.operationId,body.output,body.output.quantityMilli,'entrada_producao',safe((total+BigInt(Math.floor(body.output.quantityMilli/2)))/BigInt(body.output.quantityMilli))));
+  if(body.kind==='production')effects.push(await changeStock(c,actor.id,body.operationId,body.output,body.output.quantityMilli,'entrada_producao',safe((total+BigInt(Math.floor(body.output.quantityMilli/2)))/BigInt(body.output.quantityMilli))));
  }else{
   const entries=body.entries;
   if(!Array.isArray(entries)||entries.length<2||entries.length>5||new Set(entries.map(e=>e.account)).size!==entries.length||entries.some(e=>!['cash','bank','expense','revenue','equity'].includes(e.account)||!Number.isSafeInteger(e.cents)||!e.cents||Math.abs(e.cents)>1e12||!integer(e.baseVersion))||entries.reduce((s,e)=>s+BigInt(e.cents),0n)!==0n)throw fail(400,'Partidas devem ser balanceadas em centavos e versionadas.');
@@ -69,13 +69,13 @@ async function apply(c,user,deviceId,body,hook){
  await hook(c);return result;
 }
 export async function operationalCommand(pool,user,deviceId,body,hook=async()=>{}){
- return transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return apply(c,user,deviceId,body,hook);});
+ return transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return applyOperational(c,user,deviceId,body,hook);});
 }
 export async function createStockItem(pool,user,deviceId,body){
  if(!uuid(body?.itemId)||!uuid(body.operationId)||!integer(body.initialMilli)||!integer(body.unitCents))throw fail(400,'Cadastro/estoque inicial inválido.');
  const {itemId,operationId,data,initialMilli,unitCents}=body;
  return catalogSave(pool,user,deviceId,'InventoryItem',itemId,{operationId,operation:'create',baseVersion:null,data},async c=>{
-  if(initialMilli>0)await apply(c,user,deviceId,{operationId:stableId(operationId),kind:'entry',itemId,baseVersion:0,quantityMilli:initialMilli,unitCents},async()=>{});
+  if(initialMilli>0)await applyOperational(c,user,deviceId,{operationId:stableId(operationId),kind:'entry',itemId,baseVersion:0,quantityMilli:initialMilli,unitCents},async()=>{});
  },{initialMilli,unitCents});
 }
 export async function operationalState(pool,user){

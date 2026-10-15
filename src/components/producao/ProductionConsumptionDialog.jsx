@@ -1,4 +1,5 @@
 import { useMemo } from 'react';
+import { base44 } from '@/api/base44Client';
 import { Button } from '@/components/ui/button';
 import { Label } from '@/components/ui/label';
 import { Dialog, DialogContent, DialogFooter, DialogHeader, DialogTitle } from '@/components/ui/dialog';
@@ -26,12 +27,15 @@ const text = (v, fallback = '—') => {
 // e nenhuma alteração de InventoryItem são feitos aqui.
 export default function ProductionConsumptionDialog({ open, onClose, record, products, ingredients, inventoryItems }) {
   const normalizedRecord = record && typeof record === 'object' ? record : null;
+  const LocalControls = base44.localDomain?.ConsumptionControls;
   const product = useMemo(
-    () => (products || []).find((p) => p.id === normalizedRecord?.product_id) || null,
+    () => LocalControls && normalizedRecord?.recipe_snapshot
+      ? { id: normalizedRecord.product_id, name: normalizedRecord.product_name, yield_quantity: normalizedRecord.recipe_yield, yield_unit: normalizedRecord.unit }
+      : (products || []).find((p) => p.id === normalizedRecord?.product_id) || null,
     [products, normalizedRecord]
   );
   const productIngredients = useMemo(
-    () => (product ? (ingredients || []).filter((ing) => ing?.product_id === product.id) : []),
+    () => LocalControls && normalizedRecord?.recipe_snapshot ? normalizedRecord.recipe_snapshot : (product ? (ingredients || []).filter((ing) => ing?.product_id === product.id) : []),
     [ingredients, product]
   );
   const calc = useMemo(
@@ -163,13 +167,13 @@ function ConsumptionRows({ calc, product, inventoryItems }) {
           )}
         </section>
 
-        <p className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
+        {LocalControls && normalizedRecord ? <LocalControls record={normalizedRecord}/> : <p className="rounded-lg border bg-muted/30 p-3 text-xs text-muted-foreground">
           Nesta etapa nenhuma alteração será feita no estoque.
-        </p>
+        </p>}
 
         <DialogFooter>
           <Button variant="outline" onClick={onClose}>Fechar</Button>
-          <Button type="button" variant="secondary" onClick={onClose}>Continuar</Button>
+          {!LocalControls&&<Button type="button" variant="secondary" onClick={onClose}>Continuar</Button>}
         </DialogFooter>
       </DialogContent>
     </Dialog>

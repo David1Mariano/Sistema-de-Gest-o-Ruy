@@ -1,0 +1,41 @@
+// Real React forms and the isolated API; used only by --lab-smoke --lab-domain-smoke.
+export async function domainSmoke(window,waitForState,origin,pool,actor){
+ const waitFor=async condition=>{try{await waitForState(condition);}catch{const text=await window.webContents.executeJavaScript('document.body.textContent.slice(-2000)');throw Error(condition+' :: '+text);}};
+ const js=async code=>{const result=await window.webContents.executeJavaScript(`(()=>{try{return {ok:true,value:(${code})};}catch(e){return {ok:false,error:e.message};}})()`);if(!result.ok)throw Error(result.error);return result.value;};
+ const click=label=>js(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)});if(!b)throw Error('Botão ausente: '+${JSON.stringify(label)});b.click();})()`);
+ const field=(label,value)=>js(`(()=>{const l=[...document.querySelector('[role=dialog]').querySelectorAll('label')].find(l=>l.textContent.trim()===${JSON.stringify(label)});const e=l?.parentElement.querySelector('input,select,textarea');if(!e)throw Error('Campo ausente');const p=e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
+ await window.loadURL(origin+'/producao');await waitFor("document.body.textContent.includes('Nova ficha')&&!document.body.textContent.includes('Carregando produção...')");
+ await click('Nova ficha');await waitFor("!!document.querySelector('[role=dialog] input')");await field('Produto *','FICTICIO Receita desktop');await click('Adicionar');
+ await waitFor("!!document.querySelector('[role=dialog] select option[value]:not([value=\"\"])')");
+ await js("(()=>{const e=document.querySelector('[role=dialog] select');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,e.options[1].value);e.dispatchEvent(new Event('change',{bubbles:true}));})()");
+ await click('Salvar ficha');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('FICTICIO Receita desktop')");
+ await js("(()=>{const e=[...document.querySelectorAll('[role=tab]')].find(e=>e.textContent==='Controle diário');e.dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}));e.click();})()");
+ await waitFor("!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()==='Registrar produção')");
+ await click('Registrar produção');await waitFor("!!document.querySelector('[role=dialog] select')");
+ const product=(await pool.query("SELECT id FROM d2_catalog WHERE owner_id=$1 AND entity='ProductionProduct'",[actor])).rows[0];
+ await field('Produto *',product.id);await field('Quantidade produzida *','1');
+ await js("[...document.querySelector('[role=dialog]').querySelectorAll('button')].find(b=>/Registrar|Salvar/.test(b.textContent)).click()");
+ await waitFor("!![...document.querySelectorAll('button')].find(b=>b.textContent==='Confirmar baixa local no estoque')");
+ await click('Confirmar baixa local no estoque');await waitFor("document.body.textContent.includes('Baixa local já confirmada')");
+ const production=(await pool.query("SELECT data FROM d2_catalog WHERE owner_id=$1 AND entity='DailyProduction'",[actor])).rows[0];
+ if(JSON.parse(production.data.payload_json).local_status!=='confirmado')throw Error('Formulário não confirmou a baixa.');
+ const balance=(await pool.query('SELECT quantity_milli FROM d1_stock_balances WHERE owner_id=$1',[actor])).rows[0];if(balance.quantity_milli!=='1000')throw Error('Saldo incorreto após formulário de produção.');
+ await window.loadURL(origin+'/financeiro?tab=gastos');await waitFor("document.body.textContent.includes('Novo gasto')&&!document.body.textContent.includes('Carregando gastos...')");
+ await click('Novo gasto');await waitFor("!!document.querySelector('[role=dialog] input[aria-label=\"Valor do gasto\"]')");
+ await field('Descrição *','FICTICIO Gasto desktop');
+ await js("(()=>{const e=document.querySelector('input[aria-label=\"Valor do gasto\"]');Object.getOwnPropertyDescriptor(HTMLInputElement.prototype,'value').set.call(e,'12,34');e.dispatchEvent(new Event('input',{bubbles:true}));e.dispatchEvent(new Event('blur',{bubbles:true}));})()");
+ await click('Registrar gasto');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('FICTICIO Gasto desktop')");
+ const expense=(await pool.query("SELECT data FROM d2_catalog WHERE owner_id=$1 AND entity='FinancialExpense'",[actor])).rows[0];if(JSON.parse(expense.data.payload_json).amount!==12.34)throw Error('Gasto não persistiu em centavos.');
+ await window.loadURL(origin+'/ReceitasFinanceiras');await waitFor("document.body.textContent.includes('Nova receita')");
+ await click('Nova receita');await waitFor("!!document.querySelector('[role=dialog] input')");
+ await field('Descrição','FICTICIO Receita financeira desktop');await field('Valor bruto','50');await field('Taxas/Comissões','1');
+ await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('FICTICIO Receita financeira desktop')");
+ await click('Cartões');await waitFor("document.body.textContent.includes('Lançar cartão')");await click('Lançar cartão');await waitFor("!!document.querySelector('[role=dialog] input')");
+ await field('Adquirente','FICTICIO adquirente desktop');await field('Valor bruto','100');await field('Taxas/Comissões','2');
+ await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('FICTICIO adquirente desktop')");
+ await click('A receber');await waitFor("document.body.textContent.includes('Confirmar recebimento')");await click('Confirmar recebimento');await waitFor("document.body.textContent.includes('Recebido')");
+ const card=(await pool.query("SELECT data FROM d2_catalog WHERE owner_id=$1 AND entity='CardReceivable'",[actor])).rows[0];if(JSON.parse(card.data.payload_json).status!=='recebido')throw Error('Recebimento do cartão não persistiu.');
+ await window.loadURL(origin+'/RelatorioFinanceiro');await waitFor("document.body.textContent.includes('Despesas por categoria')&&document.body.textContent.includes('49,00')&&document.body.textContent.includes('12,34')");
+ await window.loadURL(origin+'/producao');await waitFor("document.body.textContent.includes('FICTICIO Receita desktop')");
+ return {recipeForm:true,dailyForm:true,confirmedConsumption:true,stockMilliAfterConsumption:1000,expenseForm:true,expenseAmount:12.34,revenueForm:true,cardAndReceiptForms:true,financialReport:true,reloaded:true};
+}

@@ -7,6 +7,7 @@ const root=fileURLToPath(new URL('../../',import.meta.url));
 export default defineConfig({root,envDir:false,publicDir:path.join(root,'lab/d1/public'),plugins:[{name:'d1-local-fonts',enforce:'pre',async transform(code,id){if(id===path.join(root,'src/index.css').replaceAll('\\','/'))return code.replace(/^@import url\([^\n]+\);/,await fs.readFile(path.join(root,'lab/d1/fonts.css'),'utf8'));}},react()],resolve:{alias:[
  {find:'@/api/base44Client',replacement:path.join(root,'lab/d1/client.mjs')},
  {find:'@/lib/stockService',replacement:path.join(root,'lab/d1/stock-service.mjs')},
+ {find:'@/lib/dailyExpenses',replacement:path.join(root,'lab/d1/daily-expenses.mjs')},
  {find:'@/components/ui/dialog',replacement:path.join(root,'lab/d1/dialog.jsx')},
  {find:'@/components/rh/SectorForm',replacement:path.join(root,'lab/d1/SectorForm.jsx')},
  {find:'@/components/Topbar',replacement:path.join(root,'lab/d1/Topbar.jsx')},

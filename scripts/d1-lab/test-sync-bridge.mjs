@@ -12,6 +12,7 @@ import {catalogSave,catalogList} from '../../server/d1-lab/catalog.mjs';
 import {synchronizeD1,syncStatus,centralOrigin} from '../../server/d1-lab/sync.mjs';
 import {syncState} from '../../lab/d1/sync-state.mjs';
 import {createStockItem} from '../../server/d1-lab/operations.mjs';
+import {domainCommand,domainList,domainPreview} from '../../server/d1-lab/domain.mjs';
 import {productionWitness} from './production-witness.mjs';
 if(process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Opt-in necessário: reinicia somente laboratório D1.');
 const exec=promisify(execFile),cli=fileURLToPath(new URL('../d1-lab.mjs',import.meta.url));
@@ -42,7 +43,7 @@ try{
  const peerOwner=new pg.Client({...ownerConfig,database:peerDatabase});await peerOwner.connect();
  try{
   await peerOwner.query('BEGIN');
-  for(const name of ['schema.sql','entities.sql','catalog.sql','sync.sql','operations.sql'])await peerOwner.query(await fs.readFile(new URL('../../server/d1-lab/'+name,import.meta.url),'utf8'));
+  for(const name of ['schema.sql','entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql'])await peerOwner.query(await fs.readFile(new URL('../../server/d1-lab/'+name,import.meta.url),'utf8'));
   await peerOwner.query('INSERT INTO lab_device VALUES(true,$1)',[deviceB]);
   await peerOwner.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[actorB,actorB+'@example.invalid',await hashPassword(randomBytes(24).toString('hex'))]);
   await peerOwner.query('INSERT INTO d1_sync_binding(actor,device_id,workspace_id) VALUES($1,$2,$3)',[actorB,deviceB,workspace]);
@@ -127,6 +128,38 @@ try{
   await synchronizeD1(B,actorB,{token:tokenB});
   assert.equal((await B.query('SELECT 1 FROM d1_operation_events WHERE owner_id=$1',[actorB])).rowCount,1);
   assert.equal((await B.query('SELECT 1 FROM d1_stock_balances WHERE owner_id=$1',[actorB])).rowCount,0);
+ });
+ await check('snapshots de produção e pagamento agregado sincronizam sem reaplicar baixa',async()=>{
+  const raw=(await A.query("SELECT item_id FROM d1_stock_balances WHERE owner_id=$1",[actorA])).rows[0].item_id;
+  const cmd=(entity,data,id=randomUUID(),baseVersion=null)=>({operationId:randomUUID(),entity,data,id,baseVersion,action:'save'});
+  const product=(await domainCommand(A,principalA,marker.deviceId,cmd('ProductionProduct',{name:'FICTICIO Receita ponte '+suffix,status:'ativo',yield_quantity:1,yield_unit:'un',ingredients:[{inventory_item_id:raw,quantity:0.5}]}))).domainRecord;
+  let daily=(await domainCommand(A,principalA,marker.deviceId,cmd('DailyProduction',{product_id:product.id,date:'2026-10-15',produced_quantity:1,loss_quantity:0,leftover_quantity:0,losses:[]}))).domainRecord;
+  const p=await domainPreview(A,principalA,daily.id);
+  const confirm={operationId:randomUUID(),entity:'DailyProduction',id:daily.id,baseVersion:1,action:'confirm',token:p.token};
+  daily=(await domainCommand(A,principalA,marker.deviceId,confirm)).domainRecord;
+  await domainCommand(A,principalA,marker.deviceId,cmd('FinancialExpense',{date:'2026-10-15',description:'FICTICIO Pagamento ponte',amount:25.01,status:'pago',beneficiary_type:'colaborador',beneficiary_id:employeeId}));
+  const card=(await domainCommand(A,principalA,marker.deviceId,cmd('CardReceivable',{sale_date:'2026-10-15',expected_date:'2026-10-16',gross_amount:100,fee_amount:2,net_amount:98,status:'a_receber'}))).domainRecord;
+  const title=(await domainList(A,principalA,'AccountsReceivable')).find(r=>r.id===card.accounts_receivable_id);
+  await domainCommand(A,principalA,marker.deviceId,cmd('AccountsReceivable',{...title,status:'recebido',received_date:'2026-10-16'},title.id,title._version));
+  const sent=await synchronizeD1(A,actorA);assert.equal(sent.pending,0);assert.equal(sent.rejected,0);
+  await synchronizeD1(B,actorB,{token:tokenB});
+  assert.equal((await domainList(B,principalB,'DailyProduction'))[0].local_status,'confirmado');
+  assert.equal((await domainList(B,principalB,'EmployeePayment'))[0].net_amount,25.01);
+  assert.equal((await domainList(B,principalB,'CardReceivable'))[0].status,'recebido');
+  assert.equal((await domainList(B,principalB,'AccountsReceivable'))[0].net_amount,98);
+  assert.equal((await B.query('SELECT 1 FROM d1_stock_balances WHERE owner_id=$1',[actorB])).rowCount,0);
+  await assert.rejects(domainCommand(B,principalB,deviceB,{operationId:randomUUID(),entity:'DailyProduction',id:daily.id,baseVersion:daily._version,action:'cancel'}),e=>e.status===409);
+  await domainCommand(A,principalA,marker.deviceId,{operationId:randomUUID(),entity:'DailyProduction',id:daily.id,baseVersion:daily._version,action:'cancel'});
+  await synchronizeD1(A,actorA);await synchronizeD1(B,actorB,{token:tokenB});
+  assert.equal((await domainList(B,principalB,'DailyProduction'))[0].local_status,'cancelado');
+  assert.equal((await B.query('SELECT 1 FROM d1_stock_balances WHERE owner_id=$1',[actorB])).rowCount,0);
+  assert.equal((await A.query('SELECT quantity_milli FROM d1_stock_balances WHERE owner_id=$1 AND item_id=$2',[actorA,raw])).rows[0].quantity_milli,'1000');
+  // Same domain document edited independently on two devices must stay conflicted.
+  const other=(await domainList(B,principalB,'ProductionProduct'))[0];
+  await domainCommand(B,principalB,deviceB,cmd('ProductionProduct',{...other,instructions:'FICTICIO proposta B'},other.id,other._version));
+  await domainCommand(A,principalA,marker.deviceId,cmd('ProductionProduct',{...product,instructions:'FICTICIO proposta A'},product.id,product._version));
+  await synchronizeD1(A,actorA);const conflict=await synchronizeD1(B,actorB,{token:tokenB});assert.ok(conflict.conflicts>=1);
+  assert.equal((await domainList(B,principalB,'ProductionProduct'))[0].instructions,'FICTICIO proposta B');
  });
  const result={checks,actorA,actorB,peerDatabase,central:'127.0.0.1:18086',operationalSyncEnabled:false,production,physicalComputers:false};
  await fs.writeFile('logs/d1-c2-bridge-evidence.json',JSON.stringify(result,null,2));console.log('D1_C2_BRIDGE_OK '+JSON.stringify(result));

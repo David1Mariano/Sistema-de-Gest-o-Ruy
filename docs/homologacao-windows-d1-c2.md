@@ -1,5 +1,8 @@
 # Windows 0.2.0 — preparação de homologação
 
+Evolução atual: [etapa E — Produção e Financeiro 0.3.0](etapa-e-producao-financeiro.md).
+Este documento e suas evidências descrevem a base 0.2.0.
+
 Não liberado para uso diário. Todos os testes de escrita usam dados sintéticos
 em clusters marcados; não houve alteração da produção 8080, do Supabase original,
 DNS, firewall público ou instalação de serviço permanente.

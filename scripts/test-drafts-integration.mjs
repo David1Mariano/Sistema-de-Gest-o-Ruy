@@ -474,7 +474,7 @@ test('I15 — Produção: o planejamento da ordem é rascunhado; operação diá
 const GRAVACAO_PADRAO = /entities\.\w+\.(create|update)\s*\(/g;
 const FLUXOS = [
   { nome: 'Gasto', arquivo: 'src/components/financeiro/DailyExpenseForm.jsx', chave: 'DRAFT_FORM_KEYS.FINANCEIRO_GASTO_NOVO', componente: 'function DailyExpenseForm(', gravacao: /saveDailyExpense\s*\(/g },
-  { nome: 'Pagamento', arquivo: 'src/pages/Financeiro.jsx', chave: 'DRAFT_FORM_KEYS.FINANCEIRO_PAGAMENTO_NOVO', componente: 'function PaymentDialog(' },
+  { nome: 'Pagamento', arquivo: 'src/pages/Financeiro.jsx', chave: 'DRAFT_FORM_KEYS.FINANCEIRO_PAGAMENTO_NOVO', componente: 'function PaymentDialog(', gravacao: /(?:entities\.\w+\.(?:create|update)\s*\(|await base44\.localDomain\.payment\s*\()/g },
   { nome: 'Conta a Pagar', arquivo: 'src/pages/Financeiro.jsx', chave: 'DRAFT_FORM_KEYS.FINANCEIRO_CONTA_PAGAR_NOVO', componente: 'function PayableCreateDialog(' },
   { nome: 'Colaborador', arquivo: 'src/components/rh/EmployeeForm.jsx', chave: 'DRAFT_FORM_KEYS.RH_COLABORADOR_NOVO', componente: 'function EmployeeForm(' },
   { nome: 'Item de estoque', arquivo: 'src/pages/Estoque.jsx', chave: 'DRAFT_FORM_KEYS.ESTOQUE_ITEM_NOVO', componente: 'function ItemDialog(', gravacao: /criarItemComEstoqueInicial\s*\(/g },

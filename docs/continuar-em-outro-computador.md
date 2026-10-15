@@ -26,6 +26,25 @@ no processo que executará a preparação. Não reutilizar credenciais operacion
 
 ## Preparar ambientes novos, sem dados reais
 
+Estado atual: [Produção/Financeiro 0.3.0 e pendências](etapa-e-producao-financeiro.md).
+Em laboratório D1 já existente da etapa 0.2, não usar `init` ou bootstrap.
+Aplicar somente a extensão sintética, antes de iniciar o aplicativo 0.3:
+
+```powershell
+node scripts/d1-lab/prepare-domain.mjs
+node scripts/d1-lab.mjs stop-api
+node scripts/d1-lab.mjs start-api
+```
+
+O primeiro comando preserva as linhas e amplia o contrato de documentos no
+banco D1 marcado. Não recebe URL ou credencial do banco operacional.
+Atualizar também a API C2 de laboratório para reconhecer os novos snapshots:
+
+```powershell
+node scripts/sync-lab.mjs stop central
+node scripts/sync-lab.mjs start central
+```
+
 ```powershell
 node node_modules/vite/bin/vite.js build --config lab/d1/vite.config.mjs
 node scripts/d1-lab/bootstrap-windows.mjs --new-synthetic-lab

@@ -66,6 +66,7 @@ for (const name of ENTITY_NAMES) entities[name] = makeEntityClient(name);
 // Login não deve migrar ou regravar dados locais automaticamente.
 
 export const base44 = {
+  localDomain: /** @type {import('../lib/offlineDomainTypes').LocalDomain | undefined} */ (undefined),
   entities,
   auth: supabaseAuth,
   integrations: {

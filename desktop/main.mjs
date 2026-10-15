@@ -126,6 +126,10 @@ async function start() {
         const b=(await persisted.query('SELECT quantity_milli FROM d1_stock_balances WHERE owner_id=$1',[smokeAccount.id])).rows;
         if(b.length!==1||b[0].quantity_milli!=='2000')throw Error('Saldo do formulário não persistiu.');
         evidence.originalStockPage={created:true,quantityMilli:2000};
+        if(process.argv.includes('--lab-domain-smoke')){
+          stage='domain-forms';const {domainSmoke}=await import('./domain-smoke.mjs');
+          evidence.domains=await domainSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id);
+        }
       }finally{await persisted.end();}
     }
     if(result) await fs.writeFile(result,JSON.stringify(evidence,null,2),{flag:'wx'});

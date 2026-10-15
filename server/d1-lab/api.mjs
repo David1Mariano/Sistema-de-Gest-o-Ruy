@@ -7,6 +7,7 @@ import {backupStatus} from './backup.mjs';
 import {catalogRoute} from './catalog.mjs';
 import {syncReady,syncStatus,synchronizeD1} from './sync.mjs';
 import {operationalCommand,operationalState,createStockItem} from './operations.mjs';
+import {domainRoute} from './domain.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
 export function createServer(pool,deviceId) {
   let dummy;
@@ -75,6 +76,8 @@ export function createServer(pool,deviceId) {
         if(Object.keys(body).length)throw fail(400,'O usuário/dispositivo não pode ser escolhido pelo formulário.');
         return reply(200,{...await synchronizeD1(pool,user.id),backup:user.role==='admin'?await backupStatus():null});
       }
+      const domain=await domainRoute(pool,user,deviceId,req,url,body);
+      if(domain)return reply(200,domain);
       const catalog=await catalogRoute(pool,user,deviceId,req,url,body);
       if(url.pathname==='/api/d1/operations/state'&&req.method==='GET')return reply(200,await operationalState(pool,user));
       if(url.pathname==='/api/d1/operations/command'&&req.method==='POST')return reply(200,await operationalCommand(pool,user,deviceId,body));

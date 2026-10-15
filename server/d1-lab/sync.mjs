@@ -14,7 +14,10 @@ export async function syncStatus(pool,actor){
  FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1`,[actor])).rows[0]:{pending:(await pool.query('SELECT count(*)::int n FROM lab_outbox WHERE actor=$1',[actor])).rows[0].n,sending:0,conflicts:0,rejected:0,missing:0};
  const shadows=ready?(await pool.query('SELECT count(*)::int n FROM d1_sync_shadow WHERE actor=$1',[actor])).rows[0].n:0;
  const eventsReady=(await pool.query("SELECT to_regclass('public.d1_operation_events') AS name")).rows[0].name;
- const pendingBusiness=eventsReady?(await pool.query("SELECT count(*)::int n FROM d1_operation_events WHERE owner_id=$1 AND data->>'status'='pending-central'",[actor])).rows[0].n:0;
+ const pendingEvents=eventsReady?(await pool.query("SELECT count(*)::int n FROM d1_operation_events WHERE owner_id=$1 AND data->>'status'='pending-central'",[actor])).rows[0].n:0;
+ const catalogReady=(await pool.query("SELECT to_regclass('public.d2_catalog') AS name")).rows[0].name;
+ const pendingDocuments=catalogReady?(await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE owner_id=$1 AND entity IN ('FinancialExpense','EmployeePayment','Revenue','AccountsPayable','AccountsReceivable') AND data->>'status' IN ('pago','recebido')",[actor])).rows[0].n:0;
+ const pendingBusiness=pendingEvents+pendingDocuments;
  return {enabled:!!binding,mode:'central-test-only',operationalSyncEnabled:false,...counts,conflicts:counts.conflicts+shadows,
  pendingBusiness,lastSyncAt:binding?.last_sync_at??null,lastError:binding?.last_error??null,cursor:binding?Number(binding.cursor):null,
  receiptsVerified:!!binding&&counts.missing===0,pullComplete:binding?.pull_complete===true,pendingFiles:0};
@@ -38,7 +41,7 @@ async function claim(pool,binding){
   if(!envelope){
    const snapshots=[{entity:op.entity,record:op.result.record},...(op.result.cascata||[])];const changes=[];
    for(const item of snapshots){
-    const localBase=item.record.id===op.record_id?op.base_version:Number(item.record._version)-1;
+    const localBase=item.record.id===op.record_id?op.base_version:Number(item.record._version)===1?null:Number(item.record._version)-1;
     const version=(await c.query('SELECT * FROM d1_sync_versions WHERE actor=$1 AND record_id=$2',[binding.actor,item.record.id])).rows[0];
     if(localBase!==null&&(!version||Number(version.local_version)!==Number(localBase)))throw fail(409,'Operação anterior precisa ser reconciliada.');
     if(localBase===null&&version)throw fail(409,'Criação já tem versão remota.');

@@ -7,10 +7,11 @@ import {poolFor, pg} from './core.mjs';
 
 const magic=Buffer.from('RUYBAK01'),limit=64*1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
-const snapshotTables=['d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events'];
-async function recoveryState(client){
+const snapshotTables=['d2_catalog','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events'];
+async function recoveryState(client,tables=snapshotTables){
+ if(!Array.isArray(tables)||tables.some(table=>!snapshotTables.includes(table)))throw Error('Tabela de recuperação não permitida.');
  const result={};
- for(const table of snapshotTables){
+ for(const table of tables){
   if((await client.query('SELECT to_regclass($1) AS name',['public.'+table])).rows[0].name)result[table]=(await client.query(`SELECT coalesce(jsonb_agg(row_data ORDER BY row_data::text),'[]'::jsonb) AS rows FROM (SELECT to_jsonb(t) AS row_data FROM ${table} t) s`)).rows[0].rows;
  }
  return result;
@@ -113,7 +114,7 @@ export async function restoreIsolated(file){
  try{
   const pending=(await db.query('SELECT operation_id FROM lab_outbox ORDER BY operation_id')).rows.map(r=>r.operation_id);
   if(JSON.stringify(pending)!==JSON.stringify(archive.pending))throw Error('Fila restaurada diverge do snapshot.');
-  if(archive.recoveryState&&JSON.stringify(await recoveryState(db))!==JSON.stringify(archive.recoveryState))throw Error('Recibos, cursores ou lançamentos restaurados divergiram.');
+  if(archive.recoveryState&&JSON.stringify(await recoveryState(db,Object.keys(archive.recoveryState)))!==JSON.stringify(archive.recoveryState))throw Error('Recibos, cursores ou lançamentos restaurados divergiram.');
   const attachments=path.join(home,'restore-attachments',database);await fs.mkdir(attachments,{recursive:true});
   for(const a of archive.attachments)await fs.writeFile(path.join(attachments,a.name),Buffer.from(a.bytes,'base64'),{flag:'wx'});
   // Banco recuperado não é registrado na API nem pode sincronizar automaticamente.

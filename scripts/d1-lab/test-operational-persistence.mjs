@@ -65,7 +65,7 @@ try{
  await control('stop-api');await control('stop-db');assert.deepEqual(await productionWitness(),production);await control('start-db');await control('start-api');pool=poolFor(await config());
  await check('estoque/produção/financeiro sobrevivem ao fechamento e reinício API/PostgreSQL',async()=>{assert.deepEqual(await snapshot(),before);assert.equal((await call('/operations/state')).body.accounts.find(r=>r.account==='cash').balance_cents,'7500');});
  await check('backup criptografado restaura comandos, fila, cursores e recibos em banco novo',async()=>{
-  const result=await backup();const restored=await restoreIsolated(path.join(home,'backups',result.file));assert.equal(restored.recoveryTablesVerified,10);assert.equal(restored.syncEnabled,false);
+  const result=await backup();const restored=await restoreIsolated(path.join(home,'backups',result.file));assert.equal(restored.recoveryTablesVerified,11);assert.equal(restored.syncEnabled,false);
  });
  const report={checks:count,actor,production,syntheticOnly:true,externalPaymentConfirmed:false,globalStockConfirmed:false};await fs.writeFile('logs/operational-persistence-evidence.json',JSON.stringify(report,null,2));console.log('OPERATIONAL_PERSISTENCE_OK '+JSON.stringify(report));
 }finally{await pool?.end();}

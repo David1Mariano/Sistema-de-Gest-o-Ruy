@@ -61,6 +61,9 @@ export default function TechnicalSheetDialog({ open, onClose, product, inventory
         total_cost: total,
         unit_cost: total / Number(form.yield_quantity || 1),
       };
+      if (base44.localDomain) {
+        await base44.localDomain.recipe({ ...payload, id: product?.id }, prepared);
+      } else {
       const saved = product
         ? await base44.entities.ProductionProduct.update(product.id, payload)
         : await base44.entities.ProductionProduct.create(payload);
@@ -69,6 +72,7 @@ export default function TechnicalSheetDialog({ open, onClose, product, inventory
       await base44.entities.RecipeIngredient.bulkCreate(
         prepared.map((x) => ({ ...x, product_id: saved.id || product.id, product_name: form.name }))
       );
+      }
       onClose();
       await onSaved?.();
     } catch (e) {

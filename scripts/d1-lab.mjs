@@ -27,7 +27,7 @@ try{
   const db=new pg.Client(c);await db.connect();
   try{
     await db.query('BEGIN');await db.query(await fs.readFile(new URL('../server/d1-lab/schema.sql',import.meta.url),'utf8'));
-    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql'])await db.query(await fs.readFile(new URL('../server/d1-lab/'+name,import.meta.url),'utf8'));
+    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql'])await db.query(await fs.readFile(new URL('../server/d1-lab/'+name,import.meta.url),'utf8'));
     await db.query('INSERT INTO lab_device(id) VALUES($1)',[marker.deviceId]);
     await db.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
     await db.query(`GRANT CONNECT ON DATABASE ${database} TO ruy_d1_app`);

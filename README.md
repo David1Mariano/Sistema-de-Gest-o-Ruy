@@ -1,6 +1,6 @@
 # Sistema de Gestão Ruy
 
-Preparação Windows offline para homologação: [estado atual e bloqueios](docs/homologacao-windows-d1-c2.md)
+Preparação Windows offline para homologação: [estado atual e bloqueios](docs/etapa-e-producao-financeiro.md)
 e [continuidade em outro computador](docs/continuar-em-outro-computador.md).
 O laboratório Windows usa banco, credenciais e portas próprios; a produção 8080
 é preservada. O aplicativo experimental ainda não está liberado para uso diário.

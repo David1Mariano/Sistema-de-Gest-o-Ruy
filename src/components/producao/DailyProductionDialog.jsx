@@ -162,7 +162,7 @@ export default function DailyProductionDialog({ open, onClose, record, products,
     // 2) Efeito colateral na ordem: só se existir ordem vinculada que ainda
     // não está concluída. Uma falha aqui NUNCA desfaz nem duplica o registro.
     let orderWarning = '';
-    if (form.production_order_id) {
+    if (form.production_order_id && !base44.localDomain) {
       const o = orders.find((x) => x.id === form.production_order_id);
       if (o && o.status !== 'concluida') {
         try {

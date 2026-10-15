@@ -49,6 +49,7 @@ let cleanupAlreadyRan = false;
  *
  * Fechar o modal NÃO apaga o rascunho: o efeito de limpeza apenas GRAVA o que
  * ficou pendente, porque fechar/sair é justamente o caso a ser coberto.
+ * @param {{formKey?: string, enabled?: boolean, value?: Record<string, unknown>, excludeFields?: string[], recordUpdatedAt?: string, debounceMs?: number, storage?: Storage}} options
  */
 export function usePersistentDraft({
   formKey,
@@ -62,7 +63,7 @@ export function usePersistentDraft({
   const user = useCurrentUser();
   const userKey = resolveUserKey(user);
 
-  const [status, setStatus] = useState(DRAFT_STATUS.IDLE);
+  const [status, setStatus] = useState(/** @type {typeof DRAFT_STATUS[keyof typeof DRAFT_STATUS]} */ (DRAFT_STATUS.IDLE));
   const [message, setMessage] = useState('');
   const [available, setAvailable] = useState(true);
 

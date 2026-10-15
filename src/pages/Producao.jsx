@@ -116,13 +116,13 @@ export default function Producao() {
 
   const remove = async (record) => {
     const ok = window.confirm(
-      'Excluir registro de produção?\n\nEsta ação não poderá ser desfeita.'
+      base44.localDomain ? 'Cancelar produção local? Os insumos já baixados serão devolvidos na mesma transação; o histórico será preservado.' : 'Excluir registro de produção?\n\nEsta ação não poderá ser desfeita.'
     );
     if (!ok) return;
     try {
       await base44.entities.DailyProduction.delete(record.id);
       await load({ silent: true });
-      toast({ title: 'Registro excluído.' });
+      toast({ title: base44.localDomain ? 'Produção cancelada; histórico preservado.' : 'Registro excluído.' });
     } catch (e) {
       toast({
         title: 'Não foi possível excluir',
