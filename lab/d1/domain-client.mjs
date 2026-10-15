@@ -40,6 +40,7 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
   preview:id=>request('/domain/preview/'+id),
   confirm:(record,token)=>command('DailyProduction',record.id,record,'confirm',{token}),
   payment:(data,editing)=>command('EmployeePayment',editing?.id||null,{...data,_version:editing?._version}),
+  batchPayments:(payments)=>command('EmployeePayment',null,{payments:payments.map(p=>({employee_id:p.employee_id,gross_amount:Number(p.gross_amount||0),discount_amount:Number(p.discount_amount||0),net_amount:Number(p.net_amount||0),payment_date:p.payment_date,payment_method:p.payment_method||'pix',status:p.status||'pago',observation:p.observation||'',payment_type:p.payment_type||'outros'})),action:'batch'}),
   settle:(payable,data)=>command('AccountsPayable',payable.id,{...payable,...data,status:'pago',_version:payable._version}),
   receive:record=>command('AccountsReceivable',record.id,{...record,status:'recebido',received_date:new Date().toLocaleDateString('en-CA'),_version:record._version}),
   generate:record=>command('RecurringExpense',record.id,record,'generate'),

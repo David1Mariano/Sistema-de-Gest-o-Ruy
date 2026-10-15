@@ -11,8 +11,8 @@ const positive = n => typeof n==='number' && Number.isFinite(n) && n>0 && n<=1e9
 function date(value){return typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.test(value) && Number.isFinite(Date.parse(value+'T00:00:00Z')) && new Date(value+'T00:00:00Z').toISOString().slice(0,10)===value;}
 function validate(entity,data){
  if(!domainFields[entity]||!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(k=>!domainFields[entity].includes(k)))throw fail(400,'Campos fora do contrato de domínio.');
- for(const [key,value] of Object.entries(data)){
-  if(['ingredients','losses'].includes(key))continue;
+  for(const [key,value] of Object.entries(data)){
+   if(['ingredients','losses','payments'].includes(key))continue;
   if(money(key)&&value!==null&&typeof value!=='number')throw fail(400,'Campo monetário deve ser numérico.');
   if(!['string','number','boolean'].includes(typeof value)&&value!==null)throw fail(400,'Tipo de campo inválido.');
   if(typeof value==='string'&&(value.length>1000||(/(?:url)$/.test(key)&&value)))throw fail(400,'Anexos ainda exigem transporte privado homologado.');
@@ -81,7 +81,7 @@ export async function domainPreview(pool,user,id){
  return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
 }
 export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
- if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','generate'].includes(body.action)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','generate','batch'].includes(body.action)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments'].includes(k)))throw fail(400,'Comando de domínio inválido.');
  return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
   const actor=(await c.query('SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rows[0];
@@ -220,6 +220,23 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
     const day=next.getUTCDate();next.setUTCDate(1);next.setUTCMonth(next.getUTCMonth()+(data.frequency==='anual'?12:1));const last=new Date(Date.UTC(next.getUTCFullYear(),next.getUTCMonth()+1,0)).getUTCDate();next.setUTCDate(Math.min(day,last));
    }else next.setUTCDate(next.getUTCDate()+(data.frequency==='quinzenal'?15:7));
    data.next_due_date=next.toISOString().slice(0,10);
+  }else   if(body.action==='batch'){
+   if(body.entity!=='EmployeePayment')throw fail(409,'Lote de pagamentos suportado apenas para EmployeePayment.');
+   const items=body.data&&Array.isArray(body.data.payments)?body.data.payments:null;
+   if(!items||!items.length||items.length>50)throw fail(400,'Lote deve conter de 1 a 50 pagamentos.');
+   const results=[];
+   for(const p of items){
+    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee'",[p.employee_id,actor.id])).rows[0];
+    if(!employee||!['ativo','em_experiencia','folga','ferias','afastado'].includes(employee.data.status))throw fail(409,'Colaborador '+String(p.employee_id)+' não elegível.');
+    if(!positive(p.net_amount)||!positive(p.gross_amount)||typeof p.discount_amount!=='number'||p.discount_amount<0||Math.round((p.gross_amount-p.discount_amount)*100)!==Math.round(p.net_amount*100)||!date(p.payment_date)||!['pago','pendente'].includes(p.status||'pago'))throw fail(400,'Valores do pagamento '+String(p.employee_id)+' inválidos.');
+    const expenseId=randomUUID();const paymentId=randomUUID();
+    await save('FinancialExpense',expenseId,{description:'Pagamento lote - '+employee.data.name,date:p.payment_date,paid_date:p.status==='pago'?p.payment_date:'',amount:p.net_amount,beneficiary_type:'colaborador',beneficiary_id:employee.id,beneficiary_name:employee.data.name,payment_method:p.payment_method,status:p.status||'pago',origin_type:'pagamento_colaborador',origin_id:body.operationId,linked_payment_id:paymentId,observation:(p.observation||'').slice(0,500)},null);
+    await save('EmployeePayment',paymentId,{employee_id:employee.id,employee_name:employee.data.name,sector:employee.data.sector||'',function:employee.data.function||'',payment_type:p.payment_type||'outros',gross_amount:p.gross_amount,discount_amount:p.discount_amount,net_amount:p.net_amount,payment_date:p.payment_date,payment_method:p.payment_method,status:p.status||'pago',financial_expense_id:expenseId,source_device_id:deviceId,observation:(p.observation||'').slice(0,500)},null);
+    results.push({employee_id:employee.id,payment_id:paymentId,expense_id:expenseId});
+   }
+   const obs='Lote de '+results.length+' pagamento(s).';
+   data={date:new Date().toISOString().slice(0,10),status:'processado',observation:obs,responsible_user:actor.id};
+   body.id=body.id||crypto.randomUUID();
   }else{
    if(!old)throw fail(409,'Documento inexistente.');
    if(body.entity!=='DailyProduction')throw fail(409,'Cancelamento agregado deste domínio ainda não homologado.');
