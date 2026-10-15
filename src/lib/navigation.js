@@ -1,7 +1,7 @@
 import {
   LayoutDashboard, UserCircle, Users, Briefcase, Clock, CalendarDays,
   FileX2, Wallet, ShoppingBag, AlertTriangle, BadgeDollarSign,
-  Landmark, ShoppingCart, Boxes, FileBarChart, Settings, Factory, Gauge, ShieldCheck,
+  Landmark, ShoppingCart, Boxes, FileBarChart, Settings, Factory, Gauge, ShieldCheck, Bike,
 } from 'lucide-react';
 
 export const NAV_GROUPS = [
@@ -39,6 +39,7 @@ export const NAV_GROUPS = [
     label: 'OPERAÇÃO',
     items: [
       { key: 'estoque', label: 'Estoque', path: '/estoque', icon: Boxes },
+      { key: 'delivery', label: 'Delivery', path: '/delivery', icon: Bike },
       { key: 'producao', label: 'Produção', path: '/producao', icon: Factory, roles: ['admin', 'super_admin', 'gerente', 'manager', 'producao'] },
     ],
   },
