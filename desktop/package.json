@@ -1,0 +1,82 @@
+{
+  "name": "sistema-gestao-ruy-desktop-lab",
+  "version": "0.2.0",
+  "private": true,
+  "type": "module",
+  "main": "main.mjs",
+  "description": "Sistema de Gestão Ruy — protótipo Windows isolado",
+  "author": "Sistema Ruy",
+  "scripts": {
+    "start": "electron .",
+    "pack": "electron-builder --dir --win --x64",
+    "dist": "electron-builder --win nsis --x64"
+  },
+  "dependencies": {
+    "pg": "8.23.0"
+  },
+  "devDependencies": {
+    "electron": "44.7.2",
+    "electron-builder": "26.15.3"
+  },
+  "build": {
+    "appId": "br.ruy.gestao.laboratorio",
+    "productName": "Sistema de Gestão Ruy",
+    "directories": {
+      "output": "../artifacts/windows-lab"
+    },
+    "files": [
+      "*.mjs",
+      "assets/*",
+      {
+        "from": "../server/d1-lab",
+        "to": "server/d1-lab",
+        "filter": [
+          "*.mjs"
+        ]
+      },
+      {
+        "from": "../src/lib",
+        "to": "src/lib",
+        "filter": [
+          "sectorUtils.js",
+          "roleUtils.js",
+          "rhUtils.js",
+          "timeUtils.js"
+        ]
+      },
+      {
+        "from": "../dist-d1",
+        "to": "dist-d1"
+      },
+      {
+        "from": "../scripts/d1-lab",
+        "to": "scripts/d1-lab",
+        "filter": [
+          "network-guard.cjs"
+        ]
+      }
+    ],
+    "win": {
+      "target": "nsis",
+      "icon": "assets/ruy.ico",
+      "signExecutable": false
+    },
+    "nsis": {
+      "oneClick": false,
+      "perMachine": false,
+      "allowToChangeInstallationDirectory": true,
+      "createDesktopShortcut": true,
+      "createStartMenuShortcut": true,
+      "deleteAppDataOnUninstall": false,
+      "artifactName": "Sistema-Gestao-Ruy-Lab-${version}-Setup.${ext}",
+      "runAfterFinish": false,
+      "shortcutName": "Sistema de Gestão Ruy — Laboratório"
+    },
+    "electronFuses": {
+      "runAsNode": false,
+      "enableCookieEncryption": true,
+      "enableNodeOptionsEnvironmentVariable": false,
+      "enableNodeCliInspectArguments": false
+    }
+  }
+}
