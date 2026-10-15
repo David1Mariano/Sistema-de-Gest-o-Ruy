@@ -1,0 +1,283 @@
+{
+  "generatedAt": "2026-10-15T21:30:07.973Z",
+  "branch": "preparacao/windows-oficial-20261015",
+  "baseCommit": "9d7e59ea59239f1ab25c0abbc346420d83e3783d",
+  "version": "0.2.0",
+  "production": {
+    "release": "20261015T155237724Z-d597121d",
+    "manifestSHA256": "a82921aa86895848c34dadd9d22d0ad0c329e295a81b5d9b28e3822fd3846ddc",
+    "verifiedFiles": 77,
+    "sourceChanges": []
+  },
+  "health": {
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "D1": {
+      "service": "ruy-d1-lab",
+      "mode": "synthetic-only",
+      "syncEnabled": false
+    },
+    "C2": {
+      "service": "ruy-c2-sync-lab",
+      "mode": "central",
+      "syntheticOnly": true
+    }
+  },
+  "tests": {
+    "official": {
+      "passed": true,
+      "log": "logs/homologacao-official-tests.log"
+    },
+    "lint": {
+      "passed": true,
+      "log": "logs/homologacao-lint-final.log"
+    },
+    "buildOfficial": {
+      "passed": true,
+      "log": "logs/homologacao-build.log"
+    },
+    "buildD1": {
+      "passed": true,
+      "log": "logs/build-d1-v02.log"
+    },
+    "package": {
+      "passed": true,
+      "log": "logs/homologacao-package.log"
+    },
+    "API": {
+      "passed": true,
+      "log": "logs/homologacao-test-api.mjs.log"
+    },
+    "rename": {
+      "passed": true,
+      "log": "logs/homologacao-test-sector-rename.mjs.log"
+    },
+    "edit": {
+      "passed": true,
+      "log": "logs/homologacao-test-sector-edit.mjs.log"
+    },
+    "feedback": {
+      "passed": true,
+      "log": "logs/homologacao-test-save-feedback.mjs.log"
+    },
+    "windowsBackup": {
+      "passed": true,
+      "log": "logs/homologacao-test-windows-cycle.mjs.log"
+    },
+    "catalog": {
+      "passed": true,
+      "log": "logs/homologacao-test-catalog.mjs.log"
+    },
+    "clientRecovery": {
+      "passed": true,
+      "log": "logs/homologacao-test-client-recovery.mjs.log"
+    },
+    "aliases": {
+      "passed": true,
+      "log": "logs/homologacao-test-build-aliases.mjs.log"
+    },
+    "criticalEngine": {
+      "passed": true,
+      "log": "logs/homologacao-test-critical-engine.mjs.log"
+    },
+    "C2Regression": {
+      "passed": true,
+      "log": "logs/homologacao-c2-regression.log"
+    },
+    "D1C2Bridge": {
+      "passed": true,
+      "log": "logs/d1-c2-bridge-final.log"
+    },
+    "operationalPersistence": {
+      "passed": true,
+      "log": "logs/operational-persistence.log"
+    },
+    "bootstrapSafety": {
+      "passed": true,
+      "log": "logs/bootstrap-safety.log"
+    }
+  },
+  "typescript": {
+    "exit": 2,
+    "diagnostics": 1442,
+    "byCode": {
+      "TS2322": 697,
+      "TS2741": 249,
+      "TS2559": 125,
+      "TS2345": 53,
+      "TS2739": 6,
+      "TS2353": 29,
+      "TS2339": 271,
+      "TS18048": 2,
+      "TS2552": 3,
+      "TS1064": 1,
+      "TS18047": 2,
+      "TS2367": 2,
+      "TS2362": 1,
+      "TS2363": 1
+    },
+    "sample": [
+      {
+        "file": "src/components/escala/CriarEscala.jsx",
+        "line": 64,
+        "code": "TS2322"
+      },
+      {
+        "file": "src/components/escala/CriarEscala.jsx",
+        "line": 65,
+        "code": "TS2741"
+      },
+      {
+        "file": "src/components/escala/CriarEscala.jsx",
+        "line": 66,
+        "code": "TS2559"
+      },
+      {
+        "file": "src/components/escala/CriarEscala.jsx",
+        "line": 70,
+        "code": "TS2559"
+      },
+      {
+        "file": "src/components/escala/CriarEscala.jsx",
+        "line": 77,
+        "code": "TS2559"
+      }
+    ],
+    "existingOfficialSource": true
+  },
+  "bridge": {
+    "checks": 14,
+    "actorA": "7a660b71-eed6-4980-a146-bb6263c3d822",
+    "actorB": "d30dcfc6-c3d2-4a85-b2a8-8e065071361e",
+    "peerDatabase": "ruy_d1_peer_f420d57d71d75a95",
+    "central": "127.0.0.1:18086",
+    "operationalSyncEnabled": false,
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "physicalComputers": false
+  },
+  "operations": {
+    "checks": 8,
+    "actor": "6a18dc0b-39d8-45eb-8047-44060ca9d3d7",
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "syntheticOnly": true,
+    "externalPaymentConfirmed": false,
+    "globalStockConfirmed": false
+  },
+  "desktop": {
+    "owned": {
+      "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+      "packaged": true,
+      "syntheticActor": "15646344-a3b4-4f6c-9515-ad9d19930803",
+      "apiOwned": true,
+      "renderer": {
+        "title": "Ruy — D1 isolado",
+        "hasLogin": true,
+        "nodeExposed": false,
+        "location": "http://127.0.0.1:18087"
+      },
+      "authenticated": true,
+      "cloudIndicator": "Nuvem: alterações pendentes",
+      "originalEmployeesPage": true,
+      "originalSettingsPage": true,
+      "originalStockPage": {
+        "created": true,
+        "quantityMilli": 2000
+      }
+    },
+    "installed": {
+      "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+      "packaged": true,
+      "syntheticActor": "6405cfd3-4029-411f-b2c6-9ef791a1d2fa",
+      "apiOwned": false,
+      "renderer": {
+        "title": "Ruy — D1 isolado",
+        "hasLogin": true,
+        "nodeExposed": false,
+        "location": "http://127.0.0.1:18087"
+      },
+      "authenticated": true,
+      "cloudIndicator": "Nuvem: alterações pendentes",
+      "originalEmployeesPage": true,
+      "originalSettingsPage": true,
+      "originalStockPage": {
+        "created": true,
+        "quantityMilli": 2000
+      }
+    },
+    "stockPersistsAfterClose": true
+  },
+  "installation": {
+    "version": "0.2.0",
+    "upgradeExit": 0,
+    "uninstallExit": 0,
+    "reinstallExit": 0,
+    "before": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "34ba0640817f191835b6a49f00e40f59926e293116d5fee4bddf1a06fb99844a",
+      "counts": {
+        "d1_records": 182,
+        "d2_catalog": 35,
+        "lab_outbox": 345,
+        "lab_audit": 477,
+        "d1_sync_binding": 3,
+        "d1_sync_queue": 23,
+        "d1_sync_versions": 18,
+        "d1_sync_inbox": 24,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 5,
+        "d1_stock_movements": 8,
+        "d1_financial_accounts": 3,
+        "d1_financial_entries": 4,
+        "d1_operation_events": 9
+      }
+    },
+    "after": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "34ba0640817f191835b6a49f00e40f59926e293116d5fee4bddf1a06fb99844a",
+      "counts": {
+        "d1_records": 182,
+        "d2_catalog": 35,
+        "lab_outbox": 345,
+        "lab_audit": 477,
+        "d1_sync_binding": 3,
+        "d1_sync_queue": 23,
+        "d1_sync_versions": 18,
+        "d1_sync_inbox": 24,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 5,
+        "d1_stock_movements": 8,
+        "d1_financial_accounts": 3,
+        "d1_financial_entries": 4,
+        "d1_operation_events": 9
+      }
+    },
+    "asarMatches": true,
+    "windowsCleanTested": false
+  },
+  "installer": {
+    "path": "artifacts/windows-lab/Sistema-Gestao-Ruy-Lab-0.2.0-Setup.exe",
+    "bytes": 111795209,
+    "sha256": "379019fbe8c3f3ea76814aa288775d86891f864f4eb1b73e33c7580cfd6c4ed4",
+    "signed": false
+  },
+  "limitations": {
+    "dailyUseReleased": false,
+    "operationalSyncEnabled": false,
+    "physicalComputersTested": false,
+    "cleanWindowsTested": false,
+    "visualParityApproved": false,
+    "crossMachineKeyRecovery": false,
+    "externalBackupProtected": false,
+    "globalBusinessReconciliation": false
+  }
+}

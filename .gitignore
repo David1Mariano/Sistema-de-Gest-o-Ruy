@@ -41,3 +41,26 @@ base44/.app.jsonc
 
 # Artefato gerado pelos checks (regerado a cada execução)
 /scripts/*.out.txt
+
+# Laboratorio D1 compilado
+/dist-d1/
+
+# Artefatos experimentais e backups: nunca versionar dados/chaves.
+/artifacts/
+*.ruybak
+*.dump
+*.backup
+/desktop/.cache/
+*.dpapi
+*.keybundle
+*.pfx
+*.p12
+*.key
+*.pem
+*.sql.gz
+*.sqlite
+*.sqlite3
+*.db
+/backups/
+/cluster/
+*.exe

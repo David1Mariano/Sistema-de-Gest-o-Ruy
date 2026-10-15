@@ -5,6 +5,10 @@ import pluginReactHooks from "eslint-plugin-react-hooks";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
+ {ignores:["artifacts/**","dist-d1/**","desktop/node_modules/**"]},
+ {files:["desktop/**/*.mjs","server/sync-lab/**/*.mjs","server/local-lab/**/*.mjs","scripts/sync-lab/**/*.mjs","scripts/sync-lab.mjs"],languageOptions:{globals:{...globals.node,...globals.browser},ecmaVersion:2022,sourceType:"module"},rules:{...pluginJs.configs.recommended.rules,"no-unused-vars":["error",{argsIgnorePattern:"^_"}]}},
+ {files:["server/d1-lab/**/*.mjs","scripts/d1-lab/**/*.mjs","scripts/d1-lab.mjs","lab/d1/**/*.mjs"],languageOptions:{globals:{...globals.node,...globals.browser},ecmaVersion:2022,sourceType:"module"},rules:{...pluginJs.configs.recommended.rules,"no-unused-vars":["error",{argsIgnorePattern:"^_"}]}},
+ {files:["lab/d1/**/*.jsx"],...pluginJs.configs.recommended,languageOptions:{globals:globals.browser,parserOptions:{ecmaVersion:2022,sourceType:"module",ecmaFeatures:{jsx:true}}},plugins:{react:pluginReact},rules:{"no-unused-vars":"off","react/jsx-uses-vars":"error"}},
   {
     files: [
       "src/components/**/*.{js,mjs,cjs,jsx}",

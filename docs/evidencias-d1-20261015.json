@@ -1,0 +1,47 @@
+{
+  "passed": 27,
+  "production": {
+    "service": "gestao-ruy-production",
+    "release": "20261015T155237724Z-d597121d"
+  },
+  "d1Port": 18087,
+  "databasePort": 55436,
+  "syncEnabled": false,
+  "offlineGuard": true,
+  "browserValidation": "pending",
+  "pending": 6,
+  "existingTests": {
+    "sectorsFunctionsTheme": 56,
+    "passed": 56
+  },
+  "lint": "passed",
+  "normalBuild": "passed",
+  "d1Build": "passed",
+  "visualComparison": "pending-real-browser",
+  "manualAccountInitialPending": 3,
+  "manualAccountSyntheticEmployees": 6,
+  "globalPendingAtSetup": 26,
+  "finalVerification": {
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "verifiedProductionAssets": 77,
+    "d1": {
+      "service": "ruy-d1-lab",
+      "mode": "synthetic-only",
+      "syncEnabled": false
+    },
+    "counts": {
+      "records": 24,
+      "operations": 26,
+      "confirmed": 0
+    }
+  },
+  "manualSaveValidation": {
+    "status": "confirmed-by-owner",
+    "revision": "salvar-3",
+    "statement": "ta funcionando perfeitamente",
+    "scope": "Resolu??o do problema de salvamento D1 no navegador; n?o homologa outros m?dulos ou desconex?o f?sica."
+  }
+}

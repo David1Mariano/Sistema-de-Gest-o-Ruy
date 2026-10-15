@@ -1,0 +1,41 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {randomUUID,randomBytes} from 'node:crypto';
+import {config} from '../../server/d1-lab/environment.mjs';
+import {pg} from '../../server/d1-lab/core.mjs';
+import {applyCritical} from '../../server/d1-lab/critical-engine.mjs';
+test('Motor crítico isolado: cotas, concorrência, produção, centavos, replay e rollback',async()=>{
+ const pool=new pg.Pool(await config(true)),schema='critical_'+randomBytes(8).toString('hex');
+ const identity={role:'writer',deviceId:randomUUID(),actorId:randomUUID()},other={...identity,deviceId:randomUUID()};
+ try{
+  await pool.query(`CREATE SCHEMA ${schema}`);
+  await pool.query(`CREATE TABLE ${schema}.stock(id text PRIMARY KEY,balance bigint NOT NULL CHECK(balance>=0),version int NOT NULL);
+   CREATE TABLE ${schema}.quotas(device uuid,item text,remaining bigint CHECK(remaining>=0),PRIMARY KEY(device,item));
+   CREATE TABLE ${schema}.movements(operation_id uuid,item text,quantity bigint,PRIMARY KEY(operation_id,item));
+   CREATE TABLE ${schema}.journal(operation_id uuid,account text,cents bigint);
+   CREATE TABLE ${schema}.operations(id uuid PRIMARY KEY,hash text,result jsonb);
+   CREATE TABLE ${schema}.audit(operation_id uuid PRIMARY KEY,actor uuid,kind text);
+   INSERT INTO ${schema}.stock VALUES('FICTICIO-RAW',10000,1),('FICTICIO-OUTPUT',0,1)`);
+  await pool.query(`INSERT INTO ${schema}.quotas VALUES($1,'FICTICIO-RAW',4000),($2,'FICTICIO-RAW',4000)`,[identity.deviceId,other.deviceId]);
+  const consume={operationId:randomUUID(),kind:'consume',itemId:'FICTICIO-RAW',quantityMilli:2000,baseVersion:1};
+  const applied=await applyCritical(pool,schema,identity,consume);assert.equal(applied.globalConfirmed,false);
+  assert.equal((await applyCritical(pool,schema,identity,consume)).replay,true);
+  await assert.rejects(applyCritical(pool,schema,identity,{...consume,quantityMilli:1000}),e=>e.status===409);
+  await assert.rejects(applyCritical(pool,schema,{...identity,role:'viewer'},{...consume,operationId:randomUUID()}),e=>e.status===403);
+  await assert.rejects(applyCritical(pool,schema,identity,{...consume,operationId:randomUUID(),baseVersion:2,quantityMilli:3000}),e=>e.status===409);
+  const production={operationId:randomUUID(),kind:'production',itemId:'FICTICIO-RAW',quantityMilli:1000,baseVersion:2,outputItemId:'FICTICIO-OUTPUT',outputMilli:500};
+  await assert.rejects(applyCritical(pool,schema,identity,production,()=>{throw Error('FICTICIO failpoint');}));
+  assert.equal((await pool.query(`SELECT balance FROM ${schema}.stock WHERE id='FICTICIO-OUTPUT'`)).rows[0].balance,'0');
+  assert.equal((await pool.query(`SELECT 1 FROM ${schema}.operations WHERE id=$1`,[production.operationId])).rowCount,0);
+  await applyCritical(pool,schema,identity,production);
+  assert.equal((await pool.query(`SELECT balance FROM ${schema}.stock WHERE id='FICTICIO-OUTPUT'`)).rows[0].balance,'500');
+  const competing={...consume,baseVersion:3,quantityMilli:500};
+  const results=await Promise.allSettled([applyCritical(pool,schema,identity,{...competing,operationId:randomUUID()}),applyCritical(pool,schema,other,{...competing,operationId:randomUUID()})]);
+  assert.equal(results.filter(r=>r.status==='fulfilled').length,1);assert.equal(results.filter(r=>r.status==='rejected'&&r.reason.status===409).length,1);
+  const journal={operationId:randomUUID(),kind:'journal',entries:[{account:'cash',cents:-1001},{account:'expense',cents:1001}]};
+  assert.equal((await applyCritical(pool,schema,identity,journal)).externalConfirmed,false);
+  assert.equal((await pool.query(`SELECT sum(cents) s FROM ${schema}.journal`)).rows[0].s,'0');
+  await assert.rejects(applyCritical(pool,schema,identity,{...journal,operationId:randomUUID(),entries:[{account:'cash',cents:-1000},{account:'expense',cents:999}]}),e=>e.status===400);
+  assert.equal((await pool.query(`SELECT count(*)::int n FROM ${schema}.operations`)).rows[0].n,4);
+ }finally{await pool.end();}
+});

@@ -1,0 +1,75 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {fileURLToPath} from 'node:url';
+import {config,validateHome,home} from '../../server/d1-lab/environment.mjs';
+import {poolFor,seedSynthetic} from '../../server/d1-lab/core.mjs';
+import {save} from '../../server/d1-lab/entities.mjs';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Opt-in: teste reinicia somente D1.');
+const exec=promisify(execFile),cli=fileURLToPath(new URL('../d1-lab.mjs',import.meta.url));
+const control=(...args)=>exec(process.execPath,[cli,...args],{windowsHide:true,timeout:30000});
+const origin='http://127.0.0.1:18087',fetchNative=globalThis.fetch;
+const pool=poolFor(await config()),marker=await validateHome();let passed=0;
+const check=async(label,fn)=>{await fn();passed++;console.log('PASS '+label);};
+const health=async port=>(await fetchNative(`http://127.0.0.1:${port}/${port===8080?'__health':'health'}`)).json();
+const baseline={prod:await health(8080),c1:await health(18083),c2:await health(18086)};
+async function call(route,body,session,extra={}){
+ const r=await fetchNative(origin+'/api/d1'+route,{method:body?'POST':'GET',headers:{Connection:'close',...(body?{'Content-Type':'application/json',Origin:origin}:{}),...(session?{Cookie:session.cookie,'X-CSRF-Token':session.csrf}:{}),...extra},body:body?JSON.stringify(body):undefined});
+ return {status:r.status,body:await r.json(),cookie:r.headers.get('set-cookie')?.split(';')[0]};
+}
+const cmd=(name,data={})=>({operationId:randomUUID(),operation:'create',baseVersion:null,data:{name:'FICTICIO '+name,status:'ativo',...data}});
+const route=(entity,id='')=>'/entities/'+entity+(id?'/'+id:'');
+const suffix=randomUUID().slice(0,8),id=randomUUID(),roleId=randomUUID();
+let accounts,sessions;
+try{
+ await check('guarda offline recusa saída externa no processo de teste',async()=>{assert.equal(process.env.RUY_D1_NETWORK_GUARD,'1');await assert.rejects(fetchNative('https://example.invalid/'),e=>e.code==='ENETUNREACH');});
+ accounts=await seedSynthetic(pool);sessions=[];
+ await check('autenticação local e sessões distintas',async()=>{for(const a of accounts){const r=await call('/login',{login:a.login,password:a.password});assert.equal(r.status,200);sessions.push({...r.body,cookie:r.cookie});}assert.notEqual(sessions[0].cookie,sessions[1].cookie);});
+ const [admin,writer,viewer]=sessions;
+ await check('anônimo, credencial inválida e sessão produção recusados',async()=>{assert.equal((await call(route('Sector'))).status,401);assert.equal((await call('/login',{login:'ausente@example.invalid',password:'invalid-password'})).status,401);assert.equal((await call(route('Sector'),null,{cookie:'ruy_b_lab='+'a'.repeat(64)})).status,401);});
+ await check('Origin e CSRF são obrigatórios para escrita',async()=>{assert.equal((await call(route('Sector',id),cmd(suffix),admin,{Origin:'http://localhost:8080'})).status,403);assert.equal((await call(route('Sector',id),cmd(suffix),admin,{'X-CSRF-Token':'errado'})).status,403);});
+ const create=cmd('SETOR '+suffix,{description:'Sobre fictício',role_purpose:'Função fictícia',responsible_name:'FICTICIO RESPONSAVEL'});
+ await check('Setores: criação e consulta preservam campos oficiais',async()=>{const r=await call(route('Sector',id),create,admin);assert.equal(r.status,200);assert.equal(r.body.record._version,1);assert.equal(r.body.record.role_purpose,create.data.role_purpose);assert.ok((await call(route('Sector'),null,admin)).body.records.some(r=>r.id===id));});
+ await check('replay não duplica cadastro, fila ou auditoria',async()=>{assert.equal((await call(route('Sector',id),create,admin)).body.replay,true);assert.equal((await pool.query('SELECT count(*)::int n FROM lab_outbox WHERE operation_id=$1',[create.operationId])).rows[0].n,1);assert.equal((await pool.query('SELECT count(*)::int n FROM lab_audit WHERE operation_id=$1',[create.operationId])).rows[0].n,1);});
+ await check('mesmo UUID com outro conteúdo é recusado',async()=>assert.equal((await call(route('Sector',id),{...create,data:{...create.data,description:'OUTRO'}},admin)).status,409));
+ await check('edição local incrementa versão',async()=>{assert.equal((await call(route('Sector',id),{operationId:randomUUID(),operation:'update',baseVersion:1,data:{description:'Descrição editada'}},admin)).body.record._version,2);});
+ await check('edição simultânea com versão velha não sobrescreve',async()=>assert.equal((await call(route('Sector',id),{operationId:randomUUID(),operation:'update',baseVersion:1,data:{description:'PERDIDA'}},admin)).status,409));
+ await check('duplicidade normalizada e campos não permitidos',async()=>{assert.equal((await call(route('Sector',randomUUID()),create,admin)).status,409);assert.equal((await call(route('Sector',randomUUID()),cmd(suffix,{owner_id:writer.user.id}),admin)).status,400);assert.equal((await call(route('Sector',randomUUID()),cmd(suffix,{name:'Nome real'}),admin)).status,400);});
+ await check('isolamento entre usuários na consulta e alteração',async()=>{assert.equal((await call(route('Sector'),null,writer)).body.records.length,0);assert.equal((await call(route('Sector',id),{operationId:randomUUID(),operation:'update',baseVersion:2,data:{description:'SEM ACESSO'}},writer)).status,403);});
+ await check('perfil viewer não consegue criar via API',async()=>assert.equal((await call(route('Sector',randomUUID()),cmd(suffix),viewer)).status,403));
+ await check('Funções: criar vínculo válido ao setor local',async()=>{const r=await call(route('JobRole',roleId),cmd('FUNCAO '+suffix,{sector_id:id,sector_name:create.data.name}),admin);assert.equal(r.status,200);assert.equal(r.body.record.sector_id,id);});
+ await check('integridade: setor inexistente/de outro usuário bloqueados',async()=>{assert.equal((await call(route('JobRole',randomUUID()),cmd('ORFA '+suffix,{sector_id:randomUUID(),sector_name:'FICTICIO AUSENTE'}),admin)).status,409);assert.equal((await call(route('JobRole',randomUUID()),cmd('OUTRO '+suffix,{sector_id:id,sector_name:create.data.name}),writer)).status,409);});
+ const employeeId=randomUUID();await pool.query("INSERT INTO d1_records(id,owner_id,entity,data,name_key) VALUES($1,$2,'Employee',$3,$4)",[employeeId,admin.user.id,{name:'FICTICIO COLABORADOR',social_name:'FICTICIO APELIDO',sector:create.data.name,function:'FICTICIO FUNCAO '+suffix,status:'ativo',admission_date:'2026-01-01'},'fixture-'+employeeId]);
+ await check('colaborador sintético aparece para detalhe/filtros e não é gravável pela API',async()=>{assert.ok((await call(route('Employee'),null,admin)).body.records.some(r=>r.id===employeeId));assert.equal((await call(route('Employee',randomUUID()),cmd(suffix),admin)).status,400);});
+ await check('função em uso bloqueia desativação no servidor',async()=>assert.equal((await call(route('JobRole',roleId),{operationId:randomUUID(),operation:'update',baseVersion:1,data:{status:'inativo'}},admin)).status,409));
+ await check('renomeação com vínculos é bloqueada sem cascata',async()=>assert.equal((await call(route('Sector',id),{operationId:randomUUID(),operation:'update',baseVersion:2,data:{name:'FICTICIO RENOMEADO '+suffix}},admin)).status,409));
+ await check('inativação de setor preserva vínculos e impede novos',async()=>{assert.equal((await call(route('Sector',id),{operationId:randomUUID(),operation:'update',baseVersion:2,data:{status:'inativo'}},admin)).status,200);assert.equal((await call(route('JobRole',randomUUID()),cmd('NOVO '+suffix,{sector_id:id,sector_name:create.data.name}),admin)).status,409);assert.equal((await call(route('Employee'),null,admin)).body.records.find(r=>r.id===employeeId).sector,create.data.name);});
+ const freeId=randomUUID();await call(route('JobRole',freeId),cmd('SEM SETOR '+suffix,{sector_id:'',sector_name:''}),admin);
+ await check('função sem vínculo admite edição e exclusão lógica, sem apagar',async()=>{assert.equal((await call(route('JobRole',freeId),{operationId:randomUUID(),operation:'update',baseVersion:1,data:{status:'inativo'}},admin)).status,200);assert.equal((await call(route('JobRole'),null,admin)).body.records.find(r=>r.id===freeId).status,'inativo');});
+ await check('rollback preserva atomicidade cadastro/fila/auditoria',async()=>{const failed=cmd('ROLLBACK '+suffix),failedId=randomUUID();await assert.rejects(save(pool,admin.user,marker.deviceId,'Sector',failedId,failed,()=>{throw Error('Falha simulada');}));assert.equal((await pool.query('SELECT 1 FROM d1_records WHERE id=$1',[failedId])).rowCount,0);assert.equal((await pool.query('SELECT 1 FROM lab_outbox WHERE operation_id=$1',[failed.operationId])).rowCount,0);assert.equal((await pool.query('SELECT 1 FROM lab_audit WHERE operation_id=$1',[failed.operationId])).rowCount,0);});
+ await check('fila somente pendente, sem confirmação ou sincronização real',async()=>{const r=(await call('/pending',null,admin)).body;assert.equal(r.syncEnabled,false);assert.ok(r.total>=6);assert.ok(r.pending.every(o=>o.state==='pending'&&o.confirmed_at===null&&o.device_id===marker.deviceId));});
+ const originalFiles=['src/pages/Setores.jsx','src/pages/Funcoes.jsx','src/components/rh/SectorForm.jsx','src/components/rh/JobRoleForm.jsx','src/lib/sectorUtils.js','src/lib/roleUtils.js','src/components/Layout.jsx','src/components/Sidebar.jsx','src/components/Topbar.jsx','src/lib/theme/ThemeProvider.jsx','src/index.css','src/api/base44Client.js','src/lib/AuthContext.jsx'];
+ await check('componentes oficiais, CSS e persistência operacional intactos',async()=>{for(const f of originalFiles){const official=await exec('git',['show','9d7e59e:'+f],{encoding:'utf8',maxBuffer:2e6});assert.equal((await fs.readFile(f,'utf8')).replaceAll('\r\n','\n'),official.stdout.replaceAll('\r\n','\n'));}});
+ await check('assets, fontes locais e bundle não incluem projeto Supabase',async()=>{assert.equal((await fetchNative(origin+'/setores')).status,200);assert.equal((await fetchNative(origin+'/funcoes')).status,200);for(const file of await fs.readdir('dist-d1/assets')){const content=await fs.readFile('dist-d1/assets/'+file,'utf8');assert.ok(!content.includes('wvcvveqdkecsoygtilop'));assert.ok(!content.includes('fonts.googleapis.com'));assert.ok(!content.includes('supabase.co'));assert.equal((await fetchNative(origin+'/assets/'+file)).status,200);}for(const file of await fs.readdir('dist-d1/fonts'))assert.equal((await fetchNative(origin+'/fonts/'+file)).status,200);});
+ const before={records:(await call(route('Sector'),null,admin)).body,pending:(await call('/pending',null,admin)).body};
+ await pool.end();await control('stop-api');await control('stop-db');
+ await check('8080, C1 e C2 permanecem ativos com D1 inteiramente parado',async()=>{assert.deepEqual(await health(8080),baseline.prod);assert.deepEqual(await health(18083),baseline.c1);assert.deepEqual(await health(18086),baseline.c2);});
+ await control('start-db');await control('start-api');
+ await check('dados, sessões e fila durável sobrevivem ao reinício PostgreSQL/API',async()=>{assert.deepEqual((await call(route('Sector'),null,admin)).body,before.records);assert.deepEqual((await call('/pending',null,admin)).body,before.pending);});
+ await check('autorização consulta continua após reinício',async()=>{assert.equal((await call(route('Sector'),null,viewer)).status,200);assert.equal((await call(route('Sector',randomUUID()),cmd(suffix),viewer)).status,403);});
+ // Exercita o cliente realmente usado pelos componentes, sem alegar DOM/navegador.
+ await check('adaptador frontend: criar, listar, editar e consumir recibo de auditoria',async()=>{
+  const store=new Map();globalThis.localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};const events=new EventTarget();globalThis.dispatchEvent=e=>events.dispatchEvent(e);
+  globalThis.fetch=async(url,options={})=>fetchNative(origin+url,{...options,headers:{...options.headers,Cookie:writer.cookie,Origin:origin}});
+  const client=await import('../../lab/d1/client.mjs');client.setSession(writer);const sector=await client.base44.entities.Sector.create({name:'FICTICIO CLIENTE '+suffix,status:'ativo',description:'Inicial'});await client.base44.entities.Sector.list();assert.equal((await client.base44.entities.Sector.update(sector.id,{description:'Editado pelo adaptador'})).description,'Editado pelo adaptador');assert.equal((await client.base44.entities.AuditLog.create({entity_id:sector.id})).serverCommitted,true);assert.equal(store.size,0);
+  const data={name:'FICTICIO ACK PERDIDO '+suffix,status:'ativo'};const normal=globalThis.fetch;let lostId;
+  globalThis.fetch=async(...args)=>{const r=await normal(...args);lostId=(await r.clone().json()).record.id;throw Error('Resposta perdida após COMMIT');};
+  await assert.rejects(client.base44.entities.Sector.create(data));assert.equal(store.size,1);globalThis.fetch=normal;assert.equal((await client.base44.entities.Sector.create(data)).id,lostId);assert.equal(store.size,0);
+  client.setSession(viewer);await assert.rejects(client.base44.entities.Sector.create({name:'FICTICIO NEGADO',status:'ativo'}));globalThis.fetch=fetchNative;
+ });
+ const report={passed,production:baseline.prod,d1Port:18087,databasePort:55436,syncEnabled:false,offlineGuard:process.env.RUY_D1_NETWORK_GUARD==='1',browserValidation:'pending',pending:(await call('/pending',null,admin)).body.total};
+ await fs.writeFile(path.join(home,'last-test.json'),JSON.stringify(report,null,2));console.log('D1_OK '+JSON.stringify(report));
+}finally{await pool.end().catch(()=>{});globalThis.fetch=fetchNative;}

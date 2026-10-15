@@ -1,5 +1,10 @@
 # Sistema de Gestão Ruy
 
+Preparação Windows offline para homologação: [estado atual e bloqueios](docs/homologacao-windows-d1-c2.md)
+e [continuidade em outro computador](docs/continuar-em-outro-computador.md).
+O laboratório Windows usa banco, credenciais e portas próprios; a produção 8080
+é preservada. O aplicativo experimental ainda não está liberado para uso diário.
+
 Sistema administrativo e operacional desenvolvido para o **Ruy Caldo de Cana**, criado para centralizar processos, informações e rotinas do negócio em uma única plataforma.
 
 O projeto reúne funcionalidades de gestão financeira, estoque, produção, colaboradores, compras, operação diária e demais processos internos, com foco em **organização, segurança dos dados, redução de tarefas manuais e evolução contínua da operação**.
