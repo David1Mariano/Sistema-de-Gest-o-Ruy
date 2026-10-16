@@ -1,0 +1,43 @@
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+
+export async function rhSmoke(window,waitFor,origin,pool,actor,{catalogSave,domainCommand,marker}){
+ const user={id:actor,role:'admin'},employee=randomUUID();
+ await catalogSave(pool,user,marker.deviceId,'Employee',employee,{operationId:randomUUID(),operation:'create',baseVersion:null,data:{name:'FICTICIO Colaborador RH desktop',status:'ativo',hire_type:'clt',admission_date:'2026-01-01'}});
+ const payment=(await domainCommand(pool,user,marker.deviceId,{operationId:randomUUID(),entity:'EmployeePayment',id:randomUUID(),baseVersion:null,action:'save',data:{employee_id:employee,payment_type:'salario',gross_amount:200,discount_amount:50,net_amount:150,payment_date:'2026-10-16',status:'pago'}})).domainRecord;
+ const js=code=>window.webContents.executeJavaScript(code);
+ const click=label=>js(`(()=>{const b=[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(label)});if(!b||b.disabled)throw Error('Botão indisponível: '+${JSON.stringify(label)});b.click();})()`);
+ const field=(label,value)=>js(`(()=>{const l=[...document.querySelector('[role=dialog]').querySelectorAll('label')].find(l=>l.textContent.trim()===${JSON.stringify(label)});const e=l?.parentElement.querySelector('input,select,textarea');if(!e)throw Error('Campo ausente: '+${JSON.stringify(label)});const p=e.tagName==='SELECT'?HTMLSelectElement.prototype:e.tagName==='TEXTAREA'?HTMLTextAreaElement.prototype:HTMLInputElement.prototype;Object.getOwnPropertyDescriptor(p,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));})()`);
+ const edit=async()=>{await js("document.querySelector('tbody tr button[aria-label]').click()");await waitFor("!!document.querySelector('[role=dialog]')");};
+ const today=new Date().toLocaleDateString('en-CA');
+ await window.loadURL(origin+'/vales');await waitFor("document.body.textContent.includes('Novo vale')");
+ await click('Novo vale');await waitFor("!!document.querySelector('[role=dialog] select')");
+ await field('Funcionário *',employee);await field('Data *',today);await field('Valor *','30.25');await field('Motivo','FICTICIO transporte desktop');
+ await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('30,25')");
+ await edit();await field('Valor *','35.25');await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('35,25')");
+ await edit();await field('Status','descontado');await waitFor("!!document.querySelector('select[aria-label=\"Pagamento do desconto\"] option[value=\""+payment.id+"\"]')");
+ await js(`(()=>{const e=document.querySelector('select[aria-label="Pagamento do desconto"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,${JSON.stringify(payment.id)});e.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('Descontado')");
+ await edit();await waitFor("document.body.textContent.includes('Histórico de alterações (3)')");
+ await js("document.querySelector('[role=dialog] summary').click()");
+ assert.equal(await js("document.querySelector('[role=dialog]').textContent.includes('Versão 1')"),true);
+ assert.equal(await js("[...document.querySelector('[role=dialog]').querySelectorAll('button')].find(b=>b.textContent==='Salvar').disabled"),true);
+ await click('Cancelar');
+ await window.loadURL(origin+'/consumo');await waitFor("document.body.textContent.includes('Novo consumo')");
+ await click('Novo consumo');await waitFor("!!document.querySelector('[role=dialog] select')");
+ await field('Funcionário *',employee);await field('Produto *','FICTICIO Consumo desktop');await field('Quantidade','0');await field('Valor *','10.5');
+ await click('Salvar');await waitFor("!!document.querySelector('[role=dialog] [role=alert]')");
+ assert.equal(await js("!!document.querySelector('[role=dialog]')"),true);
+ await field('Quantidade','2');await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('10,50')");
+ await edit();await field('Status','cancelado');await click('Salvar');await waitFor("!document.querySelector('[role=dialog]')&&document.body.textContent.includes('Cancelado')");
+ await window.loadURL(origin+'/consumo');await waitFor("document.body.textContent.includes('FICTICIO Consumo desktop')");
+ assert.equal(await js("[...document.querySelectorAll('p')].find(p=>p.textContent==='Total no período').parentElement.lastElementChild.textContent.replace(/\\s/g,'')==='R$0,00'"),true);
+ await js(`(()=>{const select=[...document.querySelectorAll('select')].find(e=>[...e.options].some(o=>o.value==='registrado'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'registrado');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await waitFor("document.body.textContent.includes('Nenhum consumo no período.')");
+ await js(`(()=>{const select=[...document.querySelectorAll('select')].find(e=>[...e.options].some(o=>o.value==='cancelado'));Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(select,'cancelado');select.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+ await waitFor("document.body.textContent.includes('FICTICIO Consumo desktop')");
+ const docs=(await pool.query("SELECT entity,data FROM d2_catalog WHERE owner_id=$1 AND entity IN ('Vale','Consumption','EmployeePayment','FinancialExpense')",[actor])).rows;
+ const data=entity=>docs.filter(row=>row.entity===entity).map(row=>JSON.parse(row.data.payload_json));
+ assert.equal(data('Vale')[0].status,'descontado');assert.equal(data('Consumption')[0].status,'cancelado');assert.equal(data('FinancialExpense').length,1);assert.equal(data('EmployeePayment')[0].net_amount,150);
+ return {officialValeForm:true,officialConsumptionForm:true,edit:true,history:true,discountLink:true,cancellation:true,invalidQuantityFeedback:true,reload:true,statusFilter:true,cancelledExcludedFromTotals:true,expenseCount:1,netAmount:150};
+}

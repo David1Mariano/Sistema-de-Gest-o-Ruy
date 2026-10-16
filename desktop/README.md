@@ -18,7 +18,21 @@ node node_modules/vite/bin/vite.js build --config lab/d1/vite.config.mjs
 npm.cmd --prefix desktop run dist
 ```
 
-Resultado atual: `artifacts/windows-lab/Sistema-Gestao-Ruy-Lab-0.3.0-Setup.exe`.
+Resultado atual: `artifacts/windows-lab-0.5.0/Sistema-Gestao-Ruy-Lab-0.5.0-Setup.exe`.
+Identidade própria G e atalhos com sufixo Homologação G; os instaladores anteriores
+em `artifacts/windows-lab` foram preservados. PostgreSQL 17 x64 é dependência
+separada; Electron/Node/pg já estão no pacote. A primeira execução prepara o banco
+privado e a conta fictícia. Reabertura inicia o PostgreSQL local e a API sem serviço
+Windows permanente. Para outra máquina, seguir o
+[roteiro da Etapa G](../docs/etapa-g-roteiro-outro-windows.md) e preencher a
+[ficha de aceite](../docs/etapa-g-ficha-homologacao.md).
+
+Menu Laboratório: destino configurável de cópia criptografada, backup imediato e
+restauração isolada. Cópia externa não resolve a recuperação da chave DPAPI após
+perda da máquina; uso real permanece bloqueado. Lotes legados pela tela também
+permanecem bloqueados antes da primeira escrita.
+
+Histórico das etapas anteriores:
 Ver [integrações e bloqueios da etapa E](../docs/etapa-e-producao-financeiro.md).
 No laboratório já existente, aplicar `node scripts/d1-lab/prepare-domain.mjs`
 antes de iniciar a versão 0.3. Não executar init novamente.
@@ -80,3 +94,9 @@ Atualização 0.2.0: [homologação D1/C2](../docs/homologacao-windows-d1-c2.md)
 integra a tela oficial Estoque e APIs transacionais de produção/financeiro à fila.
 O envio para C2 precisa de provisionamento explícito, e eventos críticos continuam
 pendentes de reconciliação de negócio mesmo depois do recibo de transporte.
+
+Revisão H1 da versão 0.5.0: `npm --prefix desktop run dist -- --config electron-builder-h.cjs`.
+Saída separada em `artifacts/windows-lab-0.5.0-h1`, identidade/atalhos próprios;
+o instalador G original é preservado. PostgreSQL 17 continua pré-requisito separado.
+Consulte [evidências e limites H](../docs/etapa-h-autonomia-0.5.0.md) e o
+[roteiro para outro Windows](../docs/etapa-h-homologacao-independente.md).

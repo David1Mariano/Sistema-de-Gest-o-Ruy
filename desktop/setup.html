@@ -1,0 +1,9 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'none'; base-uri 'none'">
+<title>Preparar laboratório Ruy</title><style>body{font:16px system-ui;margin:32px;line-height:1.5;background:#fafafa;color:#192524}input,button{display:block;margin:8px 0 18px;padding:10px;width:100%;box-sizing:border-box}button{cursor:pointer}#status{white-space:pre-wrap}small{display:block}</style>
+<h1>Preparar laboratório Windows</h1><p>Somente dados fictícios. Esta preparação cria um PostgreSQL privado neste usuário Windows. Não instala serviços nem altera o Sistema Ruy da porta 8080.</p>
+<p>Dependência: PostgreSQL 17 x64 de origem confiável, com initdb, pg_ctl, pg_dump e pg_restore. O runtime Electron/Node já está no aplicativo.</p>
+<button id="postgres" type="button">Selecionar pasta bin do PostgreSQL 17</button><small id="bin">C:\Program Files\PostgreSQL\17\bin</small>
+<form id="setup"><label>E-mail fictício<input name="login" type="email" required value="homologacao@example.invalid" autocomplete="username"></label><label>Senha local (mínimo 12 caracteres)<input name="password" type="password" minlength="12" required autocomplete="new-password"></label><button id="create" type="submit">Criar laboratório e conta local</button></form>
+<p id="status" role="status"></p><small>Diretório já existente ou preparação interrompida será preservado. Não copie credenciais de outro computador. Nenhuma sincronização com Supabase será ativada.</small>
+<script src="setup-renderer.js"></script></html>

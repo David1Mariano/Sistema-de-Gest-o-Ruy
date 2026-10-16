@@ -1,0 +1,6 @@
+<!doctype html><html lang="pt-BR"><meta charset="utf-8">
+<meta http-equiv="Content-Security-Policy" content="default-src 'none'; style-src 'unsafe-inline'; script-src 'self'; form-action 'none'; base-uri 'none'">
+<title>Recuperação de laboratório</title><style>body{font:16px system-ui;margin:28px;line-height:1.5}input,button{display:block;padding:10px;margin:8px 0 18px;width:100%;box-sizing:border-box}#status{white-space:pre-wrap}</style>
+<h1 id="title">Chave de recuperação</h1><p>A frase protege a chave exportada e não será armazenada. Guarde-a por um meio independente do computador e dos arquivos de backup. Perder a frase pode impedir a recuperação.</p>
+<form><label>Frase de recuperação (mínimo 16 caracteres)<input name="passphrase" type="password" minlength="16" required autocomplete="off"></label><label id="confirmation">Confirmar frase<input name="confirmation" type="password" minlength="16" autocomplete="off"></label><button>Continuar</button></form><p id="status" role="status"></p>
+<p>Restauração somente em banco novo isolado, com ativação e sincronização bloqueadas. Nenhum banco existente será substituído.</p><script src="recovery-renderer.js"></script></html>

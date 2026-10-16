@@ -1,0 +1,276 @@
+{
+  "date": "2026-10-16",
+  "branch": "preparacao/windows-oficial-20261015",
+  "head": "8da0eb0",
+  "version": "0.5.0",
+  "revision": "H1",
+  "syntheticOnly": true,
+  "installer": {
+    "file": "artifacts/windows-lab-0.5.0-h1/Sistema-Gestao-Ruy-Lab-0.5.0-H1-Setup.exe",
+    "bytes": 111877285,
+    "sha256": "4e65feaa43612911494863f1f6689dc868960e1c86fdc8b6f73029ece9937c91",
+    "signed": false
+  },
+  "originalGInstaller": {
+    "file": "artifacts/windows-lab-0.5.0/Sistema-Gestao-Ruy-Lab-0.5.0-Setup.exe",
+    "sha256": "8e5d24d7b7319fad0705141fd9d40c0201c427fc04d70f72ea2d401979e32e2d",
+    "unchanged": true
+  },
+  "installation": {
+    "version": "0.5.0",
+    "revision": "H1",
+    "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-h-0.5.0",
+    "shortcut": {
+      "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-h-0.5.0\\Sistema de Gestão Ruy Lab H.exe",
+      "path": "C:\\Users\\Pichau\\Desktop\\Sistema de Gestão Ruy — Homologação H.lnk"
+    },
+    "autonomy": {
+      "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+      "packaged": true,
+      "version": "0.5.0",
+      "revision": "H1",
+      "databaseStartup": {
+        "started": true,
+        "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+      },
+      "syntheticActor": "e596851a-4cd3-47b6-9d7b-34a0aee655e5",
+      "apiOwned": true,
+      "renderer": {
+        "title": "Ruy — D1 isolado",
+        "hasLogin": true,
+        "nodeExposed": false,
+        "location": "http://127.0.0.1:18087"
+      },
+      "authenticated": true,
+      "cloudIndicator": "Nuvem: alterações pendentes",
+      "originalEmployeesPage": true,
+      "originalSettingsPage": true,
+      "originalStockPage": {
+        "created": true,
+        "quantityMilli": 2000
+      },
+      "rh": {
+        "officialValeForm": true,
+        "officialConsumptionForm": true,
+        "edit": true,
+        "history": true,
+        "discountLink": true,
+        "cancellation": true,
+        "invalidQuantityFeedback": true,
+        "reload": true,
+        "statusFilter": true,
+        "cancelledExcludedFromTotals": true,
+        "expenseCount": 1,
+        "netAmount": 150
+      },
+      "autonomy": {
+        "actor": "e596851a-4cd3-47b6-9d7b-34a0aee655e5",
+        "id": "41b6481f-6636-4e75-9d49-7d88f4a82d2f",
+        "apiCrashRecovered": true,
+        "postgresImmediateStopRecovered": true,
+        "offlineSessionSurvived": true,
+        "offlinePasswordRelogin": true,
+        "createReadEdit": true,
+        "networkBlocked": true,
+        "queueBefore": "2b90819b15102a4ad46b70dd704a08d4752c9b1c1d75f58993a3515da42e1298",
+        "queueAfter": "2b90819b15102a4ad46b70dd704a08d4752c9b1c1d75f58993a3515da42e1298",
+        "operationCount": 2,
+        "noFalseGreen": true
+      }
+    },
+    "before": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "a168d9f061cee18fd63419aab0955b1301168bcb92216758238a9ff844915d5a",
+      "counts": {
+        "d1_records": 338,
+        "d2_catalog": 730,
+        "d1_rh_history": 115,
+        "lab_outbox": 1320,
+        "lab_audit": 1569,
+        "d1_sync_binding": 9,
+        "d1_sync_queue": 171,
+        "d1_sync_versions": 139,
+        "d1_sync_inbox": 178,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 53,
+        "d1_stock_movements": 126,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 128
+      }
+    },
+    "afterUse": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "52011829ccd4e569f207c96215fb287895415e758eb058494d7c3d6851836bfa",
+      "counts": {
+        "d1_records": 341,
+        "d2_catalog": 735,
+        "d1_rh_history": 120,
+        "lab_outbox": 1332,
+        "lab_audit": 1583,
+        "d1_sync_binding": 9,
+        "d1_sync_queue": 171,
+        "d1_sync_versions": 139,
+        "d1_sync_inbox": 178,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 54,
+        "d1_stock_movements": 127,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 129
+      }
+    },
+    "reinstalled": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "52011829ccd4e569f207c96215fb287895415e758eb058494d7c3d6851836bfa",
+      "counts": {
+        "d1_records": 341,
+        "d2_catalog": 735,
+        "d1_rh_history": 120,
+        "lab_outbox": 1332,
+        "lab_audit": 1583,
+        "d1_sync_binding": 9,
+        "d1_sync_queue": 171,
+        "d1_sync_versions": 139,
+        "d1_sync_inbox": 178,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 54,
+        "d1_stock_movements": 127,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 129
+      }
+    },
+    "installedAsarHash": "a99857332ea6586a456481a454a1c2753e95aa22868d3602c48ba6df123d09f7",
+    "originalInstallerUnchanged": true,
+    "productionPreserved": true,
+    "otherWindows": false,
+    "windowsReboot": false,
+    "install": true,
+    "uninstall": true,
+    "reinstall": true
+  },
+  "artifact": {
+    "requiredFilesPresent": true,
+    "privateEnvironmentFilesAbsent": true,
+    "supabaseEndpointAbsent": true,
+    "machineSpecificRuntimePathsAbsent": true,
+    "version": "0.5.0",
+    "revision": "H1"
+  },
+  "portableRecovery": {
+    "source": {
+      "deviceId": "260bc4ec-28a5-4027-a1c7-11721a2e0cae",
+      "operationId": "95afcf21-d986-4871-a000-fdbaf95e16c4",
+      "id": "dcf5d836-a38c-47b8-9e4e-f6e6d370a555",
+      "keyFile": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\h-recovery-84f9ebe7-6efa-4e64-9718-cf8e02c5bdcf\\foreign.ruykey",
+      "backupFile": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\h-recovery-84f9ebe7-6efa-4e64-9718-cf8e02c5bdcf\\ruy-d1-260bc4ec-28a5-4027-a1c7-11721a2e0cae\\2026-10-16T08-06-40-251Z-1d96e581-cda5-459d-8c76-46c84565af74.ruybak",
+      "retention": {
+        "retain": 2,
+        "deleted": 1,
+        "skipped": 0
+      },
+      "externalProtected": false
+    },
+    "restored": {
+      "database": "ruy_d1_restore_7b1ebaf4ba6df404",
+      "pendingOperations": 1,
+      "attachments": 1,
+      "recoveryTablesVerified": 12,
+      "syncEnabled": false,
+      "sourceDeviceId": "260bc4ec-28a5-4027-a1c7-11721a2e0cae",
+      "recoveryKeyVerified": true,
+      "activationBlocked": true
+    },
+    "destinationDevice": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+    "differentDeviceIds": true,
+    "sameWindowsHost": true,
+    "passwordNotPersisted": true,
+    "wrongPhraseCreatesNoDatabase": true,
+    "currentDPAPIUnchanged": true,
+    "productionPreserved": true,
+    "physicalIndependentDiskTested": false
+  },
+  "tests": {
+    "domain": 17,
+    "domainBatch": 7,
+    "rh": 12,
+    "syntheticBridge": 17,
+    "unitAndWindowsCycle": 16,
+    "allFinalSuitesPassed": true,
+    "officialBuild": true,
+    "d1Build": true,
+    "nsisBuild": true,
+    "scopedLint": true,
+    "globalLint": {
+      "passed": false,
+      "inherited": "scripts/security/test-emergency-fix.mjs:41 parsing error"
+    },
+    "typecheck": {
+      "passed": false,
+      "diagnostics": 485,
+      "newDiagnostics": 0,
+      "baseline": "Etapa G"
+    },
+    "nativeRecoveryDialogsManualAcceptance": false
+  },
+  "backup": {
+    "final": {
+      "state": "local-only",
+      "createdAt": "2026-10-16T08:33:16.922Z",
+      "file": "2026-10-16T08-33-16-081Z-dea78ebd-53a3-40a1-afaf-40b23090b5d1.ruybak",
+      "sha256": "128e7939d12d723307e7e3f8a72880bb6f14ee89396d0fd9ee150558de0958d8",
+      "bytes": 2044629,
+      "pendingOperations": 1332,
+      "externalProtected": false,
+      "externalState": "not-configured"
+    },
+    "status": {
+      "state": "local-only",
+      "createdAt": "2026-10-16T08:33:16.922Z",
+      "file": "2026-10-16T08-33-16-081Z-dea78ebd-53a3-40a1-afaf-40b23090b5d1.ruybak",
+      "sha256": "128e7939d12d723307e7e3f8a72880bb6f14ee89396d0fd9ee150558de0958d8",
+      "bytes": 2044629,
+      "pendingOperations": 1332,
+      "externalProtected": false,
+      "externalState": "not-configured"
+    },
+    "externalConfigured": false,
+    "externalProtected": false,
+    "physicalIndependentDiskTested": false
+  },
+  "sync": {
+    "operationalSyncEnabled": false,
+    "central": "synthetic D1/C2 only",
+    "syntheticAckNeverGreen": true
+  },
+  "production": {
+    "service": "gestao-ruy-production",
+    "release": "20261015T155237724Z-d597121d",
+    "manifestSha256": "a82921aa86895848c34dadd9d22d0ad0c329e295a81b5d9b28e3822fd3846ddc",
+    "preserved": true
+  },
+  "pending": {
+    "otherWindows": true,
+    "realWindowsReboot": true,
+    "physicalExternalDestination": true,
+    "operationalAuthorizationRLSAndRecovery": true,
+    "manualCloseReopenLoginOnDestination": true
+  },
+  "preservation": {
+    "inheritedChanges": true,
+    "operationalDataUntouched": true,
+    "noExistingDatabaseDeleted": true,
+    "noPermanentServiceInstalled": true,
+    "noCommitPushMergeDeploy": true
+  },
+  "intermediateFailures": [
+    "PostgreSQL recovery exceeded old 30s timeout; fixed with bounded asynchronous startup",
+    "NSIS temporary uninstaller outlived original observer; wait extended and actual removal required",
+    "Concurrent synthetic regression invalidated an intermediate snapshot comparison; final cycle rerun alone",
+    "One status query ran during PostgreSQL recovery; final sequential suite passed"
+  ]
+}
