@@ -2,6 +2,7 @@ import {transaction,fail,uuid} from './core.mjs';
 import {unseal} from './environment.mjs';
 import {canonical,syncHash,dataOf,syncTable,validateEnvelope} from './sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
+import {rhHistoryInsert} from './rh-domain.mjs';
 export const centralOrigin='http://127.0.0.1:18086';
 const locked=(pool,actor,fn)=>transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[actor]);return fn(c);});
 export async function syncReady(pool){return !!(await pool.query("SELECT to_regclass('public.d1_sync_binding') AS name")).rows[0].name;}
@@ -20,7 +21,8 @@ export async function syncStatus(pool,actor){
  const pendingBusiness=pendingEvents+pendingDocuments;
  return {enabled:!!binding,mode:'central-test-only',operationalSyncEnabled:false,...counts,conflicts:counts.conflicts+shadows,
  pendingBusiness,lastSyncAt:binding?.last_sync_at??null,lastError:binding?.last_error??null,cursor:binding?Number(binding.cursor):null,
- receiptsVerified:!!binding&&counts.missing===0,pullComplete:binding?.pull_complete===true,pendingFiles:0};
+ receiptsVerified:!!binding&&counts.missing===0,pullComplete:binding?.pull_complete===true,
+ pendingFiles:null,attachmentsState:'not-implemented'};
 }
 async function remote(token,route,body){
  const r=await fetch(centralOrigin+'/d1'+route,{method:body?'POST':'GET',redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?canonical(body):undefined});
@@ -72,7 +74,7 @@ async function receive(pool,binding,page){
  if(page?.protocol!=='D1LAB/1'||!Array.isArray(page.events)||page.events.length>100||!Number.isSafeInteger(page.cursor)||page.cursor<cursor||!Number.isSafeInteger(page.head)||page.head<page.cursor||typeof page.hasMore!=='boolean'||(page.hasMore&&page.cursor===cursor))throw Error('Página/cursor inválido.');
  let previous=cursor;
  for(const event of page.events){
-  if(!Number.isSafeInteger(event.cursor)||event.cursor<=previous||event.cursor>page.cursor||event.workspace_id!==binding.workspace_id||!uuid(event.operation_id))throw Error('Evento remoto inválido.');
+  if(!Number.isSafeInteger(event.cursor)||event.cursor<=previous||event.cursor>page.cursor||event.workspace_id!==binding.workspace_id||!uuid(event.operation_id)||!uuid(event.actor_id))throw Error('Evento remoto inválido.');
   previous=event.cursor;
   validateEnvelope({protocol:'D1LAB/1',operationId:event.operation_id,deviceId:event.device_id,actorId:binding.actor,workspaceId:binding.workspace_id,changes:event.changes.map(r=>({...r,baseVersion:r.version===1?null:r.version-1}))});
  }
@@ -102,6 +104,7 @@ async function receive(pool,binding,page){
     else await c.query(`INSERT INTO ${table}(id,owner_id,entity,data,name_key,version) VALUES($1,$2,$3,$4,$5,$6)`,[change.id,binding.actor,change.entity,change.data,nameKey,localVersion]);
     await c.query('INSERT INTO d1_sync_versions VALUES($1,$2,$3,$4,$5) ON CONFLICT(actor,record_id) DO UPDATE SET remote_version=excluded.remote_version,local_version=excluded.local_version',[binding.actor,change.id,change.entity,change.version,localVersion]);
     await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[binding.actor,change.entity+':remote_apply',event.operation_id]);
+    await rhHistoryInsert(c,{owner:binding.actor,id:change.id,entity:change.entity,operation:event.operation_id,actor:event.actor_id,device:event.device_id,version:localVersion,action:'remote_apply',snapshot:JSON.parse(change.data.payload_json||'null')});
    }
   }
   await c.query('UPDATE d1_sync_binding SET cursor=$2 WHERE actor=$1',[binding.actor,page.cursor]);

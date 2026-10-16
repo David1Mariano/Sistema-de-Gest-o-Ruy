@@ -1,0 +1,14 @@
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+import {fileURLToPath} from 'node:url';
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+import {productionWitness} from './production-witness.mjs';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Somente ensaio sintético opt-in.');
+const root=fileURLToPath(new URL('../../',import.meta.url)),env={...process.env};delete env.ELECTRON_RUN_AS_NODE;
+const before=await productionWitness(),file=root+'logs/etapa-i/desktop-'+randomUUID()+'.json';
+const result=await promisify(execFile)(root+'desktop/node_modules/electron/dist/electron.exe',[root+'desktop','--lab-smoke','--lab-payroll-smoke','--lab-evidence='+file],{cwd:root,env,windowsHide:true,timeout:120000});
+await fs.writeFile(root+'logs/etapa-i/desktop-process.log',result.stdout+result.stderr);
+const evidence=JSON.parse(await fs.readFile(file,'utf8'));assert.equal(evidence.payroll?.twoPayments,true);assert.equal(evidence.renderer.nodeExposed,false);assert.deepEqual(await productionWitness(),before);
+await fs.writeFile(root+'logs/etapa-i/desktop.json',JSON.stringify(evidence,null,2));console.log('I_DESKTOP_OK');

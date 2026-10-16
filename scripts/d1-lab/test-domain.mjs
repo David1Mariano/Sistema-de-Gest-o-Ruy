@@ -103,7 +103,7 @@ try{
   const settled=(await send(settle)).domainRecord;assert.equal((await send(settle)).replay,true);
   assert.ok((await api('/domain/FinancialExpense')).body.records.some(e=>e.id===settled.financial_expense_id&&e.origin_id===pending.id));
   assert.equal((await api('/domain/command',{...settle,operationId:randomUUID(),baseVersion:settled._version})).status,409);
-  assert.equal((await api('/domain/Vale')).status,501);
+  assert.equal((await api('/domain/Vale')).status,200);
  });
  await check('cartão/delivery criam recebível atômico e recebimento atualiza origem uma vez',async()=>{
   for(const [entity,data] of [['CardReceivable',{sale_date:'2026-10-15',expected_date:'2026-10-16',gross_amount:100,fee_amount:2,net_amount:98,acquirer:'FICTICIO adquirente',status:'a_receber'}],['DeliverySettlement',{reference_start:'2026-10-15',reference_end:'2026-10-15',expected_date:'2026-10-16',gross_amount:100,discount_amount:1,commission_amount:10,delivery_fee_amount:2,other_fee_amount:0,net_amount:87,channel:'ifood',status:'a_receber'}]]){

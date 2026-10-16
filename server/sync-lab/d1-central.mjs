@@ -33,6 +33,19 @@ export async function acceptD1(pool,token,command){
     if(['ProductionOrder','DailyProduction'].includes(change.entity))reference(payload.product_id,'ProductionProduct');
     if(change.entity==='ProductionProduct')for(const line of payload.ingredients)reference(line.inventory_item_id,'InventoryItem');
     if(change.entity==='EmployeePayment'){reference(payload.employee_id,'Employee');reference(payload.financial_expense_id,'FinancialExpense');}
+    if(['Vale','Consumption'].includes(change.entity)){
+     reference(payload.employee_id,'Employee');
+     if(payload.deduction_payment_id){
+      reference(payload.deduction_payment_id,'EmployeePayment');
+      const payment=JSON.parse(records.get(payload.deduction_payment_id).data.payload_json);
+      if(payment.employee_id!==payload.employee_id||payment.status!=='pago'||!payment.rh_deductions?.some(item=>item.id===change.id&&item.entity===change.entity&&item.amountCents===Math.round(payload.amount*100)))throw fail(409,'Vínculo RH e folha remoto divergente.');
+     }
+    }
+    if(change.entity==='EmployeePayment')for(const item of payload.rh_deductions||[]){
+     reference(item.id,item.entity);
+     const rh=JSON.parse(records.get(item.id).data.payload_json);
+     if(rh.employee_id!==payload.employee_id||rh.deduction_payment_id!==change.id||!['descontado','cobrado'].includes(rh.status)||Math.round(rh.amount*100)!==item.amountCents)throw fail(409,'Desconto remoto sem lançamento RH correspondente.');
+    }
     if(change.entity==='FinancialExpense'){reference(payload.linked_payment_id,'EmployeePayment');reference(payload.accounts_payable_id,'AccountsPayable');}
     if(['CardReceivable','DeliverySettlement'].includes(change.entity))reference(payload.accounts_receivable_id,'AccountsReceivable');
     if(change.entity==='AccountsReceivable'&&payload.source_id)reference(payload.source_id,payload.source_type==='cartao'?'CardReceivable':'DeliverySettlement');
@@ -63,7 +76,7 @@ export async function changesD1(pool,token,cursor){
   await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const p=await authorize(c,token);
   const head=Number((await c.query('SELECT cursor FROM d1_central_clock WHERE singleton')).rows[0].cursor);
   if(cursor>head)throw fail(409,'Central anterior ao cursor; reconciliação obrigatória.');
-  const events=(await c.query('SELECT * FROM d1_central_changes WHERE workspace_id=$1 AND cursor>$2 ORDER BY cursor LIMIT 100',[p.workspace_id,cursor])).rows.map(e=>({...e,cursor:Number(e.cursor)}));
+  const events=(await c.query('SELECT e.*,r.actor_id FROM d1_central_changes e JOIN d1_central_receipts r USING(operation_id) WHERE e.workspace_id=$1 AND e.cursor>$2 ORDER BY e.cursor LIMIT 100',[p.workspace_id,cursor])).rows.map(e=>({...e,cursor:Number(e.cursor)}));
   const hasMore=events.length===100;
   await c.query('COMMIT');return {protocol:'D1LAB/1',events,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}

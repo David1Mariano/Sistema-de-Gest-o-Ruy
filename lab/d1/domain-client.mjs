@@ -10,11 +10,12 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
   if(readOnlyDomains.includes(entity))return signal(Error('Esta escrita ainda aguarda integração atômica e homologação.'));
   const key='ruy-d1-domain:'+user.id+':'+entity+':'+(id||'new')+':'+action;
   const input={entity,id:id||null,action,data:clean(entity,data||{}),...extra};
-  const fingerprint=JSON.stringify(input),prior=JSON.parse(localStorage.getItem(key)||'null');
+  const personal=['Vale','Consumption','EmployeePayment'].includes(entity);
+  const fingerprint=personal?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(input))))).map(b=>b.toString(16).padStart(2,'0')).join(''):JSON.stringify(input),prior=JSON.parse(localStorage.getItem(key)||'null');
   if(prior&&prior.fingerprint!==fingerprint)return signal(Error('Há tentativa sem confirmação. Reenvie os mesmos campos antes de editar.'));
-  const body=prior?.body||{...input,id:id||crypto.randomUUID(),operationId:crypto.randomUUID(),baseVersion:id?(data?._version??cache.get(entity+':'+id)?._version):null};
+  const body=prior?{...prior.body,data:input.data}:{...input,id:id||crypto.randomUUID(),operationId:crypto.randomUUID(),baseVersion:id?(data?._version??cache.get(entity+':'+id)?._version):null};
   if(id&&!body.baseVersion)return signal(Error('Recarregue o documento antes de alterar.'));
-  localStorage.setItem(key,JSON.stringify({fingerprint,body}));
+  localStorage.setItem(key,JSON.stringify({fingerprint,body:personal?{...body,data:undefined}:body}));
   try{
    const result=await request('/domain/command',body);
    cache.set(entity+':'+body.id,result.domainRecord);localStorage.removeItem(key);committed(result);emit();return result.domainRecord;
@@ -36,11 +37,14 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
  };}
  const entityClient=entity;
  return {entity,clear:()=>cache.clear(),command,
+  canWrite:()=>getSession()?.user.role==='admin',
+  canEditRh:record=>getSession()?.user.role==='admin'&&(!record?.source_device_id||record.source_device_id===getSession()?.deviceId),
+  rhHistory:(entity,id)=>request('/domain/history/'+entity+'/'+id),
   recipe:(product,ingredients)=>command('ProductionProduct',product.id||null,{...product,ingredients:ingredients.map(line=>({...line,quantity:Number(line.quantity)}))}),
   preview:id=>request('/domain/preview/'+id),
   confirm:(record,token)=>command('DailyProduction',record.id,record,'confirm',{token}),
   payment:(data,editing)=>command('EmployeePayment',editing?.id||null,{...data,_version:editing?._version}),
-  batchPayments:(payments)=>command('EmployeePayment',null,{payments:payments.map(p=>({employee_id:p.employee_id,gross_amount:Number(p.gross_amount||0),discount_amount:Number(p.discount_amount||0),net_amount:Number(p.net_amount||0),payment_date:p.payment_date,payment_method:p.payment_method||'pix',status:p.status||'pago',observation:p.observation||'',payment_type:p.payment_type||'outros'})),action:'batch'}),
+  batchPayments:(payments)=>command('EmployeePayment',null,{payments:payments.map(p=>({employee_id:p.employee_id,gross_amount:Number(p.gross_amount||0),discount_amount:Number(p.discount_amount||0),net_amount:Number(p.net_amount||0),payment_date:p.payment_date,payment_method:p.payment_method||'pix',status:p.status||'pago',observation:p.observation||'',payment_type:p.payment_type||'outros',reference_start:p.reference_start||'',reference_end:p.reference_end||'',work_date:p.work_date||'',days_quantity:Number(p.days_quantity||1),daily_rate:Number(p.daily_rate||0)}))},'batch',{token:'confirm-local-payroll'}),
   settle:(payable,data)=>command('AccountsPayable',payable.id,{...payable,...data,status:'pago',_version:payable._version}),
   receive:record=>command('AccountsReceivable',record.id,{...record,status:'recebido',received_date:new Date().toLocaleDateString('en-CA'),_version:record._version}),
   generate:record=>command('RecurringExpense',record.id,record,'generate'),

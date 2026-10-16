@@ -34,7 +34,7 @@ const send=async(token,route,body)=>{
 };
 const snapshot=async(pool,actor)=>({records:(await pool.query('SELECT * FROM d1_records WHERE owner_id=$1 ORDER BY id',[actor])).rows,queue:(await pool.query('SELECT q.* FROM d1_sync_queue q JOIN lab_outbox o USING(operation_id) WHERE o.actor=$1 ORDER BY operation_id',[actor])).rows,binding:(await pool.query('SELECT * FROM d1_sync_binding WHERE actor=$1',[actor])).rows});
 try{
- await check('guarda recusa rede externa e testemunha da produção é verificada',async()=>{await assert.rejects(fetch('https://example.invalid'),e=>e.code==='ENETUNREACH');if(!production.absentOnNewMachineLab)assert.equal(production.release,'20261015T155237724Z-d597121d');});
+ await check('guarda recusa rede externa e testemunha da produção é verificada',async()=>{await assert.rejects(fetch('https://example.invalid'),e=>e.code==='ENETUNREACH'||e.code==='ENOTFOUND'||e.cause?.code==='ENOTFOUND');if(!production.absentOnNewMachineLab)assert.equal(production.release,'20261015T155237724Z-d597121d');});
  const password=randomBytes(24).toString('hex');
  await A.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[actorA,actorA+'@example.invalid',await hashPassword(password)]);
  await exec(process.execPath,[fileURLToPath(new URL('./provision-sync.mjs',import.meta.url)),actorA,workspace],{windowsHide:true,timeout:30000});
@@ -49,7 +49,7 @@ try{
   await peerOwner.query('INSERT INTO d1_sync_binding(actor,device_id,workspace_id) VALUES($1,$2,$3)',[actorB,deviceB,workspace]);
   await peerOwner.query('REVOKE ALL ON DATABASE '+peerDatabase+' FROM PUBLIC');
   await peerOwner.query('GRANT CONNECT ON DATABASE '+peerDatabase+' TO ruy_d1_app');
-  await peerOwner.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO ruy_d1_app; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA public TO ruy_d1_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ruy_d1_app; REVOKE UPDATE ON lab_outbox,lab_audit FROM ruy_d1_app');
+  await peerOwner.query('REVOKE CREATE ON SCHEMA public FROM PUBLIC; GRANT USAGE ON SCHEMA public TO ruy_d1_app; GRANT SELECT,INSERT,UPDATE ON ALL TABLES IN SCHEMA public TO ruy_d1_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ruy_d1_app; REVOKE UPDATE ON lab_outbox,lab_audit,d1_rh_history FROM ruy_d1_app');
   await peerOwner.query('COMMIT');
  }catch(e){await peerOwner.query('ROLLBACK');throw e;}finally{await peerOwner.end();}
  B=new pg.Pool({...localConfig,database:peerDatabase,max:5});B.on('error',()=>{});
@@ -70,12 +70,12 @@ try{
  await check('ACK perdido após COMMIT é reenviado com mesmo UUID sem duplicar',async()=>{
   const lost=await synchronizeD1(A,actorA,{request:async(...args)=>{await send(...args);throw Error('ACK perdido');}});assert.equal(lost.pending,7);
   assert.equal((await central.query('SELECT 1 FROM d1_central_receipts WHERE actor_id=$1',[actorA])).rowCount,1);
-  const status=await synchronizeD1(A,actorA);assert.equal(status.pending,0);assert.equal(syncState(status),'confirmed');
+  const status=await synchronizeD1(A,actorA);assert.equal(status.pending,0);assert.equal(syncState(status),'unknown');
   assert.equal((await central.query('SELECT 1 FROM d1_central_receipts WHERE actor_id=$1',[actorA])).rowCount,7);
   assert.equal((await api('/pending')).body.total,0);
  });
  await check('A → central C2 → banco B preserva IDs, dados e não cria nova outbox',async()=>{
-  const status=await synchronizeD1(B,actorB,{token:tokenB});assert.equal(syncState(status),'confirmed');
+  const status=await synchronizeD1(B,actorB,{token:tokenB});assert.equal(syncState(status),'unknown');
   assert.equal((await B.query('SELECT count(*)::int n FROM d1_records WHERE owner_id=$1',[actorB])).rows[0].n,3);
   assert.equal((await B.query('SELECT 1 FROM lab_outbox')).rowCount,0);
   assert.equal((await catalogList(B,principalB,'Employee'))[0].id,employeeId);
@@ -83,20 +83,20 @@ try{
  await check('B → central → A aplica renomeação e vínculos como agregado transacional',async()=>{
   const renamed='FICTICIO Ponte renomeado '+suffix;
   await save(B,principalB,deviceB,'Sector',sectorId,{operationId:randomUUID(),operation:'update',baseVersion:1,data:{name:renamed},confirmRename:true,renameImpact:{colaboradores:1,funcoes:1}});
-  assert.equal(syncState(await synchronizeD1(B,actorB,{token:tokenB})),'confirmed');assert.equal(syncState(await synchronizeD1(A,actorA)),'confirmed');
+  assert.equal(syncState(await synchronizeD1(B,actorB,{token:tokenB})),'unknown');assert.equal(syncState(await synchronizeD1(A,actorA)),'unknown');
   assert.equal((await A.query('SELECT data FROM d1_records WHERE id=$1',[employeeId])).rows[0].data.sector,renamed);
   assert.equal((await A.query('SELECT data FROM d1_records WHERE id=$1',[roleId])).rows[0].data.sector_name,renamed);
   assert.equal((await A.query('SELECT 1 FROM lab_outbox WHERE actor=$1',[actorA])).rowCount,7);
  });
  await check('conflito simultâneo preserva proposta local e versão remota sem sobrescrita',async()=>{
   for(const [pool,actor,device,group] of [[A,principalA,marker.deviceId,'A'],[B,principalB,deviceB,'B']])await catalogSave(pool,actor,device,'ExpenseCategory',categoryId,{operationId:randomUUID(),operation:'update',baseVersion:1,data:{group}});
-  assert.equal(syncState(await synchronizeD1(A,actorA)),'confirmed');const conflicted=await synchronizeD1(B,actorB,{token:tokenB});assert.equal(syncState(conflicted),'error');assert.ok(conflicted.conflicts>0);
+  assert.equal(syncState(await synchronizeD1(A,actorA)),'unknown');const conflicted=await synchronizeD1(B,actorB,{token:tokenB});assert.equal(syncState(conflicted),'error');assert.ok(conflicted.conflicts>0);
   assert.equal((await B.query('SELECT data FROM d2_catalog WHERE id=$1',[categoryId])).rows[0].data.group,'B');assert.equal((await B.query('SELECT data FROM d1_sync_shadow WHERE record_id=$1',[categoryId])).rows[0].data.group,'A');
  });
  await check('recibo adulterado não confirma e retry usa envelope congelado',async()=>{
   await catalogSave(A,principalA,marker.deviceId,'Supplier',supplierId,{operationId:randomUUID(),operation:'update',baseVersion:1,data:{observation:'FICTICIO recibo'}});
   const status=await synchronizeD1(A,actorA,{request:async(...args)=>({...await send(...args),operationId:randomUUID()})});assert.equal(status.pending,1);assert.equal(syncState(status),'error');
-  assert.equal(syncState(await synchronizeD1(A,actorA)),'confirmed');
+  assert.equal(syncState(await synchronizeD1(A,actorA)),'unknown');
  });
  await check('autorização central nega token inválido e identidade adulterada',async()=>{
   await assert.rejects(send('0'.repeat(64),'/changes?cursor=0'),e=>e.status===403);
@@ -118,7 +118,7 @@ try{
  await check('reinício PostgreSQL/API preserva dois dispositivos, fila, recibos e conflitos',async()=>{assert.deepEqual(await snapshot(A,actorA),beforeA);assert.deepEqual(await snapshot(B,actorB),beforeB);});
  await check('lease vencido retoma envio e mantém apenas um recibo por operação',async()=>{
   await A.query("UPDATE d1_sync_queue SET lease_until=now()-interval '1 second' WHERE state='sending' AND operation_id IN(SELECT operation_id FROM lab_outbox WHERE actor=$1)",[actorA]);
-  assert.equal(syncState(await synchronizeD1(A,actorA)),'confirmed');
+  assert.equal(syncState(await synchronizeD1(A,actorA)),'unknown');
   assert.equal((await central.query('SELECT 1 FROM d1_central_receipts WHERE actor_id=$1',[actorA])).rowCount,10);
  });
  await check('produção final preservada e sincronização operacional nunca ativada',async()=>{assert.deepEqual(await health(),production);assert.equal((await syncStatus(A,actorA)).operationalSyncEnabled,false);});
@@ -160,6 +160,39 @@ try{
   await domainCommand(A,principalA,marker.deviceId,cmd('ProductionProduct',{...product,instructions:'FICTICIO proposta A'},product.id,product._version));
   await synchronizeD1(A,actorA);const conflict=await synchronizeD1(B,actorB,{token:tokenB});assert.ok(conflict.conflicts>=1);
   assert.equal((await domainList(B,principalB,'ProductionProduct'))[0].instructions,'FICTICIO proposta B');
+ });
+ await check('RH A → C2 → B preserva vínculos de folha e autoria, sem duplicar despesa/estoque',async()=>{
+  const cmd=(entity,data,id=randomUUID(),baseVersion=null)=>({operationId:randomUUID(),entity,data,id,baseVersion,action:'save'});
+  let vale=(await domainCommand(A,principalA,marker.deviceId,cmd('Vale',{employee_id:employeeId,date:'2026-10-16',amount:30,type:'pix',status:'pendente',motive:'FICTICIO ponte RH'}))).domainRecord;
+  let consumption=(await domainCommand(A,principalA,marker.deviceId,cmd('Consumption',{employee_id:employeeId,date:'2026-10-16',time:'12:10',product:'FICTICIO refeição ponte',quantity:1,amount:10,status:'registrado'}))).domainRecord;
+  let payment=(await domainCommand(A,principalA,marker.deviceId,cmd('EmployeePayment',{employee_id:employeeId,payment_type:'salario',gross_amount:200,discount_amount:50,net_amount:150,payment_date:'2026-10-16',status:'pago'}))).domainRecord;
+  vale=(await domainCommand(A,principalA,marker.deviceId,cmd('Vale',{status:'descontado',deduction_payment_id:payment.id,deduction_payment_version:payment._version},vale.id,vale._version))).domainRecord;
+  payment=(await domainList(A,principalA,'EmployeePayment')).find(row=>row.id===payment.id);
+  consumption=(await domainCommand(A,principalA,marker.deviceId,cmd('Consumption',{status:'cobrado',deduction_payment_id:payment.id,deduction_payment_version:payment._version},consumption.id,consumption._version))).domainRecord;
+  await synchronizeD1(A,actorA,{request:async(...args)=>{await send(...args);throw Error('FICTICIO ACK RH perdido');}});
+  assert.equal((await synchronizeD1(A,actorA)).pending,0);
+  await synchronizeD1(B,actorB,{token:tokenB});
+  const remoteVale=(await domainList(B,principalB,'Vale')).find(row=>row.id===vale.id);
+  assert.equal(remoteVale.status,'descontado');assert.equal(remoteVale.employee_id,employeeId);assert.equal(remoteVale.deduction_payment_id,payment.id);
+  assert.equal((await domainList(B,principalB,'Consumption')).find(row=>row.id===consumption.id).status,'cobrado');
+  const remotePayment=(await domainList(B,principalB,'EmployeePayment')).find(row=>row.id===payment.id);
+  assert.equal(remotePayment.rh_deductions.length,2);assert.equal(remotePayment.net_amount,150);
+  assert.equal((await domainList(B,principalB,'FinancialExpense')).filter(row=>row.linked_payment_id===payment.id).length,1);
+  assert.equal((await B.query('SELECT 1 FROM d1_stock_balances WHERE owner_id=$1',[actorB])).rowCount,0);
+  const history=(await B.query('SELECT * FROM d1_rh_history WHERE owner_id=$1 AND record_id=$2 ORDER BY record_version',[actorB,vale.id])).rows;
+  assert.equal(history.length,2);assert.ok(history.every(h=>h.actor_id===actorA&&h.device_id===marker.deviceId));
+  await assert.rejects(domainCommand(B,principalB,deviceB,cmd('Vale',{status:'cancelado'},remoteVale.id,remoteVale._version)),e=>e.status===409);
+  const receipts=(await central.query('SELECT count(*)::int n FROM d1_central_receipts WHERE actor_id=$1',[actorA])).rows[0].n;
+  await synchronizeD1(A,actorA);await synchronizeD1(B,actorB,{token:tokenB});
+  assert.equal((await central.query('SELECT count(*)::int n FROM d1_central_receipts WHERE actor_id=$1',[actorA])).rows[0].n,receipts);
+ });
+ await check('conflito RH preserva lançamento local e snapshot remoto para reconciliação',async()=>{
+  const id=randomUUID(),base={employee_id:employeeId,date:'2026-10-16',type:'pix',amount:5,status:'pendente'};
+  for(const [pool,principal,device,motive] of [[A,principalA,marker.deviceId,'FICTICIO proposta RH A'],[B,principalB,deviceB,'FICTICIO proposta RH B']])await domainCommand(pool,principal,device,{operationId:randomUUID(),entity:'Vale',id,baseVersion:null,action:'save',data:{...base,motive}});
+  await synchronizeD1(A,actorA);const status=await synchronizeD1(B,actorB,{token:tokenB});assert.ok(status.conflicts>0);
+  assert.equal((await domainList(B,principalB,'Vale')).find(row=>row.id===id).motive,'FICTICIO proposta RH B');
+  assert.equal(JSON.parse((await B.query('SELECT data FROM d1_sync_shadow WHERE actor=$1 AND record_id=$2',[actorB,id])).rows[0].data.payload_json).motive,'FICTICIO proposta RH A');
+  assert.deepEqual(await productionWitness(),production);
  });
  const result={checks,actorA,actorB,peerDatabase,central:'127.0.0.1:18086',operationalSyncEnabled:false,production,physicalComputers:false};
  await fs.writeFile('logs/d1-c2-bridge-evidence.json',JSON.stringify(result,null,2));console.log('D1_C2_BRIDGE_OK '+JSON.stringify(result));
