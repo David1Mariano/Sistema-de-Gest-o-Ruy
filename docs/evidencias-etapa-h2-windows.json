@@ -1,0 +1,381 @@
+{
+  "purpose": "RUY_H2_LOCAL_VALIDATION_AND_INDEPENDENT_ACCEPTANCE_KIT",
+  "date": "2026-10-16T08:49:55.671Z",
+  "cwd": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015",
+  "branch": "preparacao/windows-oficial-20261015",
+  "head": "8da0eb03faf8460a9a1899eb9bc4c5a468d3afcf",
+  "version": "0.5.0",
+  "revision": "H1",
+  "runtimeRebuilt": false,
+  "package": {
+    "directory": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-h2-homologacao-2026-10-16T08-46-16-806Z",
+    "zip": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-h2-homologacao-2026-10-16T08-46-16-806Z.zip",
+    "zipSha256": "b5bdc8f35d0e13de4d40915e461e25af36aaab0bfe858b6a30790a71428e9a13",
+    "installerSha256": "4e65feaa43612911494863f1f6689dc868960e1c86fdc8b6f73029ece9937c91",
+    "files": 7
+  },
+  "preservation": {
+    "inheritedFilesChecked": 515,
+    "inheritedFilesChanged": [],
+    "allH1ChangesPreserved": true,
+    "initialGitStatus": " M README.md\n M desktop/README.md\n M desktop/main.mjs\n M desktop/package-lock.json\n M desktop/package.json\n M eslint.config.js\n M lab/d1/SyncStatus.jsx\n M lab/d1/domain-client.mjs\n M lab/d1/main.jsx\n M lab/d1/sync-state.mjs\n M lab/d1/vite.config.mjs\n M scripts/d1-lab.mjs\n M scripts/d1-lab/installation-snapshot.mjs\n M scripts/d1-lab/test-domain.mjs\n M scripts/d1-lab/test-sync-bridge.mjs\n M scripts/d1-lab/test-windows-cycle.mjs\n M server/d1-lab/backup.mjs\n M server/d1-lab/domain-contract.mjs\n M server/d1-lab/domain.mjs\n M server/d1-lab/domain.sql\n M server/d1-lab/sync.mjs\n M server/sync-lab/d1-central.mjs\n?? desktop/autonomy-smoke.mjs\n?? desktop/electron-builder-h.cjs\n?? desktop/lab-menu.mjs\n?? desktop/recovery-preload.cjs\n?? desktop/recovery-renderer.js\n?? desktop/recovery.html\n?? desktop/recovery.mjs\n?? desktop/rh-smoke.mjs\n?? desktop/setup-preload.cjs\n?? desktop/setup-renderer.js\n?? desktop/setup.html\n?? desktop/setup.mjs\n?? desktop/supervisor.mjs\n?? docs/auditoria-administrativa-final-supabase.md\n?? docs/auditoria-administrativa-supabase.md\n?? docs/etapa-f-vales-consumo-offline.md\n?? docs/etapa-g-ficha-homologacao.md\n?? docs/etapa-g-roteiro-outro-windows.md\n?? docs/etapa-g-windows-0.5.0.md\n?? docs/etapa-h-autonomia-0.5.0.md\n?? docs/etapa-h-homologacao-independente.md\n?? docs/evidencias-etapa-f-windows.json\n?? docs/evidencias-etapa-g-windows.json\n?? docs/evidencias-etapa-h-windows.json\n?? docs/plano-correcao-seguranca-supabase.md\n?? docs/retomada-windows-offline-20261016.md\n?? lab/d1/Consumo.jsx\n?? lab/d1/ConsumptionForm.jsx\n?? lab/d1/RhDetails.jsx\n?? lab/d1/ValeForm.jsx\n?? lab/d1/Vales.jsx\n?? lab/d1/financial-guards.mjs\n?? scripts/d1-lab/test-g-artifact.mjs\n?? scripts/d1-lab/test-g-bootstrap.mjs\n?? scripts/d1-lab/test-g-financial-guard.mjs\n?? scripts/d1-lab/test-g-installation.mjs\n?? scripts/d1-lab/test-g-package.mjs\n?? scripts/d1-lab/test-g-runtime.mjs\n?? scripts/d1-lab/test-h-artifact.mjs\n?? scripts/d1-lab/test-h-installed.mjs\n?? scripts/d1-lab/test-h-recovery.mjs\n?? scripts/d1-lab/test-h-units.mjs\n?? scripts/d1-lab/test-rh-client.mjs\n?? scripts/d1-lab/test-rh-desktop.mjs\n?? scripts/d1-lab/test-rh-offline.mjs\n?? scripts/d1-lab/test-sync-status.mjs\n?? scripts/proposed-records-security-emergency.sql\n?? scripts/proposed-records-security-v2.sql\n?? scripts/proposed-records-security-v3.sql\n?? scripts/proposed-records-security.sql\n?? scripts/security/\n?? server/d1-lab/bootstrap.mjs\n?? server/d1-lab/key-envelope.mjs\n?? server/d1-lab/rh-domain.mjs\n",
+    "installerH1Sha256": "4e65feaa43612911494863f1f6689dc868960e1c86fdc8b6f73029ece9937c91",
+    "originalGInstallerSha256": "8e5d24d7b7319fad0705141fd9d40c0201c427fc04d70f72ea2d401979e32e2d",
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d",
+      "manifestSha256": "a82921aa86895848c34dadd9d22d0ad0c329e295a81b5d9b28e3822fd3846ddc",
+      "preserved": true
+    }
+  },
+  "tests": {
+    "installation": {
+      "version": "0.5.0",
+      "revision": "H1",
+      "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-h-0.5.0",
+      "shortcut": {
+        "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-h-0.5.0\\Sistema de Gestão Ruy Lab H.exe",
+        "path": "C:\\Users\\Pichau\\Desktop\\Sistema de Gestão Ruy — Homologação H.lnk"
+      },
+      "autonomy": {
+        "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+        "packaged": true,
+        "version": "0.5.0",
+        "revision": "H1",
+        "databaseStartup": {
+          "started": true,
+          "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+        },
+        "syntheticActor": "650e0812-7ca9-410e-a379-0a1e41c07fb9",
+        "apiOwned": true,
+        "renderer": {
+          "title": "Ruy — D1 isolado",
+          "hasLogin": true,
+          "nodeExposed": false,
+          "location": "http://127.0.0.1:18087"
+        },
+        "authenticated": true,
+        "cloudIndicator": "Nuvem: alterações pendentes",
+        "originalEmployeesPage": true,
+        "originalSettingsPage": true,
+        "originalStockPage": {
+          "created": true,
+          "quantityMilli": 2000
+        },
+        "rh": {
+          "officialValeForm": true,
+          "officialConsumptionForm": true,
+          "edit": true,
+          "history": true,
+          "discountLink": true,
+          "cancellation": true,
+          "invalidQuantityFeedback": true,
+          "reload": true,
+          "statusFilter": true,
+          "cancelledExcludedFromTotals": true,
+          "expenseCount": 1,
+          "netAmount": 150
+        },
+        "autonomy": {
+          "actor": "650e0812-7ca9-410e-a379-0a1e41c07fb9",
+          "id": "e914520d-2ed1-4952-b101-0fd4d583a3a5",
+          "apiCrashRecovered": true,
+          "postgresImmediateStopRecovered": true,
+          "offlineSessionSurvived": true,
+          "offlinePasswordRelogin": true,
+          "createReadEdit": true,
+          "networkBlocked": true,
+          "queueBefore": "44682613240dd82e9b18136b9613f2cca1cace201532069f676c2b3b95c26c31",
+          "queueAfter": "44682613240dd82e9b18136b9613f2cca1cace201532069f676c2b3b95c26c31",
+          "operationCount": 2,
+          "noFalseGreen": true
+        }
+      },
+      "before": {
+        "purpose": "D1_INSTALLATION_PRESERVATION",
+        "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+        "sha256": "52011829ccd4e569f207c96215fb287895415e758eb058494d7c3d6851836bfa",
+        "counts": {
+          "d1_records": 341,
+          "d2_catalog": 735,
+          "d1_rh_history": 120,
+          "lab_outbox": 1332,
+          "lab_audit": 1583,
+          "d1_sync_binding": 9,
+          "d1_sync_queue": 171,
+          "d1_sync_versions": 139,
+          "d1_sync_inbox": 178,
+          "d1_sync_shadow": 0,
+          "d1_stock_balances": 54,
+          "d1_stock_movements": 127,
+          "d1_financial_accounts": 6,
+          "d1_financial_entries": 8,
+          "d1_operation_events": 129
+        }
+      },
+      "afterUse": {
+        "purpose": "D1_INSTALLATION_PRESERVATION",
+        "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+        "sha256": "480252a085c07ae79c3d6ab53186cec0c254ec29da596bfb8e638e4037a64533",
+        "counts": {
+          "d1_records": 344,
+          "d2_catalog": 740,
+          "d1_rh_history": 125,
+          "lab_outbox": 1344,
+          "lab_audit": 1597,
+          "d1_sync_binding": 9,
+          "d1_sync_queue": 171,
+          "d1_sync_versions": 139,
+          "d1_sync_inbox": 178,
+          "d1_sync_shadow": 0,
+          "d1_stock_balances": 55,
+          "d1_stock_movements": 128,
+          "d1_financial_accounts": 6,
+          "d1_financial_entries": 8,
+          "d1_operation_events": 130
+        }
+      },
+      "reinstalled": {
+        "purpose": "D1_INSTALLATION_PRESERVATION",
+        "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+        "sha256": "480252a085c07ae79c3d6ab53186cec0c254ec29da596bfb8e638e4037a64533",
+        "counts": {
+          "d1_records": 344,
+          "d2_catalog": 740,
+          "d1_rh_history": 125,
+          "lab_outbox": 1344,
+          "lab_audit": 1597,
+          "d1_sync_binding": 9,
+          "d1_sync_queue": 171,
+          "d1_sync_versions": 139,
+          "d1_sync_inbox": 178,
+          "d1_sync_shadow": 0,
+          "d1_stock_balances": 55,
+          "d1_stock_movements": 128,
+          "d1_financial_accounts": 6,
+          "d1_financial_entries": 8,
+          "d1_operation_events": 130
+        }
+      },
+      "installedAsarHash": "a99857332ea6586a456481a454a1c2753e95aa22868d3602c48ba6df123d09f7",
+      "originalInstallerUnchanged": true,
+      "productionPreserved": true,
+      "otherWindows": false,
+      "windowsReboot": false,
+      "install": true,
+      "uninstall": true,
+      "reinstall": true
+    },
+    "cycle": {
+      "passed": 16,
+      "failed": 0
+    },
+    "domain": {
+      "passed": 17,
+      "failed": 0
+    },
+    "rh": {
+      "passed": 12,
+      "failed": 0
+    },
+    "package": {
+      "checks": 9,
+      "results": [
+        "Complete H1 kit verifies without repository dependencies",
+        "ZIP extracts and verifies without private data",
+        "Changed guide is rejected",
+        "Manifest traversal is rejected",
+        "Matching copy is reported only as hash verification",
+        "Different backup bytes are rejected",
+        "Same file is not accepted as a separate copy",
+        "Invalid key envelope is rejected",
+        "Collector records loopback API guards and refuses physical protection claims"
+      ],
+      "folder": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\logs\\etapa-h2\\package-test-8e02c908-140f-4a80-9c0d-06a9f1c7ec57",
+      "syntheticOnly": true,
+      "otherWindows": false,
+      "reboot": false,
+      "physicalExternalDisk": false
+    },
+    "portableRecovery": {
+      "source": {
+        "deviceId": "fc22d112-4f08-46a3-b80e-6046ab1d5ece",
+        "operationId": "4bd98fe6-8281-4805-b4b4-27745fa07c5c",
+        "id": "ac614a32-4680-4dce-b951-8b1d21572a2f",
+        "keyFile": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\h-recovery-41f96ad0-1943-4f41-ba37-cd287fb334a7\\foreign.ruykey",
+        "backupFile": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\h-recovery-41f96ad0-1943-4f41-ba37-cd287fb334a7\\ruy-d1-fc22d112-4f08-46a3-b80e-6046ab1d5ece\\2026-10-16T08-47-00-623Z-49c527cc-ea71-4f71-8339-c0f0c904337f.ruybak",
+        "retention": {
+          "retain": 2,
+          "deleted": 1,
+          "skipped": 0
+        },
+        "externalProtected": false
+      },
+      "restored": {
+        "database": "ruy_d1_restore_94111daaa6a5733f",
+        "pendingOperations": 1,
+        "attachments": 1,
+        "recoveryTablesVerified": 12,
+        "syncEnabled": false,
+        "sourceDeviceId": "fc22d112-4f08-46a3-b80e-6046ab1d5ece",
+        "recoveryKeyVerified": true,
+        "activationBlocked": true
+      },
+      "destinationDevice": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "differentDeviceIds": true,
+      "sameWindowsHost": true,
+      "passwordNotPersisted": true,
+      "wrongPhraseCreatesNoDatabase": true,
+      "currentDPAPIUnchanged": true,
+      "productionPreserved": true,
+      "physicalIndependentDiskTested": false
+    },
+    "observation": {
+      "purpose": "RUY_H2_OBSERVATION_ONLY",
+      "createdAt": "2026-10-16T08:48:47.4115438Z",
+      "stage": "Laboratorio",
+      "machineHash": "9b8b875886f7741f50014dbc384723a51422f5146cfbb4d57375fe9698e56d7d",
+      "windowsVersion": "10.0.26200",
+      "windowsBuild": "26200",
+      "lastBootUtc": "2026-10-14T05:36:19.5939710Z",
+      "os64bit": true,
+      "postgres": {
+        "version17": true,
+        "version": "postgres (PostgreSQL) 17.11",
+        "executables": [
+          {
+            "present": true,
+            "name": "postgres"
+          },
+          {
+            "present": true,
+            "name": "pg_ctl"
+          },
+          {
+            "present": true,
+            "name": "initdb"
+          },
+          {
+            "present": true,
+            "name": "pg_dump"
+          },
+          {
+            "present": true,
+            "name": "pg_restore"
+          }
+        ]
+      },
+      "runtime": {
+        "separateWebView2Required": false,
+        "actualApplicationLaunch": "manual-pending",
+        "electronBundled": true
+      },
+      "api": {
+        "foreignOrigin": {
+          "status": 403,
+          "unavailable": false
+        },
+        "unauthenticated": {
+          "status": 401,
+          "unavailable": false
+        },
+        "health": {
+          "status": 200,
+          "syncEnabled": false,
+          "service": "ruy-d1-lab",
+          "mode": "synthetic-only"
+        },
+        "anonymousDenied": true,
+        "foreignOriginDenied": true
+      },
+      "network": {
+        "publicListenerDetected": false,
+        "inspection": "verified",
+        "offlinePhysicalTest": "manual-pending",
+        "listeners": [
+          {
+            "address": "127.0.0.1",
+            "port": 55436
+          },
+          {
+            "address": "127.0.0.1",
+            "port": 18087
+          }
+        ]
+      },
+      "externalBackup": {
+        "physicalIndependence": "same-disk-rejected",
+        "restoreValidated": false,
+        "protected": false,
+        "configuredByThisScript": false,
+        "exists": true,
+        "supplied": true
+      },
+      "manualAcceptance": {
+        "cloudNeverGreen": "pending",
+        "recordsAndQueue": "pending",
+        "otherWindows": "pending",
+        "restore": "pending",
+        "reboot": "pending",
+        "offlineLogin": "pending"
+      },
+      "noInstallRebootServiceDatabaseOrCredentialChange": true
+    },
+    "quality": {
+      "baselineDiagnostics": 485,
+      "currentDiagnostics": 485,
+      "newDiagnostics": 0,
+      "added": [],
+      "remainingBaselineOnly": 0,
+      "globalLintInheritedOnly": true
+    },
+    "scopedLint": true,
+    "powershellParser": true,
+    "build": "H1 preserved; no app rebuild or runtime changes in H2",
+    "h1SyntheticBridge": "historical H1 evidence; not rerun in H2"
+  },
+  "backup": {
+    "last": {
+      "state": "local-only",
+      "createdAt": "2026-10-16T08:49:17.070Z",
+      "file": "2026-10-16T08-49-15-667Z-c825edd4-6841-48ec-97c7-56c7c77dad1b.ruybak",
+      "sha256": "e6aa1299826af8c69ec0bd87b1666f11f2081e6bb64e2b175c9daf74fa5abd28",
+      "bytes": 2138018,
+      "pendingOperations": 1395,
+      "externalProtected": false,
+      "externalState": "not-configured"
+    },
+    "status": {
+      "state": "local-only",
+      "createdAt": "2026-10-16T08:49:17.070Z",
+      "file": "2026-10-16T08-49-15-667Z-c825edd4-6841-48ec-97c7-56c7c77dad1b.ruybak",
+      "sha256": "e6aa1299826af8c69ec0bd87b1666f11f2081e6bb64e2b175c9daf74fa5abd28",
+      "bytes": 2138018,
+      "pendingOperations": 1395,
+      "externalProtected": false,
+      "externalState": "not-configured"
+    },
+    "externalConfigured": false,
+    "physicalIndependentDiskTested": false,
+    "physicalProtectionApproved": false,
+    "restoreTest": "different synthetic profiles, same Windows host"
+  },
+  "independentAcceptance": {
+    "accessibleSecondWindowsProvided": false,
+    "otherWindows": "pending",
+    "physicalInternetDisconnect": "pending on destination",
+    "realWindowsReboot": "pending, manual authorization required on destination",
+    "nativeDialogsManualAcceptance": "pending",
+    "physicalExternalDisk": "pending, destination not selected",
+    "manualCloseReopenOnDestination": "pending",
+    "fullVisualParity": "pending per-module manual matrix",
+    "manualForm": "ficha-h2.json inside ZIP"
+  },
+  "sync": {
+    "operationalSupabaseEnabled": false,
+    "operationalCloudConfirmation": false,
+    "rlsAuthStorageUnchanged": true
+  },
+  "operationalUseApproved": false,
+  "noCommitPushDeployRealDataMigrationOrPermanentServices": true
+}
