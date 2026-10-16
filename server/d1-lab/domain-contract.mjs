@@ -2,6 +2,8 @@
 const fields = text => text.split(' ');
 const common = 'date status observation responsible_user';
 export const domainFields = {
+ Vale: fields('employee_id employee_name sector date amount type motive payment_method authorized_by status observation proof_url deduction_payment_id deduction_payment_version'),
+ Consumption: fields('employee_id employee_name sector date time product quantity amount registered_by status deduction_payment_id deduction_payment_version'),
  ProductionProduct: fields('name category yield_quantity yield_unit preparation_time_minutes instructions status total_cost unit_cost ingredients'),
  ProductionOrder: fields('date product_id product_name planned_quantity produced_quantity priority status responsible observation unit'),
  DailyProduction: fields('date product_id product_name production_order_id produced_quantity loss_quantity leftover_quantity responsible observation losses unit'),
@@ -22,16 +24,27 @@ export const domainFields = {
  RecurringExpense: fields(common+' name amount frequency start_date automatic_generation next_due_date day_of_month category_id category_name cost_center_id cost_center_name financial_account_id financial_account_name beneficiary_name payment_method_planned'),
  DailyFinancialClose: fields(common+' expenses_total employee_payments_total vales_total pending_payables_total pending_items closed_by closed_at'),
 };
-export const readOnlyDomains = ['Vale','Consumption'];
+export const readOnlyDomains = [];
 export const isDomain = entity => Object.hasOwn(domainFields,entity) || readOnlyDomains.includes(entity);
 export const domainSyncFields = Object.fromEntries(Object.keys(domainFields).map(entity=>[entity,['name','payload_json','status']]));
 export function validateDomainSnapshot(entity,data){
  if(!domainSyncFields[entity])return;
  const payload=JSON.parse(data.payload_json);
- const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id'];
+ const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'];
  if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!domainFields[entity].includes(k)&&!derived.includes(k)))throw Error('Invalid domain snapshot');
  if(entity==='ProductionProduct'&&(!payload.name?.startsWith('FICTICIO ')||!Array.isArray(payload.ingredients)))throw Error('Invalid recipe');
  if(entity==='DailyProduction'&&(!Array.isArray(payload.recipe_snapshot)||!['rascunho','confirmado','cancelado'].includes(payload.local_status)))throw Error('Invalid production');
+ const uuid=value=>typeof value==='string'&&/^[a-f0-9]{8}-(?:[a-f0-9]{4}-){3}[a-f0-9]{12}$/i.test(value);
+ if(['Vale','Consumption'].includes(entity)){
+  const states=entity==='Vale'?['pendente','descontado','cancelado']:['registrado','cobrado','liberado','cancelado'];
+  if(!uuid(payload.employee_id)||!uuid(payload.source_device_id)||typeof payload.amount!=='number'||!Number.isFinite(payload.amount)||payload.amount<=0||payload.amount>1e9||Math.abs(payload.amount*100-Math.round(payload.amount*100))>1e-6||!states.includes(payload.status)||!/^\d{4}-\d{2}-\d{2}$/.test(payload.date)||!Number.isFinite(Date.parse(payload.date+'T00:00:00Z'))||new Date(payload.date+'T00:00:00Z').toISOString().slice(0,10)!==payload.date||payload.proof_url)throw Error('Invalid RH snapshot');
+  if(entity==='Vale'&&!['dinheiro','pix','produto','outros'].includes(payload.type))throw Error('Invalid advance');
+  if(entity==='Consumption'&&(!payload.product?.trim()||!Number.isFinite(payload.quantity)||payload.quantity<=0||!/^([01]\d|2[0-3]):[0-5]\d$/.test(payload.time||'')))throw Error('Invalid consumption');
+  if(['descontado','cobrado'].includes(payload.status)?!uuid(payload.deduction_payment_id):!!payload.deduction_payment_id)throw Error('Invalid payroll link');
+ }
+ if(payload.rh_deductions!==undefined){
+  if(entity!=='EmployeePayment'||!Array.isArray(payload.rh_deductions)||payload.rh_deductions.length>20||new Set(payload.rh_deductions.map(item=>item.id)).size!==payload.rh_deductions.length||payload.rh_deductions.some(item=>!['Vale','Consumption'].includes(item.entity)||!uuid(item.id)||!Number.isSafeInteger(item.amountCents)||item.amountCents<=0)||payload.rh_deductions.reduce((s,item)=>s+item.amountCents,0)>Math.round(payload.discount_amount*100))throw Error('Invalid payroll deductions');
+ }
 }
 export function unwrapDomain(row) {
  return {...JSON.parse(row.data.payload_json),id:row.id,_version:Number(row.version),created_date:new Date(row.created_at).toISOString(),updated_date:new Date(row.updated_at).toISOString()};

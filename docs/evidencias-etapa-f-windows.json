@@ -1,0 +1,138 @@
+{
+  "date": "2026-10-16",
+  "branch": "preparacao/windows-oficial-20261015",
+  "head": "8da0eb0",
+  "syntheticOnly": true,
+  "operationalSyncEnabled": false,
+  "rh": {
+    "checks": 12,
+    "results": [
+      "criação/consulta offline usam PostgreSQL, nome autoritativo e IDs estáveis",
+      "ACK perdido/replay e duplicidade semântica não repetem lançamentos",
+      "validação recusa centavos inválidos, datas, quantidades, anexos e falso desconto",
+      "edição CAS e histórico/auditoria por usuário e dispositivo são atômicos",
+      "API exige sessão/CSRF, papel autorizado e isolamento de colaboradores/histórico",
+      "falha após documento/fila/histórico reverte tudo e permite retry com mesmo UUID",
+      "cancelamento mantém histórico e não movimenta caixa/estoque",
+      "desconto vincula folha/despesa existentes, preserva valores e impede dupla contabilização",
+      "consumo descontado usa saldo do desconto, exige versão e rejeita excesso",
+      "liberação de consumo dispensa cobrança e não confirma transferência",
+      "fila e histórico sobrevivem a reinício real de PostgreSQL/API",
+      "backup/restore isolado inclui histórico RH, documentos e fila"
+    ],
+    "actor": "f0da54d2-f9a3-4dcb-98fc-cd610866f692",
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "syntheticOnly": true,
+    "operationalSyncEnabled": false,
+    "persistenceEvidence": {
+      "database": "ruy_d1_disposable",
+      "beforeHash": "fffc1119c261e91b6f5a0bb05cece9b534bd34348ac16bb652a6d17fc091ce53",
+      "afterHash": "fffc1119c261e91b6f5a0bb05cece9b534bd34348ac16bb652a6d17fc091ce53",
+      "documents": 9,
+      "historyEntries": 13,
+      "queuedOperations": 15,
+      "postgresAndApiRestarted": true
+    },
+    "backupEvidence": {
+      "database": "ruy_d1_restore_751245f0d37d64cb",
+      "recoveryTablesVerified": 12,
+      "syncEnabled": false,
+      "externalProtected": false
+    }
+  },
+  "bridge": {
+    "checks": 17,
+    "actorA": "42c2a254-adb4-48f6-98a9-82081dc61de9",
+    "actorB": "812f19b7-5e61-4ff1-b3ff-3934c98ff77a",
+    "peerDatabase": "ruy_d1_peer_90ef62c93cb14af4",
+    "central": "127.0.0.1:18086",
+    "operationalSyncEnabled": false,
+    "production": {
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "physicalComputers": false
+  },
+  "desktop": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": false,
+    "syntheticActor": "6520f18d-af1e-41dc-838d-01eed8f247de",
+    "apiOwned": false,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18087"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: alterações pendentes",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true,
+    "originalStockPage": {
+      "created": true,
+      "quantityMilli": 2000
+    },
+    "rh": {
+      "officialValeForm": true,
+      "officialConsumptionForm": true,
+      "edit": true,
+      "history": true,
+      "discountLink": true,
+      "cancellation": true,
+      "invalidQuantityFeedback": true,
+      "reload": true,
+      "statusFilter": true,
+      "cancelledExcludedFromTotals": true,
+      "expenseCount": 1,
+      "netAmount": 150,
+      "persistedAfterWindowClosed": true
+    }
+  },
+  "previousDesktopRegression": {
+    "recipeForm": true,
+    "dailyForm": true,
+    "confirmedConsumption": true,
+    "stockMilliAfterConsumption": 1000,
+    "expenseForm": true,
+    "expenseAmount": 12.34,
+    "revenueForm": true,
+    "cardAndReceiptForms": true,
+    "financialReport": true,
+    "reloaded": true,
+    "persistedAfterWindowClosed": true
+  },
+  "checks": {
+    "domain": 17,
+    "batch": 7,
+    "rhClient": 1,
+    "windowsAndStatus": 8,
+    "financeStability": 16,
+    "financeIntegration": 9,
+    "productionServerFixtures": 5,
+    "buildAliases": 1,
+    "lintChangedFiles": "passed",
+    "buildOfficial": "passed",
+    "buildD1": "passed",
+    "typecheck": {
+      "exitCode": 2,
+      "diagnostics": 485,
+      "newDiagnostics": 0
+    }
+  },
+  "productionAfter": {
+    "service": "gestao-ruy-production",
+    "release": "20261015T155237724Z-d597121d"
+  },
+  "productionUnchanged": true,
+  "installer": {
+    "existingVersion": "0.3.0",
+    "rebuilt": false,
+    "installed": false
+  },
+  "cloudMigrationsExecuted": false,
+  "physicalComputers": false,
+  "windowsRebootTested": false
+}
