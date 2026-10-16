@@ -16,7 +16,7 @@ export async function prepareRh({c,actor,deviceId,body,old,data,get,save}){
  if(old?.source_device_id&&old.source_device_id!==deviceId)throw fail(409,'Documento RH remoto exige reconciliação no dispositivo de origem.');
  if(old?.status==='cancelado'||discounted(body.entity,old))throw fail(409,'Documento cancelado/descontado é imutável; desconto exige estorno de folha homologado.');
  if(!uuid(data.employee_id))throw fail(400,'Colaborador obrigatório.');
- const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' FOR SHARE",[data.employee_id,actor.id])).rows[0];
+ const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' AND coalesce(data->>'_deleted','false')<>'true' FOR SHARE",[data.employee_id,actor.id])).rows[0];
  if(!employee||!['ativo','em_experiencia','folga','ferias','afastado'].includes(employee.data.status))throw fail(409,'Colaborador elegível do mesmo usuário obrigatório.');
  if(old&&old.employee_id!==data.employee_id)throw fail(409,'Colaborador do lançamento é imutável; cancele e cadastre outro.');
  data.employee_name=employee.data.name;data.sector=employee.data.sector||'';data.source_device_id=deviceId;

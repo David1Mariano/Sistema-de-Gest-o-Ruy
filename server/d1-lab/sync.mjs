@@ -3,7 +3,9 @@ import {unseal} from './environment.mjs';
 import {canonical,syncHash,dataOf,syncTable,validateEnvelope} from './sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {rhHistoryInsert} from './rh-domain.mjs';
-export const centralOrigin='http://127.0.0.1:18086';
+import {employeeDependencies,referencesEmployee} from './employee-delete.mjs';
+export const centralOrigin=process.env.RUY_D1_BRIDGE_TEST_ORIGIN||'http://127.0.0.1:18086';
+if(!['http://127.0.0.1:18086','http://127.0.0.1:18080','http://127.0.0.1:18089'].includes(centralOrigin)||centralOrigin!=='http://127.0.0.1:18086'&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Synthetic bridge opt-in required.');
 const locked=(pool,actor,fn)=>transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[actor]);return fn(c);});
 export async function syncReady(pool){return !!(await pool.query("SELECT to_regclass('public.d1_sync_binding') AS name")).rows[0].name;}
 export async function syncStatus(pool,actor){
@@ -25,7 +27,7 @@ export async function syncStatus(pool,actor){
  pendingFiles:null,attachmentsState:'not-implemented'};
 }
 async function remote(token,route,body){
- const r=await fetch(centralOrigin+'/d1'+route,{method:body?'POST':'GET',redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?canonical(body):undefined});
+ const r=await fetch(centralOrigin+(centralOrigin.endsWith(':18086')?'/d1':'/api/local/d1')+route,{method:body?'POST':'GET',redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?canonical(body):undefined});
  const value=await r.json();if(!r.ok)throw Object.assign(Error('Central D1 recusou operação.'),{status:r.status});return value;
 }
 async function credentials(binding){
@@ -84,11 +86,14 @@ async function receive(pool,binding,page){
    if(!inserted.rowCount)continue;
    // Um evento de cascata é aplicado integralmente na mesma transação.
    const dirty=[];
+   const deletedEmployees=(await c.query("SELECT id FROM d1_records WHERE owner_id=$1 AND entity='Employee' AND data->>'_deleted'='true'",[binding.actor])).rows;
    for(const change of event.changes){
     const v=(await c.query('SELECT remote_version FROM d1_sync_versions WHERE actor=$1 AND record_id=$2',[binding.actor,change.id])).rows[0];
     if(v&&Number(v.remote_version)>=change.version)continue;
     const pending=await c.query(`SELECT 1 FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1 AND coalesce(q.state,'pending')<>'acknowledged' AND(o.record_id=$2 OR coalesce(o.result->'cascata','[]'::jsonb) @> $3::jsonb) LIMIT 1`,[binding.actor,change.id,JSON.stringify([{record:{id:change.id}}])]);
     if(pending.rowCount)dirty.push(change.id);
+    if(change.entity==='Employee'&&change.data._deleted==='true'&&(await employeeDependencies(c,binding.actor,change.id)).blocked)dirty.push(change.id);
+    if(deletedEmployees.some(employee=>employee.id!==change.id&&referencesEmployee(change.data,employee.id)))dirty.push(change.id);
    }
    if(dirty.length){
     for(const change of event.changes)await c.query('INSERT INTO d1_sync_shadow VALUES($1,$2,$3,$4,$5) ON CONFLICT(actor,record_id) DO UPDATE SET remote_version=excluded.remote_version,data=excluded.data WHERE d1_sync_shadow.remote_version<excluded.remote_version',[binding.actor,change.id,change.entity,change.version,change.data]);
@@ -99,6 +104,7 @@ async function receive(pool,binding,page){
     if(v&&Number(v.remote_version)>=change.version)continue;
     const table=syncTable(change.entity),row=(await c.query(`SELECT * FROM ${table} WHERE id=$1 FOR UPDATE`,[change.id])).rows[0];
     if(row&&(row.owner_id!==binding.actor||row.entity!==change.entity))throw fail(403,'Colisão de escopo local.');
+    if(row?.data._deleted==='true'&&change.data._deleted!=='true')throw fail(409,'Ressurreição de identidade recusada.');
     const localVersion=row?Number(row.version)+1:1,nameKey=change.entity==='SystemSettings'?'singleton':sectorKey(change.data.name);
     if(row)await c.query(`UPDATE ${table} SET data=$2,name_key=$3,version=$4,updated_at=now() WHERE id=$1`,[change.id,change.data,nameKey,localVersion]);
     else await c.query(`INSERT INTO ${table}(id,owner_id,entity,data,name_key,version) VALUES($1,$2,$3,$4,$5,$6)`,[change.id,binding.actor,change.entity,change.data,nameKey,localVersion]);

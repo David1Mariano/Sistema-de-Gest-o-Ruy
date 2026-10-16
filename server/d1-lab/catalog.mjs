@@ -2,14 +2,16 @@ import {catalogFields,projectEmployee} from './catalog-contract.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
 import {record} from './entities.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
+import {deleteEmployee} from './employee-delete.mjs';
 
 function table(entity){return entity==='Employee'?'d1_records':'d2_catalog';}
 export async function catalogList(pool,user,entity){
  if(!catalogFields[entity])throw fail(403,'Cadastro não habilitado.');
  const {rows}=await pool.query(`SELECT * FROM ${table(entity)} WHERE owner_id=$1 AND entity=$2 ORDER BY created_at DESC,id`,[user.id,entity]);
- return rows.map(r=>entity==='Employee'?projectEmployee(record(r),user.role):record(r));
+ return rows.filter(r=>r.data._deleted!=='true').map(r=>entity==='Employee'?projectEmployee(record(r),user.role):record(r));
 }
 export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()=>{},context){
+ if(entity==='Employee'&&body.operation==='delete')return deleteEmployee(pool,user,deviceId,id,body,hook);
  if(!catalogFields[entity]||!uuid(id)||!uuid(body.operationId)||!['create','update'].includes(body.operation))throw fail(400,'Comando de cadastro inválido.');
  const {operation,operationId,baseVersion,data}=body;
  if(operation==='create'?baseVersion!=null:!Number.isSafeInteger(baseVersion)||baseVersion<1)throw fail(400,'Versão inválida.');
@@ -28,6 +30,7 @@ export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()
   const prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[operationId])).rows[0];
   if(prior){if(prior.actor!==actor.id||prior.payload_hash!==payloadHash)throw fail(409,'Operação reutilizada com outro conteúdo.');return {...prior.result,replay:true};}
   const current=(await c.query(`SELECT * FROM ${table(entity)} WHERE id=$1 FOR UPDATE`,[id])).rows[0];
+  if(current?.data._deleted==='true')throw fail(409,'Colaborador excluído; identidade preservada.');
   if(current&&(current.owner_id!==actor.id||current.entity!==entity))throw fail(403,'Registro fora do escopo.');
   if(operation==='create'?!!current:!current||Number(current.version)!==baseVersion)throw fail(409,'Conflito de versão; recarregue o cadastro.');
   const merged={...(current?.data||{}),...data};

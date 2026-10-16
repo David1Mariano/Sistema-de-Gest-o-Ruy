@@ -21,14 +21,17 @@ async function performMutation(entity,id,data,operation,options={}){
  const clean=Object.fromEntries(Object.entries(data).filter(([k])=>allowed[entity].includes(k)));
  const storageKey='ruy-d1-command:'+session.user.id+':'+entity+':'+(id||'create');
  const prior=JSON.parse(localStorage.getItem(storageKey)||'null');
- const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({data:clean,confirmRename:options.confirmRename===true,renameImpact:options.confirmRename===true?options.renameImpact:null}))))).map(b=>b.toString(16).padStart(2,'0')).join('');
- if(prior&&prior.fingerprint!==fingerprint)return signal(Error('Existe tentativa sem confirmação para este formulário. Reenvie os mesmos campos antes de alterá-los.'));
+ const fingerprint=Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({operation,data:clean,confirmation:options.confirmation,confirmRename:options.confirmRename===true,renameImpact:options.confirmRename===true?options.renameImpact:null}))))).map(b=>b.toString(16).padStart(2,'0')).join('');
+ // Preserve pre-upgrade create/update intentions and their UUID after a lost
+ // response. A legacy fingerprint is valid only for the same operation kind.
+ const legacyFingerprint=prior&&prior.body.operation===operation&&operation!=='delete'?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify({data:clean,confirmRename:options.confirmRename===true,renameImpact:options.confirmRename===true?options.renameImpact:null}))))).map(b=>b.toString(16).padStart(2,'0')).join(''):null;
+ if(prior&&prior.fingerprint!==fingerprint&&prior.fingerprint!==legacyFingerprint)return signal(Error('Existe tentativa sem confirmação para este formulário. Reenvie os mesmos campos antes de alterá-los.'));
  // ETAPA D1.1: `confirmRename`/`renameImpact` saem do corpo do comando (não do
  // `data`), então o hash de replay do servidor muda junto com a confirmação e um
  // command antigo não confirmado não pode ser reaproveitado como confirmado.
  const confirm=operation==='update'&&options.confirmRename===true?{confirmRename:true,renameImpact:options.renameImpact}:undefined;
- const command=prior?{...prior,body:{...prior.body,data:clean}}:{id:id||crypto.randomUUID(),fingerprint,body:{operationId:crypto.randomUUID(),operation,baseVersion:operation==='create'?null:cache.get(entity+':'+id)?._version,data:clean,...confirm}};
- if(operation==='update'&&!command.body.baseVersion)return signal(Error('Recarregue o registro antes de editar.'));
+ const command=prior?{...prior,body:{...prior.body,data:clean}}:{id:id||crypto.randomUUID(),fingerprint,body:{operationId:crypto.randomUUID(),operation,baseVersion:operation==='create'?null:options.baseVersion??cache.get(entity+':'+id)?._version,data:clean,...confirm,...(operation==='delete'?{confirmation:options.confirmation}:{})}};
+ if(operation!=='create'&&!command.body.baseVersion)return signal(Error('Recarregue o registro antes de editar.'));
  // O transporte de dados pessoais não guarda o payload no browser. Após falha,
  // o mesmo formulário reconstituído deve coincidir com o hash antes do reenvio.
  localStorage.setItem(storageKey,JSON.stringify(entity==='Employee'?{...command,body:{...command.body,data:undefined}}:command));
@@ -54,6 +57,7 @@ export function entityClient(entity){return {
  async get(id){return (await this.list('-created_date',100000)).find(r=>r.id===id)||null;},
  create:data=>mutate(entity,null,data,'create'),
  update:(id,data,options)=>mutate(entity,id,data,'update',options),
+ delete:(id,options)=>entity==='Employee'?mutate(entity,id,{},'delete',options):signal(Error('Exclusão não habilitada para esta entidade.')),
  subscribe(fn){globalThis.addEventListener('d1-changed',fn);return()=>globalThis.removeEventListener('d1-changed',fn);},
 };}
 export const base44={localDomain:domain,integrations:{Core:{UploadFile:async()=>signal(Error('Anexos privados ainda não homologados no laboratório.'))}},entities:new Proxy({},{get(_,entity){

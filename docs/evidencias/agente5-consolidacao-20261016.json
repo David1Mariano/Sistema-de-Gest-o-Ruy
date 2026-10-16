@@ -1,0 +1,71 @@
+{
+  "date": "2026-10-16",
+  "branch": "agente-5-consolidacao-windows-d1-c2-20261016",
+  "restart": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "cluster": "C:\\Users\\Pichau\\AppData\\Local\\GestaoRuy\\agente5-restart-e5aaec701010f607\\cluster",
+    "oldPid": 22856,
+    "newPid": 16532,
+    "syntheticCanaryPersisted": true,
+    "sourcePort": 55436,
+    "sourceNotRestarted": true,
+    "initdbUsed": false,
+    "forcedTermination": false
+  },
+  "integration": {
+    "checks": 11,
+    "apiPort": 18092,
+    "dbPort": 55437,
+    "restartFixture": "e5aaec701010f607",
+    "peerDatabase": "ruy_d1_peer_313b046e18d26b42",
+    "actorA": "0646858a-40c1-46b8-8de4-c1443e08db52",
+    "actorB": "ea06771d-988a-4dc4-803f-c02d2c60cd6d",
+    "workspace": "db4d0d88-b026-4f45-ae49-c1c2dd099ba8",
+    "windowsSource": null,
+    "physicalComputers": false,
+    "operationalSyncEnabled": false
+  },
+  "backup": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "database": "ruy_d1_restore_9b94b1cbf3c4803f",
+    "pendingOperations": 1850,
+    "attachments": 1,
+    "recoveryTablesVerified": 12,
+    "syncEnabled": false,
+    "syntheticCanariesRestored": 1,
+    "attachmentVerified": true,
+    "attachmentSHA256": "8257bd7c66c2bbfe6d94ad0c470abf4b7d0ad34e59e97feaefdd00a0f10a1fb2",
+    "file": "2026-10-16T19-54-40-542Z-9a0f0ad6-0a99-48ed-ada1-7bd8308db10a.ruybak",
+    "existingBackupsPreserved": true
+  },
+  "centralBackup": {
+    "database": "ruy_c2_restore_b14df7c677ee4c62",
+    "file": "agente5-central-b14df7c677ee4c62.aesgcm",
+    "sha256": "b7a98f1d6076d6186062fcdf1f0a433678c33471534db0e9a8429ba098016079",
+    "windowsTombstoneRestored": true,
+    "centralReceiptsRestored": true,
+    "encrypted": true,
+    "dpapiKey": true,
+    "corruptionRejected": true,
+    "apiStartedOnRestore": false
+  },
+  "checks": {
+    "lint": true,
+    "build": true,
+    "d1Build": true,
+    "healthClientAliases": 5,
+    "regressionTests": 61,
+    "stockAssertions": 121
+  },
+  "oldApi": {
+    "port": 18080,
+    "pid": 22292,
+    "parent": 21840,
+    "ancestor": 23252,
+    "origin": "hidden PowerShell executor from Codex inside VS Code; visible terminal tab not identifiable"
+  },
+  "physicalWindowsPairTested": false,
+  "operationalRelease": false
+}

@@ -1,4 +1,5 @@
 import http from 'node:http';
+import {employeeDeleteCheck} from './employee-delete.mjs';
 import {randomBytes} from 'node:crypto';
 import {digest,fail,hashPassword,verifyPassword,transaction} from './core.mjs';
 import {API_PORT} from './environment.mjs';
@@ -77,6 +78,8 @@ export function createServer(pool,deviceId) {
         return reply(200,{...await synchronizeD1(pool,user.id),backup:user.role==='admin'?await backupStatus():null});
       }
       const domain=await domainRoute(pool,user,deviceId,req,url,body);
+      const employeeCheck=url.pathname.match(/^\/api\/d1\/employees\/([0-9a-f-]+)\/dependencies$/);
+      if(employeeCheck&&req.method==='GET')return reply(200,await employeeDeleteCheck(pool,user,employeeCheck[1]));
       if(domain)return reply(200,domain);
       const catalog=await catalogRoute(pool,user,deviceId,req,url,body);
       if(url.pathname==='/api/d1/operations/state'&&req.method==='GET')return reply(200,await operationalState(pool,user));

@@ -21,7 +21,7 @@ test('Indicador: zero pendências não implica sucesso; verde exige recibos e cu
  assert.equal(syncState({enabled:false,pending:0,lastSyncAt:new Date().toISOString(),receiptsVerified:true,pullComplete:true,cursor:0}),'unknown');
  assert.equal(syncState({pending:1}),'pending');assert.equal(syncState({pendingFiles:1}),'pending');
  assert.equal(syncState({sending:1}),'syncing');assert.equal(syncState({conflicts:1}),'error');assert.equal(syncState({lastError:'sem rede'}),'error');
- const complete={enabled:true,pending:0,pendingFiles:0,lastSyncAt:new Date().toISOString(),receiptsVerified:true,pullComplete:true,cursor:3};
+ const complete={mode:'operational',operationalSyncEnabled:true,enabled:true,pending:0,sending:0,conflicts:0,rejected:0,pendingFiles:0,lastSyncAt:new Date().toISOString(),receiptsVerified:true,pullComplete:true,cursor:3};
  assert.equal(syncState(complete),'confirmed');assert.equal(syncState({...complete,receiptsVerified:false}),'unknown');
 });
 test('Backup: autenticação criptográfica recusa corrupção, chave errada e texto aberto',()=>{

@@ -1,5 +1,7 @@
 # Sistema de Gestão Ruy
 
+Consolida??o Agente 5: [evid?ncias e bloqueios](docs/agente-5-consolidacao-20261016.md).
+
 Preparação Windows offline para homologação: [estado atual e bloqueios](docs/etapa-e-producao-financeiro.md)
 e [continuidade em outro computador](docs/continuar-em-outro-computador.md).
 O laboratório Windows usa banco, credenciais e portas próprios; a produção 8080

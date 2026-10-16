@@ -3,9 +3,12 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 
-export const DB_PORT = 55436;
-export const API_PORT = 18087;
-export const home = path.join(process.env.LOCALAPPDATA || '', 'GestaoRuy', 'etapa-d1-lab');
+const restartFixture=process.env.RUY_D1_RESTART_FIXTURE;
+if(restartFixture&&(!/^[a-f0-9]{16}$/.test(restartFixture)||process.env.RUY_D1_ALLOW_TESTS!=='1'))throw Error('Fixture de restart inválida.');
+export const DB_PORT = restartFixture?55437:55436;
+export const API_PORT = Number(process.env.RUY_D1_TEST_API_PORT||18087);
+if(![18087,18091].includes(API_PORT)||API_PORT!==18087&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Porta auxiliar exige laboratório explícito.');
+export const home = path.join(process.env.LOCALAPPDATA || '', 'GestaoRuy', restartFixture?'agente5-restart-'+restartFixture:'etapa-d1-lab');
 export const cluster = path.join(home, 'cluster');
 export const database = 'ruy_d1_disposable';
 export function windows() {
@@ -34,6 +37,7 @@ export async function validateHome() {
   windows();
   const marker=JSON.parse(await fs.readFile(path.join(home,'lab.json'),'utf8'));
   if(marker.purpose!=='RUY_D1_SYNTHETIC_ONLY' || marker.machine!==binding()) throw Error('Laboratório ausente, clonado ou de outro computador.');
+  if(restartFixture&&(marker.restartFixture!==restartFixture||marker.port!==55437))throw Error('Cluster de restart não identificado.');
   const real=await fs.realpath(home);
   if(real.toLowerCase()!==path.resolve(home).toLowerCase()) throw Error('Redirecionamento de diretório recusado.');
   return marker;

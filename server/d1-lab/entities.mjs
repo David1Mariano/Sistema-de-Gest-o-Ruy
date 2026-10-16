@@ -8,7 +8,7 @@ const entities=['Sector','JobRole','Employee'];
 export async function list(pool,user,entity){
  if(!entities.includes(entity))throw fail(403,'Módulo fora da etapa D1.');
  const rows=(await pool.query('SELECT * FROM d1_records WHERE owner_id=$1 AND entity=$2 ORDER BY created_at DESC,id',[user.id,entity])).rows;
- return rows.map(r=>entity==='Employee'?projectEmployee(record(r),user.role):record(r));
+ return rows.filter(r=>r.data._deleted!=='true').map(r=>entity==='Employee'?projectEmployee(record(r),user.role):record(r));
 }
 export async function save(pool,user,deviceId,entity,id,body,hook=async()=>{}){
  if(!['Sector','JobRole'].includes(entity)||!uuid(id)||!uuid(body.operationId)||!['create','update'].includes(body.operation))throw fail(400,'Comando D1 inválido.');

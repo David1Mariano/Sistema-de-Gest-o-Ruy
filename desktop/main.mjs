@@ -11,7 +11,7 @@ const root = app.isPackaged ? app.getAppPath() : path.resolve(here, '..');
 const metadata=JSON.parse(await fs.readFile(path.join(here,'package.json'),'utf8'));
 app.setName('Sistema de Gestão Ruy');
 // Namespace exclusivo: não usa sessão, cache ou cluster operacional.
-app.setPath('userData', path.join(app.getPath('appData'), 'SistemaGestaoRuy-Lab'));
+app.setPath('userData', path.join(app.getPath('appData'), process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab'));
 app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
 let worker, window, timer, closing = false,preparing=false;
 let backupTimer,backupFlight,smokeAccount,supervisor;
@@ -147,6 +147,10 @@ async function start() {
         const b=(await persisted.query('SELECT quantity_milli FROM d1_stock_balances WHERE owner_id=$1',[smokeAccount.id])).rows;
         if(b.length!==1||b[0].quantity_milli!=='2000')throw Error('Saldo do formulário não persistiu.');
         evidence.originalStockPage={created:true,quantityMilli:2000};
+        if(process.argv.includes('--lab-employee-smoke')){
+          stage='employee-forms';const {employeeSmoke}=await import('./employee-smoke.mjs');
+          evidence.employee=await employeeSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id);
+        }
         if(process.argv.includes('--lab-domain-smoke')){
           stage='domain-forms';const {domainSmoke}=await import('./domain-smoke.mjs');
           evidence.domains=await domainSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id);

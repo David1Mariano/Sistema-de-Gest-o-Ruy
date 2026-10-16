@@ -175,7 +175,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    if(body.entity==='EmployeePayment'){
     protectRhPayment(old,data);
     if(data.vale_id||data.payment_type==='vale')throw fail(409,'Vale não gera nova despesa por pagamento; use o vínculo de desconto RH.');
-    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee'",[data.employee_id,actor.id])).rows[0];
+    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' AND coalesce(data->>'_deleted','false')<>'true'",[data.employee_id,actor.id])).rows[0];
     if(!employee||!['ativo','em_experiencia','folga','ferias','afastado'].includes(employee.data.status)||!positive(data.net_amount)||!positive(data.gross_amount)||typeof data.discount_amount!=='number'||data.discount_amount<0||Math.round((data.gross_amount-data.discount_amount)*100)!==Math.round(data.net_amount*100)||!date(data.payment_date)||!['pago','pendente','cancelado'].includes(data.status))throw fail(400,'Colaborador, data ou valores do pagamento inválidos.');
     if(old?.source_device_id&&old.source_device_id!==deviceId)throw fail(409,'Pagamento remoto exige reconciliação.');
     const linked=old?.financial_expense_id?await get(c,actor.id,'FinancialExpense',old.financial_expense_id):null;
@@ -207,7 +207,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    }else if(body.entity==='AccountsPayable'&&old?.status==='pago')throw fail(409,'Conta quitada exige cancelamento agregado específico.');
    if(body.entity==='FinancialExpense'&&((data.origin_type&&!['manual','pagamento_colaborador'].includes(data.origin_type))||old?.origin_type==='conta_pagar'))throw fail(409,'Despesa vinculada exige comando do agregado de origem.');
    if(body.entity==='FinancialExpense'&&data.beneficiary_type==='colaborador'){
-    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee'",[data.beneficiary_id,actor.id])).rows[0];
+    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' AND coalesce(data->>'_deleted','false')<>'true'",[data.beneficiary_id,actor.id])).rows[0];
     if(!employee||!['ativo','em_experiencia','folga','ferias','afastado'].includes(employee.data.status))throw fail(409,'Colaborador elegível obrigatório.');
     const linked=old?.linked_payment_id?await get(c,actor.id,'EmployeePayment',old.linked_payment_id):null;
     const linkedData=linked?unwrapDomain(linked):{};
@@ -234,7 +234,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    const results=[];
    for(const p of items){
     if(p.vale_id||p.payment_type==='vale')throw fail(409,'Vale exige fluxo RH, sem nova despesa em lote.');
-    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' FOR SHARE",[p.employee_id,actor.id])).rows[0];
+    const employee=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' AND coalesce(data->>'_deleted','false')<>'true' FOR SHARE",[p.employee_id,actor.id])).rows[0];
     if(!employee||!['ativo','em_experiencia','folga','ferias','afastado'].includes(employee.data.status))throw fail(409,'Colaborador '+String(p.employee_id)+' não elegível.');
     if(!positive(p.net_amount)||!positive(p.gross_amount)||typeof p.discount_amount!=='number'||p.discount_amount<0||Math.round((p.gross_amount-p.discount_amount)*100)!==Math.round(p.net_amount*100)||!date(p.payment_date)||!['pago','pendente'].includes(p.status||'pago'))throw fail(400,'Valores do pagamento '+String(p.employee_id)+' inválidos.');
     const equivalent=(await rows(c,actor.id,'EmployeePayment')).map(unwrapDomain).some(existing=>['employee_id','gross_amount','discount_amount','net_amount','payment_date'].every(key=>existing[key]===p[key])&&(existing.payment_type||'outros')===(p.payment_type||'outros')&&(existing.observation||'')===(p.observation||'')&&existing.status!=='cancelado');

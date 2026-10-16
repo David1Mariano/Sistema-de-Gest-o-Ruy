@@ -2,6 +2,7 @@ import {transaction,fail,digest} from '../d1-lab/core.mjs';
 import {validateEnvelope,syncHash} from '../d1-lab/sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {domainSyncFields} from '../d1-lab/domain-contract.mjs';
+import {referencesEmployee} from '../d1-lab/employee-delete.mjs';
 async function authorize(c,token){
  const p=(await c.query('SELECT * FROM d1_principals WHERE token_hash=$1',[digest(token||'')])).rows[0];
  if(!p?.active||p.role!=='admin')throw fail(403,'Ponte D1 restrita a administrador sintético autorizado.');
@@ -20,11 +21,17 @@ export async function acceptD1(pool,token,command){
   for(const change of command.changes){
    const row=records.get(change.id);
    if(row&&(row.entity!==change.entity))throw fail(409,'Entidade remota divergente.');
+   if(row?.data._deleted==='true')throw fail(409,'Identidade excluída não pode ser reescrita.');
    if(change.baseVersion===null?!!row:!row||Number(row.version)!==change.baseVersion)throw fail(409,'Conflito remoto D1; proposta local preservada.');
    records.set(change.id,{id:change.id,entity:change.entity,data:change.data,version:row?Number(row.version)+1:1});
   }
   // Verifica referências no estado resultante de TODO o agregado, antes de escrever.
   const values=[...records.values()];
+  // Validate the whole resulting workspace: an offline delete must not orphan
+  // a payment/reference committed by another device, nor accept a late link.
+  for(const employee of values.filter(r=>r.entity==='Employee'&&r.data._deleted==='true')){
+   if(values.some(r=>r.id!==employee.id&&referencesEmployee(r.data,employee.id)))throw fail(409,'Colaborador excluído possui referência remota.');
+  }
   for(const change of command.changes){
    const d=change.data;
    if(domainSyncFields[change.entity]){

@@ -1,6 +1,20 @@
 import {test} from 'node:test';
 import assert from 'node:assert/strict';
 import {base44,setSession,request,localDomain} from '../../lab/d1/client.mjs';
+import {randomUUID,createHash} from 'node:crypto';
+
+test('Client upgrade resumes a legacy intention with the same UUID',async()=>{
+ const previous=globalThis.fetch,storage=globalThis.localStorage,dispatch=globalThis.dispatchEvent;
+ const actor=randomUUID(),id=randomUUID(),operationId=randomUUID(),data={name:'FICTICIO Legacy intention',status:'ativo'};
+ const store=new Map();
+ globalThis.localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
+ globalThis.dispatchEvent=()=>true;setSession({user:{id:actor,role:'admin'},csrf:'synthetic'});
+ const fingerprint=createHash('sha256').update(JSON.stringify({data,confirmRename:false,renameImpact:null})).digest('hex');
+ store.set('ruy-d1-command:'+actor+':ExpenseCategory:create',JSON.stringify({id,fingerprint,body:{operationId,operation:'create',baseVersion:null,data}}));
+ globalThis.fetch=async(_url,options)=>{assert.equal(JSON.parse(options.body).operationId,operationId);return new Response(JSON.stringify({record:{...data,id,_version:1},operationId,replay:true}));};
+ try{assert.equal((await base44.entities.ExpenseCategory.create(data)).id,id);assert.equal(store.size,0);}
+ finally{setSession(null);globalThis.fetch=previous;globalThis.localStorage=storage;globalThis.dispatchEvent=dispatch;}
+});
 test('Cliente: resposta 5xx mantém o mesmo envelope e troca de sessão invalida leitura em voo',async()=>{
  const previous=globalThis.fetch,store=new Map(),commands=[];
  globalThis.localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};globalThis.dispatchEvent=()=>true;
