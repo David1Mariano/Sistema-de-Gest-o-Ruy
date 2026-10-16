@@ -1,6 +1,6 @@
 {
   "name": "sistema-gestao-ruy-desktop-lab",
-  "version": "0.3.0",
+  "version": "0.5.0",
   "private": true,
   "type": "module",
   "main": "main.mjs",
@@ -19,19 +19,23 @@
     "electron-builder": "26.15.3"
   },
   "build": {
-    "appId": "br.ruy.gestao.laboratorio",
-    "productName": "Sistema de Gestão Ruy",
+    "appId": "br.ruy.gestao.laboratorio.g",
+    "productName": "Sistema de Gestão Ruy Lab G",
     "directories": {
-      "output": "../artifacts/windows-lab"
+      "output": "../artifacts/windows-lab-0.5.0"
     },
     "files": [
       "*.mjs",
+      "*.cjs",
+      "*.html",
+      "setup-renderer.js",
       "assets/*",
       {
         "from": "../server/d1-lab",
         "to": "server/d1-lab",
         "filter": [
-          "*.mjs"
+          "*.mjs",
+          "*.sql"
         ]
       },
       {
@@ -70,7 +74,7 @@
       "deleteAppDataOnUninstall": false,
       "artifactName": "Sistema-Gestao-Ruy-Lab-${version}-Setup.${ext}",
       "runAfterFinish": false,
-      "shortcutName": "Sistema de Gestão Ruy — Laboratório"
+      "shortcutName": "Sistema de Gestão Ruy — Homologação G"
     },
     "electronFuses": {
       "runAsNode": false,

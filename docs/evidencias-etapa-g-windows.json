@@ -1,0 +1,260 @@
+{
+  "date": "2026-10-16",
+  "branch": "preparacao/windows-oficial-20261015",
+  "head": "8da0eb0",
+  "version": "0.5.0",
+  "syntheticOnly": true,
+  "installer": {
+    "file": "artifacts\\windows-lab-0.5.0\\Sistema-Gestao-Ruy-Lab-0.5.0-Setup.exe",
+    "bytes": 111873242,
+    "sha256": "8e5d24d7b7319fad0705141fd9d40c0201c427fc04d70f72ea2d401979e32e2d",
+    "signed": false,
+    "previousInstallersUnchanged": {
+      "Sistema-Gestao-Ruy-Lab-0.1.0-Setup.exe": "5b4bd4e8d4b77a4c435034e691113c0c637212273fcd1622f15596ee88bc25e1",
+      "Sistema-Gestao-Ruy-Lab-0.2.0-Setup.exe": "379019fbe8c3f3ea76814aa288775d86891f864f4eb1b73e33c7580cfd6c4ed4",
+      "Sistema-Gestao-Ruy-Lab-0.3.0-Setup.exe": "9711988dcbcec250d6438dbbe86f48757495af76f153a92ce128b1f3113c8d69"
+    }
+  },
+  "installation": {
+    "version": "0.5.0",
+    "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-g-0.5.0",
+    "installer": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-lab-0.5.0\\Sistema-Gestao-Ruy-Lab-0.5.0-Setup.exe",
+    "shortcuts": [
+      {
+        "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-g-0.5.0\\Sistema de Gestão Ruy Lab G.exe",
+        "path": "C:\\Users\\Pichau\\Desktop\\Sistema de Gestão Ruy — Homologação G.lnk"
+      },
+      {
+        "target": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-g-0.5.0\\Sistema de Gestão Ruy Lab G.exe",
+        "path": "C:\\Users\\Pichau\\AppData\\Roaming\\Microsoft\\Windows\\Start Menu\\Programs\\Sistema de Gestão Ruy — Homologação G.lnk"
+      }
+    ],
+    "before": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "f693207368494f7a49d7200de4d85c1a8000ddc417cdb665bfef52fb5bec0c35",
+      "counts": {
+        "d1_records": 309,
+        "d2_catalog": 591,
+        "d1_rh_history": 72,
+        "lab_outbox": 1122,
+        "lab_audit": 1348,
+        "d1_sync_binding": 7,
+        "d1_sync_queue": 115,
+        "d1_sync_versions": 93,
+        "d1_sync_inbox": 120,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 44,
+        "d1_stock_movements": 106,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 108
+      }
+    },
+    "afterUse": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "3643ffcecffe1334ed872b945f607e65ffc89ee9357b582556fb0b55d9fd5ba1",
+      "counts": {
+        "d1_records": 312,
+        "d2_catalog": 603,
+        "d1_rh_history": 77,
+        "lab_outbox": 1143,
+        "lab_audit": 1371,
+        "d1_sync_binding": 7,
+        "d1_sync_queue": 115,
+        "d1_sync_versions": 93,
+        "d1_sync_inbox": 120,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 46,
+        "d1_stock_movements": 109,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 111
+      }
+    },
+    "reinstalled": {
+      "purpose": "D1_INSTALLATION_PRESERVATION",
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+      "sha256": "3643ffcecffe1334ed872b945f607e65ffc89ee9357b582556fb0b55d9fd5ba1",
+      "counts": {
+        "d1_records": 312,
+        "d2_catalog": 603,
+        "d1_rh_history": 77,
+        "lab_outbox": 1143,
+        "lab_audit": 1371,
+        "d1_sync_binding": 7,
+        "d1_sync_queue": 115,
+        "d1_sync_versions": 93,
+        "d1_sync_inbox": 120,
+        "d1_sync_shadow": 0,
+        "d1_stock_balances": 46,
+        "d1_stock_movements": 109,
+        "d1_financial_accounts": 6,
+        "d1_financial_entries": 8,
+        "d1_operation_events": 111
+      }
+    },
+    "installedAsarHash": "b7db90751b7cbe2a0d0c64f34bb531007c48b8fdb1c6df14f8c849611b4a0905",
+    "install": true,
+    "uninstall": true,
+    "reinstall": true,
+    "dataPreserved": true,
+    "productionPreserved": true,
+    "otherWindows": false
+  },
+  "installed": {
+    "version": "0.5.0",
+    "executable": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\windows-installation-g-0.5.0\\Sistema de Gestão Ruy Lab G.exe",
+    "results": [
+      {
+        "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+        "packaged": true,
+        "version": "0.5.0",
+        "databaseStartup": {
+          "started": true,
+          "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+        },
+        "syntheticActor": "e20484f9-a0f9-4fee-8dfc-4bf6528a163b",
+        "apiOwned": true,
+        "renderer": {
+          "title": "Ruy — D1 isolado",
+          "hasLogin": true,
+          "nodeExposed": false,
+          "location": "http://127.0.0.1:18087"
+        },
+        "authenticated": true,
+        "cloudIndicator": "Nuvem: estado desconhecido",
+        "originalEmployeesPage": true,
+        "originalSettingsPage": true,
+        "originalStockPage": {
+          "created": true,
+          "quantityMilli": 2000
+        },
+        "rh": {
+          "officialValeForm": true,
+          "officialConsumptionForm": true,
+          "edit": true,
+          "history": true,
+          "discountLink": true,
+          "cancellation": true,
+          "invalidQuantityFeedback": true,
+          "reload": true,
+          "statusFilter": true,
+          "cancelledExcludedFromTotals": true,
+          "expenseCount": 1,
+          "netAmount": 150
+        }
+      },
+      {
+        "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+        "packaged": true,
+        "version": "0.5.0",
+        "databaseStartup": {
+          "started": false,
+          "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+        },
+        "syntheticActor": "a229f04d-b216-4e32-b106-7e50cde5d743",
+        "apiOwned": true,
+        "renderer": {
+          "title": "Ruy — D1 isolado",
+          "hasLogin": true,
+          "nodeExposed": false,
+          "location": "http://127.0.0.1:18087"
+        },
+        "authenticated": true,
+        "cloudIndicator": "Nuvem: alterações pendentes",
+        "originalEmployeesPage": true,
+        "originalSettingsPage": true,
+        "originalStockPage": {
+          "created": true,
+          "quantityMilli": 2000
+        },
+        "domains": {
+          "recipeForm": true,
+          "dailyForm": true,
+          "confirmedConsumption": true,
+          "stockMilliAfterConsumption": 1000,
+          "expenseForm": true,
+          "expenseAmount": 12.34,
+          "revenueForm": true,
+          "cardAndReceiptForms": true,
+          "financialReport": true,
+          "reloaded": true
+        }
+      }
+    ],
+    "productionPreserved": true,
+    "otherWindows": false
+  },
+  "bootstrap": {
+    "freshProfile": true,
+    "sameWindowsHost": true,
+    "created": true,
+    "syntheticRecordPersisted": true,
+    "pendingQueuePersisted": true,
+    "postgresRestarted": true,
+    "schemaUpgradeWithoutRowLoss": true,
+    "credentialsDPAPI": true,
+    "historyAppendOnly": true,
+    "profile": "C:\\Users\\Pichau\\gestao-ruy-windows-oficial-20261015\\artifacts\\g-profile-f68f0651-d8b7-4238-92f8-0f29c4f5719b",
+    "productionPreserved": true
+  },
+  "artifact": {
+    "requiredFilesPresent": true,
+    "privateEnvironmentFilesAbsent": true,
+    "supabaseEndpointAbsent": true,
+    "legacyBatchGuardPresent": true,
+    "version": "0.5.0"
+  },
+  "tests": {
+    "domain": 17,
+    "batchBackend": 7,
+    "rh": 12,
+    "bridge": 17,
+    "units": 13,
+    "lintChanged": "passed",
+    "lintGeneral": {
+      "exitCode": 1,
+      "existingFile": "scripts/security/test-emergency-fix.mjs:41"
+    },
+    "buildOfficial": "passed",
+    "buildD1": "passed",
+    "nsis": "passed",
+    "typecheck": {
+      "exitCode": 2,
+      "existingDiagnostics": 485,
+      "newDiagnostics": 0
+    }
+  },
+  "backup": {
+    "status": {
+      "state": "local-only",
+      "createdAt": "2026-10-16T07:02:46.376Z",
+      "file": "2026-10-16T07-02-44-671Z-cf41e0eb-bb31-4549-9c8d-548a71e46600.ruybak",
+      "sha256": "4573566779a3a5e662e97f44e07e4d674512931cb5ce0ae8d18bc90c6e930b34",
+      "bytes": 1818455,
+      "pendingOperations": 1224,
+      "externalProtected": false,
+      "externalState": "not-configured"
+    },
+    "externalConfigured": false
+  },
+  "production": {
+    "service": "gestao-ruy-production",
+    "release": "20261015T155237724Z-d597121d",
+    "manifestHash": "a82921aa86895848c34dadd9d22d0ad0c329e295a81b5d9b28e3822fd3846ddc",
+    "unchanged": true
+  },
+  "independentWindows": {
+    "performed": false,
+    "windowsRebootPerformed": false,
+    "firstRunUiOnCleanWindows": false,
+    "procedure": "docs/etapa-g-roteiro-outro-windows.md",
+    "acceptance": "docs/etapa-g-ficha-homologacao.md"
+  },
+  "operationalSyncEnabled": false,
+  "cloudMigrationsExecuted": false,
+  "permanentServicesInstalled": false,
+  "realDataUsed": false
+}

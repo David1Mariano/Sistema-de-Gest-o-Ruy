@@ -4,27 +4,38 @@ import {fileURLToPath, pathToFileURL} from 'node:url';
 import fs from 'node:fs/promises';
 import {randomUUID,randomBytes} from 'node:crypto';
 import {allowedNavigation, localOrigin, webPreferences} from './policy.mjs';
+import {createSupervisor} from './supervisor.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
 const root = app.isPackaged ? app.getAppPath() : path.resolve(here, '..');
+const metadata=JSON.parse(await fs.readFile(path.join(here,'package.json'),'utf8'));
 app.setName('Sistema de Gestão Ruy');
 // Namespace exclusivo: não usa sessão, cache ou cluster operacional.
 app.setPath('userData', path.join(app.getPath('appData'), 'SistemaGestaoRuy-Lab'));
-app.setAppUserModelId('br.ruy.gestao.laboratorio');
-let worker, window, timer, closing = false;
-let backupTimer,backupFlight,smokeAccount;
+app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
+let worker, window, timer, closing = false,preparing=false;
+let backupTimer,backupFlight,smokeAccount,supervisor;
 let stage='startup';
 const smoke = process.argv.includes('--lab-smoke');
-const evidence = {purpose:'RUY_DESKTOP_SYNTHETIC_ONLY', packaged:app.isPackaged};
+const evidence = {purpose:'RUY_DESKTOP_SYNTHETIC_ONLY', packaged:app.isPackaged,version:app.getVersion(),revision:metadata.ruyRevision||'source-H1'};
 async function health() {
   const r = await fetch(localOrigin+'/health', {signal:AbortSignal.timeout(1500), redirect:'error'});
-  const value = await r.json();
-  if (!r.ok || value.service!=='ruy-d1-lab' || value.mode!=='synthetic-only' || value.syncEnabled!==false) throw Error('A porta do laboratório está ocupada por outro serviço.');
+  const value = await r.json().catch(()=>null);
+  if(!r.ok)throw Object.assign(Error('API local indisponível.'),{recoverable:r.status>=500});
+  if (value?.service!=='ruy-d1-lab' || value.mode!=='synthetic-only' || value.syncEnabled!==false) throw Object.assign(Error('A porta do laboratório está ocupada por outro serviço.'),{recoverable:false});
   return value;
 }
 async function start() {
   stage='environment';
   const env = await import(pathToFileURL(path.join(root, 'server/d1-lab/environment.mjs')));
+  try{await fs.lstat(env.home);}catch(error){
+    if(error.code!=='ENOENT')throw error;
+    if(smoke)throw Error('Smoke exige laboratório já preparado.');
+    preparing=true;
+    const {prepareFirstRun}=await import('./setup.mjs');await prepareFirstRun(root,here);
+  }
+  const {ensureLocalDatabase}=await import(pathToFileURL(path.join(root,'server/d1-lab/bootstrap.mjs')));
+  evidence.databaseStartup=await ensureLocalDatabase();
   // Recusa outro Windows, diretório redirecionado ou cluster não marcado.
   const marker = await env.validateHome();
   await env.config();
@@ -43,22 +54,27 @@ async function start() {
       await save(pool,{id,role:'admin'},marker.deviceId,'Sector',randomUUID(),{operationId:randomUUID(),operation:'create',baseVersion:null,data:{name:'FICTICIO Setor do aplicativo',description:'Cadastro sintético para homologação visual',status:'ativo'}});
     }
   } finally { await pool.end(); }
-  // PostgreSQL é dependência verificada. Não instala serviços nem cria cluster
-  // silenciosamente; o laboratório deve ter sido preparado explicitamente.
+  // PostgreSQL privado é iniciado por pg_ctl; nenhum serviço Windows é instalado.
+  const ensureApi=async()=>{
+    if(closing)throw Error('Aplicativo encerrando.');
+    if(!worker){
+      const launched=utilityProcess.fork(path.join(here,'service.mjs'),[],{env:{...process.env,RUY_DESKTOP_ROOT:root},stdio:'pipe',serviceName:'Ruy API laboratório'});
+      worker=launched;
+      launched.on('exit',()=>{if(worker===launched)worker=null;if(!closing)supervisor?.recover();});
+    }
+    for(let attempt=0;attempt<40;attempt++){
+      if(closing)throw Error('Aplicativo encerrando.');
+      await new Promise(resolve=>setTimeout(resolve,250));
+      try{await health();return;}catch(error){if(error.recoverable===false)throw error;}
+    }
+    throw Error('API local não confirmou recuperação.');
+  };
   let available = false;
   stage='api';
   try { await health(); available=true; }
-  catch (e) { if (!(e instanceof TypeError) && e.name!=='TimeoutError') throw e; }
+  catch (e) { if (e.recoverable!==true&&!(e instanceof TypeError)&&e.name!=='TimeoutError') throw e; }
   if (!available) {
-    worker = utilityProcess.fork(path.join(here, 'service.mjs'), [], {
-      env:{...process.env, RUY_DESKTOP_ROOT:root}, stdio:'pipe', serviceName:'Ruy API laboratório',
-    });
-    worker.on('exit', () => { if(!closing && window) dialog.showErrorBox('API local indisponível', 'A API do laboratório foi encerrada. Seus dados permanecem no PostgreSQL. Feche e reabra o aplicativo após verificar o laboratório.'); });
-    for(let attempt=0;attempt<40;attempt++) {
-      await new Promise(r=>setTimeout(r,250));
-      try { await health(); available=true; break; } catch { /* Aguarda API própria. */ }
-    }
-    if(!available) throw Error('API local não iniciou. Verifique dependências e disponibilidade da porta 18087.');
+    await ensureApi();
   }
   evidence.apiOwned=Boolean(worker);
   stage='backup-config';
@@ -74,6 +90,7 @@ async function start() {
     callback({cancel: !allowedNavigation(details.url)});
   });
   browserSession.on('will-download', event=>event.preventDefault());
+  preparing=false;
   window = new BrowserWindow({title:'Sistema de Gestão Ruy — Laboratório',width:1366,height:900,minWidth:900,minHeight:640,
     show:!smoke,icon:path.join(here,'assets/ruy.ico'),webPreferences:{...webPreferences,session:browserSession,backgroundThrottling:!smoke}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
@@ -82,6 +99,10 @@ async function start() {
   window.webContents.on('will-attach-webview', event=>event.preventDefault());
   stage='load-window';
   await window.loadURL(localOrigin+'/setores');
+  supervisor=createSupervisor({health,ensureDatabase:ensureLocalDatabase,ensureApi,onState:state=>{
+    if(window&&!window.isDestroyed())window.setTitle(state==='healthy'?'Sistema de Gestão Ruy — Laboratório':state==='recovering'?'Sistema Ruy — recuperando serviços locais':'Sistema Ruy — recuperação indisponível; use o menu Laboratório');
+  }});
+  if(!smoke){const {installLabMenu}=await import('./lab-menu.mjs');installLabMenu(root,window,{recover:()=>supervisor.retry()});}
   if(smoke) {
     const waitFor=async condition=>{
       for(let n=0;n<60;n++){if(await window.webContents.executeJavaScript(condition))return;await new Promise(r=>setTimeout(r,100));}
@@ -130,23 +151,46 @@ async function start() {
           stage='domain-forms';const {domainSmoke}=await import('./domain-smoke.mjs');
           evidence.domains=await domainSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id);
         }
+        if(process.argv.includes('--lab-payroll-smoke')){
+          stage='payroll-forms';const {payrollSmoke}=await import('./payroll-smoke.mjs');
+          const {catalogSave}=await import(pathToFileURL(path.join(root,'server/d1-lab/catalog.mjs')));
+          evidence.payroll=await payrollSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id,{catalogSave,marker});
+        }
+        if(process.argv.includes('--lab-rh-smoke')){
+          stage='rh-forms';const {rhSmoke}=await import('./rh-smoke.mjs');
+          const {catalogSave}=await import(pathToFileURL(path.join(root,'server/d1-lab/catalog.mjs')));
+          const {domainCommand}=await import(pathToFileURL(path.join(root,'server/d1-lab/domain.mjs')));
+          evidence.rh=await rhSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id,{catalogSave,domainCommand,marker});
+        }
+        if(process.argv.includes('--lab-autonomy-smoke')){
+          stage='autonomy-recovery';
+          if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!worker)throw Error('Ensaio H exige API própria e opt-in.');
+          const {autonomySmoke}=await import('./autonomy-smoke.mjs');
+          evidence.autonomy=await autonomySmoke({window,waitFor,origin:localOrigin,pool:persisted,actor:smokeAccount.id,credentials:smokeAccount,recover:()=>supervisor.recover(),
+           crashApi:async()=>{const owned=worker;await new Promise(resolve=>{owned.once('exit',resolve);owned.kill();});},
+           crashPostgres:()=>env.pgCommand(marker.bin,'pg_ctl',['-D',env.cluster,'-m','immediate','-w','stop']),
+          });
+        }
       }finally{await persisted.end();}
     }
     if(result) await fs.writeFile(result,JSON.stringify(evidence,null,2),{flag:'wx'});
     app.quit(); return;
   }
-  timer=setInterval(()=>health().catch(()=>window?.setTitle('Sistema de Gestão Ruy — API local indisponível')),15000);
+  timer=setInterval(()=>supervisor.recover(),15000);
 }
 if(!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance',()=>{if(window){if(window.isMinimized())window.restore();window.focus();}});
-  app.whenReady().then(start).catch(e=>{
+  app.whenReady().then(start).catch(async e=>{
     console.error('DESKTOP_LAB_BLOCKED',stage,e.code||e.name,smoke?e.message:'');
+    const result=process.argv.find(a=>a.startsWith('--lab-evidence='))?.slice('--lab-evidence='.length);
+    if(smoke&&result)await fs.writeFile(result+'.failure.json',JSON.stringify({stage,errorName:e.name,errorCode:e.code||null,revision:evidence.revision})).catch(()=>{});
     if(!smoke) dialog.showErrorBox('Sistema de Gestão Ruy — laboratório indisponível', 'Não foi possível validar PostgreSQL e API do laboratório. Prepare o ambiente D1 do usuário Windows atual e tente novamente. Nenhum dado foi removido e a produção 8080 não foi alterada.');
     process.exitCode=1;app.quit();
   });
-  app.on('window-all-closed',()=>app.quit());
+  app.on('window-all-closed',()=>{if(!preparing)app.quit();});
   app.on('before-quit',event=>{
+    supervisor?.close();
     clearInterval(timer);clearInterval(backupTimer);
     if(!closing&&backupFlight){event.preventDefault();closing=true;backupFlight.finally(()=>{worker?.kill();app.quit();});return;}
     closing=true;worker?.kill();

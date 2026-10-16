@@ -4,10 +4,11 @@ import {spawn} from 'node:child_process';
 import {randomBytes, randomUUID, createCipheriv, createDecipheriv, createHash} from 'node:crypto';
 import {home, validateHome, config, seal, unseal, DB_PORT} from './environment.mjs';
 import {poolFor, pg} from './core.mjs';
+import {wrapRecoveryKey,unwrapRecoveryKey} from './key-envelope.mjs';
 
 const magic=Buffer.from('RUYBAK01'),limit=64*1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
-const snapshotTables=['d2_catalog','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events'];
+const snapshotTables=['d2_catalog','d1_rh_history','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events'];
 async function recoveryState(client,tables=snapshotTables){
  if(!Array.isArray(tables)||tables.some(table=>!snapshotTables.includes(table)))throw Error('Tabela de recuperação não permitida.');
  const result={};
@@ -85,7 +86,22 @@ export async function backup({retain=24}={}){
   const temp=target+'.partial';await fs.writeFile(temp,encrypted,{flag:'wx'});
   const handle=await fs.open(temp,'r+');try{await handle.sync();}finally{await handle.close();}
   await fs.rename(temp,target);
-  const result={state:'local-only',createdAt:archive.createdAt,file:path.basename(target),sha256:hash(encrypted),bytes:encrypted.length,pendingOperations:archive.pending.length,externalProtected:false};
+  const result={state:'local-only',createdAt:archive.createdAt,file:path.basename(target),sha256:hash(encrypted),bytes:encrypted.length,pendingOperations:archive.pending.length,externalProtected:false,externalState:'not-configured'};
+  const settings=await backupConfig();
+  if(settings.externalDirectory){
+   try{
+    const root=await externalDirectory(settings.externalDirectory),destination=path.join(root,'ruy-d1-'+marker.deviceId);
+    try{await fs.mkdir(destination);}catch(error){if(error.code!=='EEXIST')throw error;}
+    if((await fs.realpath(destination)).toLowerCase()!==path.resolve(destination).toLowerCase())throw Error('Destino gerenciado redirecionado.');
+    const externalFile=path.join(destination,path.basename(target)),partial=externalFile+'.partial';
+    await fs.copyFile(target,partial,1);
+    const handle=await fs.open(partial,'r+');try{await handle.sync();}finally{await handle.close();}
+    if(hash(await fs.readFile(partial))!==result.sha256)throw Error('Cópia externa divergente.');
+    await fs.rename(partial,externalFile);
+    result.externalState='verified-copy';result.externalFile=externalFile;
+    result.externalRetention=await rotateExternal(destination,settings.externalRetain??retain,archiveKey,marker.deviceId);
+   }catch{result.externalState='error';result.externalError='Cópia no destino configurado falhou; backup local preservado.';}
+  }
   await fs.writeFile(path.join(home,'backup-status.json'),JSON.stringify(result));
   // Retenção somente de arquivos regulares do diretório privado validado.
   const files=(await fs.readdir(dir,{withFileTypes:true})).filter(e=>e.isFile()&&e.name.endsWith('.ruybak')).map(e=>e.name).sort().reverse();
@@ -103,6 +119,10 @@ export async function restoreIsolated(file){
  if(path.dirname(source)!==dir||!source.endsWith('.ruybak'))throw Error('Somente backup privado do laboratório.');
  const archive=decryptArchive(await fs.readFile(source),await key());
  if(archive.deviceId!==marker.deviceId)throw Error('Recuperação de outro dispositivo exige reconciliação explícita.');
+ return restoreArchiveIsolated(archive);
+}
+async function restoreArchiveIsolated(archive){
+ const marker=await validateHome();
  const c=await config(true),database='ruy_d1_restore_'+randomBytes(8).toString('hex');
  const owner=new pg.Client(c);await owner.connect();
  try{await owner.query('CREATE DATABASE '+database);}finally{await owner.end();}
@@ -121,6 +141,29 @@ export async function restoreIsolated(file){
   return {database,pendingOperations:pending.length,attachments:archive.attachments.length,recoveryTablesVerified:archive.recoveryState?Object.keys(archive.recoveryState).length:0,syncEnabled:false};
  }finally{await db.end();}
 }
+export async function exportRecoveryKey(file,passphrase){
+ const marker=await validateHome();
+ if(!path.isAbsolute(file)||!file.endsWith('.ruykey'))throw Error('Selecione um arquivo .ruykey em destino externo.');
+ await externalDirectory(path.dirname(file));
+ const raw=await key();let envelope;
+ try{envelope=await wrapRecoveryKey(raw,marker.deviceId,passphrase);}finally{raw.fill(0);}
+ const handle=await fs.open(file,'wx');try{await handle.writeFile(envelope);await handle.sync();}finally{await handle.close();}
+ return {exported:true,encrypted:true,deviceId:marker.deviceId,externalProtected:false};
+}
+export async function restoreWithRecovery(backupFile,keyFile,passphrase){
+ await validateHome();
+ for(const [file,max,extension] of [[backupFile,limit*2,'.ruybak'],[keyFile,8192,'.ruykey']]){
+  if(!path.isAbsolute(file)||!file.endsWith(extension))throw Error('Arquivo de recuperação inválido.');
+  const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>max)throw Error('Arquivo de recuperação inválido.');
+ }
+ const recovered=await unwrapRecoveryKey(await fs.readFile(keyFile),passphrase);
+ try{
+  const archive=decryptArchive(await fs.readFile(backupFile),recovered.key);
+  if(archive.deviceId!==recovered.deviceId)throw Error('Chave e backup pertencem a dispositivos diferentes.');
+  const result=await restoreArchiveIsolated(archive);
+  return {...result,sourceDeviceId:archive.deviceId,recoveryKeyVerified:true,activationBlocked:true};
+ }finally{recovered.key.fill(0);}
+}
 export async function backupStatus(){
  await validateHome();try{return JSON.parse(await fs.readFile(path.join(home,'backup-status.json'),'utf8'));}
  catch(e){if(e.code!=='ENOENT')throw e;return {state:'unknown',externalProtected:false};}
@@ -131,5 +174,36 @@ export async function backupConfig(){
  try{value=JSON.parse(await fs.readFile(path.join(home,'backup-settings.json'),'utf8'));}
  catch(e){if(e.code!=='ENOENT')throw e;value={enabled:true,intervalMinutes:60,retain:24};}
  if(typeof value.enabled!=='boolean'||!Number.isInteger(value.intervalMinutes)||value.intervalMinutes<1||value.intervalMinutes>1440||!Number.isInteger(value.retain)||value.retain<2||value.retain>365)throw Error('Configuração de backup inválida.');
+ if(value.externalDirectory!==undefined&&value.externalDirectory!==null&&(typeof value.externalDirectory!=='string'||!path.isAbsolute(value.externalDirectory)))throw Error('Destino externo deve ser um diretório absoluto.');
+ if(value.externalRetain!==undefined&&(!Number.isInteger(value.externalRetain)||value.externalRetain<2||value.externalRetain>365))throw Error('Retenção externa deve ficar entre 2 e 365 cópias.');
  return value;
+}
+async function externalDirectory(directory){
+ const resolved=path.resolve(directory),real=await fs.realpath(resolved);
+ if(real.toLowerCase()!==resolved.toLowerCase()||!(await fs.stat(real)).isDirectory())throw Error('Destino redirecionado/inválido.');
+ const relative=path.relative(home,real);
+ if(!relative||(!relative.startsWith('..'+path.sep)&&relative!=='..'&&!path.isAbsolute(relative)))throw Error('Selecione destino fora da pasta privada do laboratório.');
+ return real;
+}
+async function rotateExternal(directory,retain,archiveKey,deviceId){
+ const files=(await fs.readdir(directory,{withFileTypes:true})).filter(e=>e.isFile()&&/^[a-zA-Z0-9-]+\.ruybak$/.test(e.name)).map(e=>e.name).sort().reverse();
+ let deleted=0,skipped=0;
+ for(const name of files.slice(retain)){
+  const file=path.join(directory,name);
+  try{
+   const stat=await fs.lstat(file);if(!stat.isFile()||stat.isSymbolicLink()||stat.size>limit*2)throw Error();
+   if(decryptArchive(await fs.readFile(file),archiveKey).deviceId!==deviceId)throw Error();
+   await fs.unlink(file);deleted++;
+  }catch{skipped++;}
+ }
+ return {retain,deleted,skipped};
+}
+export async function configureExternalBackup(directory,{retain}={}){
+ await validateHome();
+ const settings=await backupConfig();
+ settings.externalDirectory=directory===null?null:await externalDirectory(directory);
+ if(retain!==undefined){if(!Number.isInteger(retain)||retain<2||retain>365)throw Error('Retenção externa inválida.');settings.externalRetain=retain;}
+ const target=path.join(home,'backup-settings.json'),temp=target+'.'+randomUUID()+'.partial';
+ await fs.writeFile(temp,JSON.stringify(settings,null,2),{flag:'wx'});await fs.rename(temp,target);
+ return {configured:!!settings.externalDirectory,externalProtected:false};
 }

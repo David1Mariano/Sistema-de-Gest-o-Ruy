@@ -1,0 +1,13 @@
+import {createRequire} from 'node:module';
+import fs from 'node:fs';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {fileURLToPath} from 'node:url';
+const root=fileURLToPath(new URL('../../',import.meta.url)),require=createRequire(new URL('../../desktop/package.json',import.meta.url)),asar=require('@electron/asar');
+const file=path.join(root,'artifacts/windows-lab-0.5.0/win-unpacked/resources/app.asar'),files=asar.listPackage(file).map(f=>f.replaceAll('\\','/'));
+for(const required of ['/setup.html','/setup-preload.cjs','/setup-renderer.js','/setup.mjs','/server/d1-lab/bootstrap.mjs','/server/d1-lab/domain.sql','/server/d1-lab/rh-domain.mjs'])assert.ok(files.includes(required),required);
+assert.equal(files.some(f=>/(?:^|\/)\.env(?:\.|$)|\.(?:dpapi|ruybak)$|\/cluster\//i.test(f)),false);
+const frontend=files.filter(f=>f.startsWith('/dist-d1/')&&f.endsWith('.js')).map(f=>asar.extractFile(file,f.slice(1).replaceAll('/',path.sep)).toString()).join('\n');
+assert.ok(frontend.includes('Lote de vales/adiantamentos indisponível'));assert.equal(frontend.includes('supabase.co'),false);
+fs.writeFileSync(path.join(root,'logs/etapa-g-artifact.json'),JSON.stringify({requiredFilesPresent:true,privateEnvironmentFilesAbsent:true,supabaseEndpointAbsent:true,legacyBatchGuardPresent:true,version:JSON.parse(asar.extractFile(file,'package.json')).version},null,2));
+console.log('G_ARTIFACT_OK');
