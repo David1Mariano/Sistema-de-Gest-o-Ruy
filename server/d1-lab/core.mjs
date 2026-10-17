@@ -6,6 +6,9 @@ const scrypt=promisify(derive);
 export const fail=(status,message)=>Object.assign(Error(message),{status});
 export const digest=value=>createHash('sha256').update(value).digest('hex');
 export const uuid=value=>typeof value==='string'&&/^[0-9a-f]{8}-[0-9a-f]{4}-[1-5][0-9a-f]{3}-[89ab][0-9a-f]{3}-[0-9a-f]{12}$/i.test(value);
+export async function assertActiveIntent(c,id){
+ if((await c.query("SELECT to_regclass('public.d1_sync_queue') AS name")).rows[0].name&&(await c.query("SELECT 1 FROM d1_sync_queue WHERE operation_id=$1 AND state='resolved'",[id])).rowCount)throw fail(409,'Proposta retirada em reconciliacao auditada; recarregue antes de criar uma nova intencao.');
+}
 export function poolFor(c) {
   if(c.host!=='127.0.0.1'||c.port!==DB_PORT||c.database!==database||c.user!=='ruy_d1_app') throw Error('Somente banco descartável/loopback/papel restrito.');
   const pool=new pg.Pool({...c,max:5,connectionTimeoutMillis:3000,statement_timeout:5000});

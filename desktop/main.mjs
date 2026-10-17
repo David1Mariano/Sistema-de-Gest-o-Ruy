@@ -178,6 +178,7 @@ async function start() {
           const {attachmentSmoke}=await import('./attachment-smoke.mjs');
           evidence.attachments=await attachmentSmoke({window,pool:persisted,actor:smokeAccount.id,signalFile});
         }
+        if(process.argv.includes('--lab-rc3-smoke')){const {rc3Smoke}=await import('./rc3-smoke.mjs');evidence.rc3=await rc3Smoke({window,pool:persisted,actor:smokeAccount.id,root,deviceId:marker.deviceId,origin:localOrigin});}
         if(process.argv.includes('--lab-rh-smoke')){
           stage='rh-forms';const {rhSmoke}=await import('./rh-smoke.mjs');
           const {catalogSave}=await import(pathToFileURL(path.join(root,'server/d1-lab/catalog.mjs')));

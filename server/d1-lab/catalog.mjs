@@ -1,3 +1,4 @@
+import {assertActiveIntent} from './core.mjs';
 import {catalogFields,projectEmployee} from './catalog-contract.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
 import {record} from './entities.mjs';
@@ -28,7 +29,7 @@ export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()
   if(!actor)throw fail(401,'Sessão revogada.');
   if(!['admin','writer'].includes(actor.role)||(['Employee','SystemSettings'].includes(entity)&&actor.role!=='admin'))throw fail(403,'Cadastro exige permissão administrativa local.');
   const prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[operationId])).rows[0];
-  if(prior){if(prior.actor!==actor.id||prior.payload_hash!==payloadHash)throw fail(409,'Operação reutilizada com outro conteúdo.');return {...prior.result,replay:true};}
+  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==payloadHash)throw fail(409,'Operação reutilizada com outro conteúdo.');return {...prior.result,replay:true};}
   const current=(await c.query(`SELECT * FROM ${table(entity)} WHERE id=$1 FOR UPDATE`,[id])).rows[0];
   if(current?.data._deleted==='true')throw fail(409,'Colaborador excluído; identidade preservada.');
   if(current&&(current.owner_id!==actor.id||current.entity!==entity))throw fail(403,'Registro fora do escopo.');

@@ -1,3 +1,4 @@
+import {assertActiveIntent} from './core.mjs';
 import {randomUUID} from 'node:crypto';
 import {transaction,fail,uuid} from './core.mjs';
 import {record} from './entities.mjs';
@@ -29,6 +30,7 @@ function validate(entity,data){
  if(entity==='DailyProduction'){
   if(!positive(data.produced_quantity)||![data.loss_quantity,data.leftover_quantity].every(n=>typeof n==='number'&&n>=0&&n<=data.produced_quantity)||data.loss_quantity+data.leftover_quantity>data.produced_quantity)throw fail(400,'Quantidades de produção/perda/sobra inválidas.');
   if(!Array.isArray(data.losses)||data.losses.length>20||data.losses.some(l=>!positive(l.quantity)||!l.reason?.trim()||!l.responsible?.trim()||!date(l.date)||l.unit!==data.unit||Object.values(l).some(v=>typeof v==='string'&&v.length>500)))throw fail(400,'Detalhamento de perdas inválido.');
+  if(data.loss_quantity>0&&!data.losses.length)throw fail(400,'Detalhamento de perdas obrigatorio.');
   if(data.losses.length&&Math.abs(data.losses.reduce((s,l)=>s+l.quantity,0)-data.loss_quantity)>1e-6)throw fail(400,'Total de perdas divergente.');
  }
  if(['FinancialExpense','AccountsPayable','Sangria'].includes(entity)&&!positive(data.amount))throw fail(400,'Valor positivo obrigatório.');
@@ -49,7 +51,9 @@ export async function domainList(pool,user,entity){
  if(!isDomain(entity))throw fail(404,'Domínio desconhecido.');
  if(user.role!=='admin')throw fail(403,'Domínio restrito ao administrador sintético.');
  if(readOnlyDomains.includes(entity))throw fail(501,'Fonte '+entity+' ainda não portada; relatório completo indisponível.');
- return (await rows(pool,user.id,entity)).map(unwrapDomain);
+ const result=(await rows(pool,user.id,entity)).map(unwrapDomain);
+ if(entity==='FinancialAccount'){const balances=(await pool.query('SELECT account,balance_cents FROM d1_financial_accounts WHERE owner_id=$1',[user.id])).rows;return result.map(row=>({...row,current_balance:Number(balances.find(b=>b.account==='account:'+row.id)?.balance_cents||0)/100}));}
+ return result;
 }
 async function recipe(c,owner,product,ingredients){
  if(!Array.isArray(ingredients)||!ingredients.length||ingredients.length>20||new Set(ingredients.map(l=>l.inventory_item_id)).size!==ingredients.length)throw fail(400,'Ficha exige 1 a 20 insumos distintos.');
@@ -84,13 +88,13 @@ export async function domainPreview(pool,user,id){
  return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
 }
 export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
-  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','generate','batch'].includes(body.action)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch'].includes(body.action)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
  return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
   const actor=(await c.query('SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rows[0];
   if(actor?.role!=='admin')throw fail(403,'Administrador sintético obrigatório.');
   const hash=syncHash(body),prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[body.operationId])).rows[0];
-  if(prior){if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado com outra intenção.');return {...prior.result,replay:true};}
+  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado com outra intenção.');return {...prior.result,replay:true};}
   const current=(await c.query('SELECT * FROM d2_catalog WHERE id=$1 FOR UPDATE',[body.id])).rows[0];
   if(current&&(current.owner_id!==actor.id||current.entity!==body.entity))throw fail(403,'Documento fora do escopo.');
   if(current?Number(current.version)!==body.baseVersion:body.baseVersion!==null)throw fail(409,'Documento alterado; recarregue.');
@@ -109,10 +113,12 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    // Derived fields sent back by the original forms are never accepted as authority.
    for(const key of ['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'])delete supplied[key];
    if(body.entity==='ProductionProduct'){delete supplied.total_cost;delete supplied.unit_cost;}
+   if(body.entity==='ProductionOrder'&&supplied.status==='concluida')throw fail(409,'Conclua a ordem pela confirmacao agregada da producao.');
    data={...(old?Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))):{}),...supplied};
    if(['ProductionOrder','DailyProduction'].includes(body.entity)){
     const p=unwrapDomain(await get(c,actor.id,'ProductionProduct',data.product_id));data.product_name=p.name;data.unit=p.yield_unit;
    }
+   if(body.entity==='FinancialAccount'){data.initial_balance=0;data.current_balance=0;}
    validate(body.entity,Object.fromEntries(Object.entries(data).filter(([k])=>domainFields[body.entity].includes(k))));
    if(Object.keys(supplied).some(k=>!domainFields[body.entity].includes(k)))throw fail(400,'Campo não permitido.');
    if(isRh(body.entity))data=await prepareRh({c,actor,deviceId,body,old,data,get,save});
@@ -168,7 +174,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
       if(o.product_id!==p.id||o.status==='cancelada')throw fail(409,'Ordem incompatível.');
       const duplicate=(await rows(c,actor.id,'DailyProduction')).map(unwrapDomain).find(r=>r.id!==body.id&&r.production_order_id===o.id&&r.local_status!=='cancelado');
       if(duplicate)throw fail(409,'Ordem já vinculada a outra produção.');
-      await save('ProductionOrder',o.id,{...Object.fromEntries(Object.entries(o).filter(([k])=>!metadata.includes(k))),status:'concluida',produced_quantity:data.produced_quantity},order);
+      await save('ProductionOrder',o.id,{...Object.fromEntries(Object.entries(o).filter(([k])=>!metadata.includes(k))),status:'em_producao',produced_quantity:0},order);
      }
     }
    }
@@ -250,6 +256,14 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
   }else if(isRh(body.entity)&&body.action==='cancel'){
    if(!old)throw fail(409,'Lançamento RH inexistente.');
    data=await prepareRh({c,actor,deviceId,body,old,data:{...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'cancelado'},get,save});
+  }else if(body.action==='reverse'){
+   if(!old||!['FinancialExpense','Revenue','AccountsReceivable'].includes(body.entity)||!['pago','recebido'].includes(old.status))throw fail(409,'Settled financial document required.');
+   if(old.rh_deductions?.length)throw fail(409,'Linked obligation reversal requires complete linked aggregate; preserve original.');
+   for(const [id,entity] of [[old.linked_payment_id,'EmployeePayment'],[old.accounts_payable_id,'AccountsPayable'],[old.source_id,old.source_type==='cartao'?'CardReceivable':'DeliverySettlement']])if(id){const linked=await get(c,actor.id,entity,id),d=unwrapDomain(linked);if(d.rh_deductions?.length)throw fail(409,'Payroll deductions require explicit release aggregate.');await save(entity,id,{...Object.fromEntries(Object.entries(d).filter(([k])=>!metadata.includes(k))),status:'cancelado',cancellation_id:body.operationId},linked);}
+   const entries=(await c.query('SELECT e.account,a.version FROM d1_financial_entries e JOIN d1_financial_accounts a ON a.owner_id=e.owner_id AND a.account=e.account WHERE e.owner_id=$1 AND e.operation_id=$2 ORDER BY e.account',[actor.id,body.id])).rows;
+   const op=await applyOperational(c,actor,deviceId,{operationId:body.operationId,kind:'reversal',referenceId:body.id,reason:body.reason,entries:entries.map(e=>({account:e.account,baseVersion:Number(e.version)}))},async()=>{},{enqueue:false});
+   changes.push({entity:'OperationalEvent',record:op.record});
+   data={...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'cancelado',cancellation_id:body.operationId};
   }else{
    if(!old)throw fail(409,'Documento inexistente.');
    if(body.entity!=='DailyProduction')throw fail(409,'Cancelamento agregado deste domínio ainda não homologado.');
@@ -258,13 +272,15 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    if(body.action==='confirm'){
     const p=await preview(c,actor.id,current);
     if(old.local_status!=='rascunho'||p.token!==body.token||!p.canConfirm)throw fail(409,'Conferência/saldo mudou ou baixa já realizada. Reabra a conferência.');
-    const op=await applyOperational(c,actor,deviceId,{operationId:randomUUID(),kind:'consume',inputs:p.inputs.map(({itemId,quantityMilli,baseVersion})=>({itemId,quantityMilli,baseVersion}))});
+    const op=await applyOperational(c,actor,deviceId,{operationId:body.operationId,kind:'consume',inputs:p.inputs.map(({itemId,quantityMilli,baseVersion})=>({itemId,quantityMilli,baseVersion}))},async()=>{},{enqueue:false});
+    changes.push({entity:'OperationalEvent',record:op.record});
     data.local_status='confirmado';data.confirmation_id=op.operationId;data.consumption_effects=op.effects;
+    if(old.production_order_id){const row=await get(c,actor.id,'ProductionOrder',old.production_order_id),order=unwrapDomain(row);await save('ProductionOrder',row.id,{...Object.fromEntries(Object.entries(order).filter(([k])=>!metadata.includes(k))),status:'concluida',produced_quantity:old.produced_quantity},row);}
    }else{
     if(old.local_status==='cancelado')throw fail(409,'Produção já cancelada.');
-    if(old.local_status==='confirmado')for(const effect of old.consumption_effects){
-     const balance=(await c.query('SELECT version FROM d1_stock_balances WHERE owner_id=$1 AND item_id=$2 FOR UPDATE',[actor.id,effect.itemId])).rows[0];
-     await applyOperational(c,actor,deviceId,{operationId:randomUUID(),kind:'entry',itemId:effect.itemId,baseVersion:Number(balance.version),quantityMilli:-effect.quantityMilli,unitCents:effect.unitCents});
+    if(old.local_status==='confirmado'){
+     const inputs=[];for(const effect of old.consumption_effects){const balance=(await c.query('SELECT version FROM d1_stock_balances WHERE owner_id=$1 AND item_id=$2 FOR UPDATE',[actor.id,effect.itemId])).rows[0];inputs.push({itemId:effect.itemId,baseVersion:Number(balance.version)});}
+     const op=await applyOperational(c,actor,deviceId,{operationId:body.operationId,kind:'reversal',referenceId:old.confirmation_id,reason:body.reason||'Cancelamento supervisionado de producao',inputs},async()=>{},{enqueue:false});changes.push({entity:'OperationalEvent',record:op.record});
     }
     data.local_status='cancelado';data.cancellation_id=body.operationId;
     if(old.production_order_id){const row=await get(c,actor.id,'ProductionOrder',old.production_order_id);const order=unwrapDomain(row);await save('ProductionOrder',row.id,{...Object.fromEntries(Object.entries(order).filter(([k])=>!metadata.includes(k))),status:'cancelada',produced_quantity:0},row);}

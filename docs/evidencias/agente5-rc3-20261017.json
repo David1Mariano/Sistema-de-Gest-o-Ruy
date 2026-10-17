@@ -1,0 +1,270 @@
+{
+  "date": "2026-10-17",
+  "base": "c8beb17",
+  "branch": "agente-5-consolidacao-windows-d1-c2-20261016",
+  "restrictedToHomologation": true,
+  "operationalSyncEnabled": false,
+  "transfer": {
+    "checks": 33,
+    "results": [
+      "provisioned DPAPI mTLS: D1 outbox through HTTPS gateway and SQL central to peer",
+      "local attachment queue validates permission, version, size and integrity",
+      "offline upload leaves the same UUID pending with no central object",
+      "lost reply after central commit retries same UUID without duplicate bytes or audit",
+      "peer download through mTLS verifies hash and persists an offline cache",
+      "server rejects viewer, revoked token, cross-workspace access and identity collisions",
+      "corrupt central bytes and corrupt local cache are denied, not served",
+      "restart of owned central/gateway preserves attachment, receipt and downloaded cache",
+      "transactional inventory and production snapshots cross TLS; authoritative balance reaches both peers",
+      "funded financial settlement confirms once; paid changes and replay cannot debit twice",
+      "concurrent devices cannot consume the same authoritative stock; both proposals preserved",
+      "different payment UUIDs for the same payroll obligation debit exactly once",
+      "one payable cannot be settled twice even with fresh expense and operation UUIDs",
+      "same supplier invoice with different UUIDs cannot create a second debit",
+      "corrupt business projection rolls back locally and clean retry recovers",
+      "central rollback preserves stock, cursor and receipt on invalid multi-effect production",
+      "unpaired paid document and insufficient global funds cannot create a settlement",
+      "RC3 least-privilege central login processes transactions but cannot change principals, history or schema",
+      "RC3 concurrent edits preserve both proposals and stale reconciliation cannot lose an update",
+      "RC3 explicit reconciliation archives proposals; fresh edits use current CAS and converge",
+      "RC3 reconciliation includes never-sent dependent edits and invalidates every stale form",
+      "RC3 stock conflict withdrawal archives provisional ledger and restores authoritative balance",
+      "RC3 owned account settles once and synchronizes its actual ledger to peer",
+      "RC3 audited reversal cancels document and restores own account exactly once across devices",
+      "RC3 reversed settlement cannot be reopened with a fresh UUID or create another debit",
+      "RC3 simultaneous financial confirmations cannot overdraw the same owned account",
+      "RC3 production loss detail is required and confirmation atomically consumes gross production",
+      "RC3 production reversal is one aggregate and second reversal cannot restore stock again",
+      "RC3 forged production quantity rolls back the entire document, stock and receipt",
+      "RC3 reconciliation and reversal deny revoked local admin without changing state",
+      "RC3 encrypted restore preserves conflict archive, own-account ledger and unique reversals",
+      "encrypted dumps restore queue, cache, bytes and receipt into fresh synthetic databases",
+      "local authenticated API enforces CSRF and cached attachment permissions"
+    ],
+    "databases": [
+      {
+        "name": "ruy_d1_rc_b9462e7ff78a72dc",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_d9e410eb1fb94a65",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_985e36e71ebe886f",
+        "port": 55435
+      },
+      {
+        "name": "ruy_d1_rc_4c12d11604abcf6e",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_fc2b8028b8388f9e",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_52556a62fbbceb5a",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_a0822fb4111693a3",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_8ec7efd4afcd0e4e",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_d5fd4431919fad28",
+        "port": 55435
+      }
+    ],
+    "restartFixture": "e5aaec701010f607",
+    "syntheticOnly": true,
+    "tls": "1.3",
+    "provisionedWithDPAPI": true,
+    "physicalComputers": false,
+    "networkFailuresSimulated": true,
+    "productionChanged": false,
+    "operationalRelease": false,
+    "globalBalanceAppliedToPeer": true,
+    "encryptedBackupRestore": true
+  },
+  "postgres": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "oldPid": 12820,
+    "newPid": 22436,
+    "databases": 7,
+    "sha256": "c4536dfb32d45738d264f61cc4e620752ef948abc190d668de79f46ff1519c7a",
+    "queues": 3,
+    "caches": 3,
+    "persistenceVerified": true,
+    "source55436Restarted": false,
+    "forcedTermination": false
+  },
+  "windows": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "version": "0.5.1-rc.3",
+    "revision": "A5-RC3-20261017",
+    "databaseStartup": {
+      "started": false,
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+    },
+    "syntheticActor": "abd8255c-12d1-4327-8dfb-e89b0f25274f",
+    "apiOwned": true,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18091"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: estado desconhecido",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true,
+    "originalStockPage": {
+      "created": true,
+      "quantityMilli": 2000
+    },
+    "employee": {
+      "created": true,
+      "edited": true,
+      "queriedAfterReload": true,
+      "authorizedTombstone": true,
+      "auditCount": 3,
+      "id": "96c04227-6d2f-4a04-a50d-7093af0ec486",
+      "bounds": {
+        "top": 50.02000045776367,
+        "bottom": 768.2199516296387,
+        "height": 718.199951171875,
+        "viewport": 788,
+        "scrollable": true,
+        "overflow": "auto"
+      },
+      "networkPhysicallyDisconnected": false
+    },
+    "domains": {
+      "recipeForm": true,
+      "dailyForm": true,
+      "confirmedConsumption": true,
+      "stockMilliAfterConsumption": 1000,
+      "expenseForm": true,
+      "expenseAmount": 12.34,
+      "revenueForm": true,
+      "cardAndReceiptForms": true,
+      "financialReport": true,
+      "reloaded": true
+    },
+    "attachments": {
+      "queued": true,
+      "offlineFailurePreservedUUID": true,
+      "reconnectedSameUUID": true,
+      "remoteReceipt": true,
+      "cached": true,
+      "previewEscaped": true,
+      "downloadHash": "98c07b20dcafc7b294e8af0b6d8f30a9558eb75ef35759a8418e053a9ea9ba8d",
+      "reloadPersisted": true,
+      "viewerDenied": true,
+      "id": "2258332a-c4b3-4b2d-8b47-9c6b592db810",
+      "recordId": "45f256a9-0b6d-4ed5-8d61-bb02571d85c2"
+    },
+    "rc3": {
+      "financialReversalUI": true,
+      "financialReversalConfirmed": true,
+      "conflictComparisonUI": true,
+      "explicitReconciliationUI": true,
+      "archivePreserved": true,
+      "staleFormVersionInvalidated": true
+    },
+    "physicalComputers": 1,
+    "connectionLossSimulatedByOwnedTLSService": true,
+    "companyNetworkChanged": false,
+    "centralObjectCount": 1,
+    "centralUploadAuditCount": 1,
+    "centralStockMilli": 1000
+  },
+  "artifact": {
+    "revision": "A5-RC3-20261017",
+    "version": "0.5.1-rc.3",
+    "dependencies": 13,
+    "criticalSourcesMatch": true,
+    "privateFilesAbsent": true,
+    "uiBundleMatches": true,
+    "installer": "artifacts/agente5-rc3-20261017/Sistema-Ruy-A5-RC3-20261017-Setup.exe",
+    "sha256": "8895ff9d9f9800b67169b481ebafe02492985753bbf6bf8268b804c9132bc1f7",
+    "signed": false,
+    "restrictedToHomologation": true,
+    "cleanSecondWindowsTested": false
+  },
+  "transport": {
+    "checks": 7,
+    "tls": "1.3",
+    "mutualAuthentication": true,
+    "loopbackOnly": true,
+    "physicalMachines": false,
+    "upstream": "synthetic HTTP fixture",
+    "privateKeysCommitted": false
+  },
+  "legacyAPI": {
+    "Port": 18080,
+    "Address": "127.0.0.1",
+    "ProcessId": 22292,
+    "Name": "node.exe",
+    "Started": "2026-10-16T15:30:46.0198180-03:00",
+    "Script": [
+      "server/local/start.mjs"
+    ],
+    "ParentId": 21840,
+    "ParentName": "powershell.exe",
+    "AncestorId": 23252,
+    "AncestorName": "codex.exe",
+    "ShutdownRequested": false
+  },
+  "checks": {
+    "lint": true,
+    "standardBuild": true,
+    "d1Build": true,
+    "unitTests": 70,
+    "unitFailures": 0,
+    "stockInternalAssertions": 121,
+    "financialRegressions": 68,
+    "financialFailures": 0,
+    "legacyIntegration": 11,
+    "supervision": 5
+  },
+  "serviceRole": {
+    "separateLogin": true,
+    "superuser": false,
+    "createdb": false,
+    "createrole": false,
+    "replication": false,
+    "bypassrls": false,
+    "principalsMutationDenied": true,
+    "immutableHistoryMutationDenied": true,
+    "schemaCreationDenied": true,
+    "localServiceFinalAcceptance": false
+  },
+  "vm": {
+    "authorizedEnvironmentIdentified": false,
+    "hostHypervisorPresent": false,
+    "knownHyperVVirtualBoxVMwareToolsFound": false,
+    "cleanInstallationExecuted": false
+  },
+  "remaining": [
+    "authorized clean Windows VM or second physical Windows",
+    "clean install/reinstall/reboot and independent restoration with own keys",
+    "physical reconnection and two-Windows authenticated LAN acceptance",
+    "certificate expiry/revocation/rotation acceptance on physical endpoints",
+    "payroll deductions reversal and linked financial aggregate acceptance",
+    "final local service isolation and provisioning/backup separation",
+    "authorized normal shutdown of old API18080",
+    "operational approval and signing/distribution policy"
+  ],
+  "failedFinalScenarios": [],
+  "production8080Changed": false,
+  "supabaseAccessed": false,
+  "realPersonalDataUsed": false,
+  "forcedTermination": false
+}

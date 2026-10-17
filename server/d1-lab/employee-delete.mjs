@@ -1,3 +1,4 @@
+import {assertActiveIntent} from './core.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
 import {record} from './entities.mjs';
 export function referencesEmployee(data,id){
@@ -35,7 +36,7 @@ export async function deleteEmployee(pool,user,deviceId,id,body,hook=async()=>{}
   const actor=(await c.query("SELECT id FROM lab_users WHERE id=$1 AND active AND role='admin' FOR SHARE",[user.id])).rows[0];
   if(!actor)throw fail(403,'Administrador obrigatório.');
   const prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[body.operationId])).rows[0];
-  if(prior){if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado.');return {...prior.result,replay:true};}
+  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado.');return {...prior.result,replay:true};}
   const current=(await c.query("SELECT * FROM d1_records WHERE id=$1 AND owner_id=$2 AND entity='Employee' FOR UPDATE",[id,actor.id])).rows[0];
   if(!current)throw fail(404,'Colaborador indisponível.');
   if(current.data._deleted==='true'||Number(current.version)!==body.baseVersion)throw fail(409,'Conflito de versão.');

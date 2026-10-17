@@ -1,3 +1,5 @@
+import {assertActiveIntent} from './core.mjs';
+import {ledgerAccount,assetAccount} from './ledger-contract.mjs';
 import {businessConfirmation} from './business-projection.mjs';
 import {transaction,fail,uuid} from './core.mjs';
 import {randomUUID} from 'node:crypto';
@@ -25,13 +27,31 @@ async function changeStock(c,actor,operationId,input,delta,type,unitCents){
  await c.query('INSERT INTO d1_stock_movements(id,owner_id,operation_id,item_id,item_name,unit,quantity_milli,unit_cents,balance_after,movement_type) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10)',[movement.id,actor,operationId,input.itemId,item.data.name,item.data.unit,delta,cost,quantity,type]);
  return movement;
 }
-export async function applyOperational(c,user,deviceId,body,hook=async()=>{}){
- if(!uuid(body?.operationId)||!['entry','exit','adjust','production','consume','journal'].includes(body.kind))throw fail(400,'Comando operacional inválido.');
- if(Object.keys(body).some(k=>!['operationId','kind','itemId','baseVersion','quantityMilli','targetMilli','unitCents','inputs','output','entries'].includes(k)))throw fail(400,'Campos operacionais não permitidos.');
+async function localReversal(c,actor,body){
+ if(!uuid(body.referenceId)||typeof body.reason!=='string'||body.reason.trim().length<8||body.reason.length>300)throw fail(400,'Reference and reversal reason required.');
+ if((await c.query('SELECT 1 FROM d1_local_reversals WHERE owner_id=$1 AND reference=$2',[actor.id,body.referenceId])).rowCount)throw fail(409,'Already reversed.');
+ const moves=(await c.query('SELECT * FROM d1_stock_movements WHERE owner_id=$1 AND operation_id=$2 ORDER BY item_id',[actor.id,body.referenceId])).rows;
+ const entries=(await c.query('SELECT * FROM d1_financial_entries WHERE owner_id=$1 AND operation_id=$2 ORDER BY account',[actor.id,body.referenceId])).rows;
+ if(!moves.length&&!entries.length)throw fail(409,'Confirmed source ledger required.');
+ const effects=[];
+ for(const move of moves){const input=body.inputs?.find(i=>i.itemId===move.item_id);if(!input)throw fail(400,'Reversal stock versions required.');effects.push(await changeStock(c,actor.id,body.operationId,input,-Number(move.quantity_milli),'estorno',Number(move.unit_cents)));}
+ for(const entry of entries){
+  const input=body.entries?.find(i=>i.account===entry.account),old=(await c.query('SELECT * FROM d1_financial_accounts WHERE owner_id=$1 AND account=$2 FOR UPDATE',[actor.id,entry.account])).rows[0];
+  if(!input||!old||Number(old.version)!==input.baseVersion)throw fail(409,'Reversal account version conflict.');
+  const cents=-Number(entry.cents),balance=Number(old.balance_cents)+cents;if(!Number.isSafeInteger(balance)||assetAccount(entry.account)&&balance<0)throw fail(409,'Reversal funds insufficient.');
+  await c.query('UPDATE d1_financial_accounts SET balance_cents=$3,version=version+1 WHERE owner_id=$1 AND account=$2',[actor.id,entry.account,balance]);
+  await c.query('INSERT INTO d1_financial_entries(owner_id,operation_id,account,cents) VALUES($1,$2,$3,$4)',[actor.id,body.operationId,entry.account,cents]);effects.push({account:entry.account,cents,balanceCents:balance});
+ }
+ if((body.inputs?.length||0)!==moves.length||(body.entries?.length||0)!==entries.length)throw fail(400,'Unexpected reversal effects.');
+ await c.query('INSERT INTO d1_local_reversals VALUES($1,$2,$3,$4)',[actor.id,body.referenceId,body.operationId,body.reason]);return effects;
+}
+export async function applyOperational(c,user,deviceId,body,hook=async()=>{}, {enqueue=true}={}){
+ if(!uuid(body?.operationId)||!['entry','exit','adjust','production','consume','journal','reversal'].includes(body.kind))throw fail(400,'Comando operacional inválido.');
+ if(Object.keys(body).some(k=>!['operationId','kind','itemId','baseVersion','quantityMilli','targetMilli','unitCents','inputs','output','entries','referenceId','reason'].includes(k)))throw fail(400,'Campos operacionais não permitidos.');
  const actor=(await c.query("SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE",[user.id])).rows[0];
  if(actor?.role!=='admin')throw fail(403,'Operações críticas exigem administrador sintético neste piloto.');
  const hash=syncHash(body),prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[body.operationId])).rows[0];
- if(prior){if(prior.actor!==actor.id||prior.payload_hash!==hash||prior.entity!=='OperationalEvent')throw fail(409,'UUID operacional reutilizado.');return {...prior.result,replay:true};}
+ if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash||prior.entity!=='OperationalEvent')throw fail(409,'UUID operacional reutilizado.');return {...prior.result,replay:true};}
  const effects=[];
  if(['entry','exit','adjust'].includes(body.kind)){
   let delta=body.kind==='entry'?body.quantityMilli:-body.quantityMilli;
@@ -46,15 +66,18 @@ export async function applyOperational(c,user,deviceId,body,hook=async()=>{}){
   let total=0n;
   for(const input of body.inputs){if(!integer(input.quantityMilli,1))throw fail(400,'Quantidade de insumo inválida.');const used=await changeStock(c,actor.id,body.operationId,input,-input.quantityMilli,'consumo_producao');effects.push(used);total+=BigInt(input.quantityMilli)*BigInt(used.unitCents);}
   if(body.kind==='production')effects.push(await changeStock(c,actor.id,body.operationId,body.output,body.output.quantityMilli,'entrada_producao',safe((total+BigInt(Math.floor(body.output.quantityMilli/2)))/BigInt(body.output.quantityMilli))));
+ }else if(body.kind==='reversal'){
+  effects.push(...await localReversal(c,actor,body));
  }else{
   const entries=body.entries;
-  if(!Array.isArray(entries)||entries.length<2||entries.length>5||new Set(entries.map(e=>e.account)).size!==entries.length||entries.some(e=>!['cash','bank','expense','revenue','equity'].includes(e.account)||!Number.isSafeInteger(e.cents)||!e.cents||Math.abs(e.cents)>1e12||!integer(e.baseVersion))||entries.reduce((s,e)=>s+BigInt(e.cents),0n)!==0n)throw fail(400,'Partidas devem ser balanceadas em centavos e versionadas.');
+  if(!Array.isArray(entries)||entries.length<2||entries.length>5||new Set(entries.map(e=>e.account)).size!==entries.length||entries.some(e=>!ledgerAccount(e.account)||!Number.isSafeInteger(e.cents)||!e.cents||Math.abs(e.cents)>1e12||!integer(e.baseVersion))||entries.reduce((s,e)=>s+BigInt(e.cents),0n)!==0n)throw fail(400,'Partidas devem ser balanceadas em centavos e versionadas.');
   for(const entry of entries){
+   if(entry.account.startsWith('account:')){const row=(await c.query("SELECT data FROM d2_catalog WHERE owner_id=$1 AND id=$2 AND entity='FinancialAccount'",[actor.id,entry.account.slice(8)])).rows[0];if(!row||JSON.parse(row.data.payload_json).status!=='ativo')throw fail(409,'Active owned financial account required.');}
    await c.query('INSERT INTO d1_financial_accounts(owner_id,account) VALUES($1,$2) ON CONFLICT DO NOTHING',[actor.id,entry.account]);
    const old=(await c.query('SELECT * FROM d1_financial_accounts WHERE owner_id=$1 AND account=$2 FOR UPDATE',[actor.id,entry.account])).rows[0];
    if(Number(old.version)!==entry.baseVersion)throw fail(409,'Conta financeira alterada; recarregue.');
    const balance=safe(BigInt(old.balance_cents)+BigInt(entry.cents));
-   if(['cash','bank'].includes(entry.account)&&balance<0)throw fail(409,'Limite financeiro local insuficiente.');
+   if(assetAccount(entry.account)&&balance<0)throw fail(409,'Limite financeiro local insuficiente.');
    await c.query('UPDATE d1_financial_accounts SET balance_cents=$3,version=version+1 WHERE owner_id=$1 AND account=$2',[actor.id,entry.account,balance]);
    await c.query('INSERT INTO d1_financial_entries(owner_id,operation_id,account,cents) VALUES($1,$2,$3,$4)',[actor.id,body.operationId,entry.account,entry.cents]);
    effects.push({account:entry.account,cents:entry.cents,balanceCents:balance,version:entry.baseVersion+1});
@@ -65,7 +88,7 @@ export async function applyOperational(c,user,deviceId,body,hook=async()=>{}){
  if(Object.values(data).some(v=>v.length>4000))throw fail(413,'Agregado excede o limite de homologação.');
  const row=(await c.query("INSERT INTO d1_operation_events(id,owner_id,entity,data,name_key) VALUES($1,$2,'OperationalEvent',$3,$4) RETURNING *",[body.operationId,actor.id,data,body.operationId])).rows[0];
  result.record=record(row);
- await c.query("INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,'OperationalEvent',$1,'create',NULL,1,$4,$5,$6)",[body.operationId,deviceId,actor.id,hash,data,result]);
+ if(enqueue)await c.query("INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,'OperationalEvent',$1,'create',NULL,1,$4,$5,$6)",[body.operationId,deviceId,actor.id,hash,data,result]);
  await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[actor.id,'operational:'+body.kind,body.operationId]);
  await hook(c);return result;
 }

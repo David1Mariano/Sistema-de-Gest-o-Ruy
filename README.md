@@ -1,6 +1,6 @@
 # Sistema de Gestão Ruy
 
-Agente 5: [RC2, matriz de homologacao e instalacao](docs/agente-5-rc2-homologacao-20261017.md).
+Agente 5: [RC3, matriz de homologacao e instalacao](docs/agente-5-rc3-homologacao-20261017.md).
 
 Preparação Windows offline para homologação: [estado atual e bloqueios](docs/etapa-e-producao-financeiro.md)
 e [continuidade em outro computador](docs/continuar-em-outro-computador.md).

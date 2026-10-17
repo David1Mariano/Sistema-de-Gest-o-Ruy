@@ -20,3 +20,5 @@ CREATE TABLE d1_business_settlements (
  workspace uuid NOT NULL,obligation text NOT NULL,record_id uuid NOT NULL,signature text NOT NULL,
  PRIMARY KEY(workspace,obligation),UNIQUE(workspace,record_id)
 );
+
+CREATE TABLE d1_business_reversals(workspace uuid NOT NULL,reference uuid NOT NULL,operation uuid NOT NULL,reason text NOT NULL,PRIMARY KEY(workspace,reference),UNIQUE(workspace,operation));

@@ -1,3 +1,4 @@
+import {reconciliationPlan,reconcile} from './reconciliation.mjs';
 import {enqueueAttachment,transferAttachment,fetchAttachment,listLocalAttachments,localAttachment,authorizeAttachmentRecord} from './attachment-transfer.mjs';
 import {provisionedRequest} from './tls-provision.mjs';
 import http from 'node:http';
@@ -94,12 +95,14 @@ export function createServer(pool,deviceId) {
       }
       if(url.pathname==='/api/d1/pending'&&req.method==='GET'){
         const ready=await syncReady(pool);
-        const result=ready?await pool.query("SELECT o.operation_id,o.device_id,o.actor,o.entity,o.record_id,o.operation,o.base_version,o.record_version,coalesce(q.state,'pending') AS state,o.protocol_version,o.created_at,q.confirmed_at,count(*) OVER()::int AS total FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1 AND coalesce(q.state,'pending')<>'acknowledged' ORDER BY o.created_at,o.operation_id LIMIT 200",[user.id]):await pool.query('SELECT operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,state,protocol_version,created_at,confirmed_at,count(*) OVER()::int as total FROM lab_outbox WHERE actor=$1 ORDER BY created_at,operation_id LIMIT 200',[user.id]);
+        const result=ready?await pool.query("SELECT o.operation_id,o.device_id,o.actor,o.entity,o.record_id,o.operation,o.base_version,o.record_version,coalesce(q.state,'pending') AS state,o.protocol_version,o.created_at,q.confirmed_at,count(*) OVER()::int AS total FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1 AND coalesce(q.state,'pending') NOT IN ('acknowledged','resolved') ORDER BY o.created_at,o.operation_id LIMIT 200",[user.id]):await pool.query('SELECT operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,state,protocol_version,created_at,confirmed_at,count(*) OVER()::int as total FROM lab_outbox WHERE actor=$1 ORDER BY created_at,operation_id LIMIT 200',[user.id]);
         return reply(200,{pending:result.rows,total:result.rows[0]?.total??0,syncEnabled:false});
       }
       if(url.pathname==='/api/d1/sync-status'&&req.method==='GET'){
         return reply(200,{...await syncStatus(pool,user.id),backup:user.role==='admin'?await backupStatus():null});
       }
+      if(url.pathname==='/api/d1/reconciliation/plan'&&req.method==='GET')return reply(200,await reconciliationPlan(pool,user));
+      if(url.pathname==='/api/d1/reconciliation/apply'&&req.method==='POST')return reply(200,await reconcile(pool,user,body));
       if(url.pathname==='/api/d1/sync-now'&&req.method==='POST'){
         if(Object.keys(body).length)throw fail(400,'O usuário/dispositivo não pode ser escolhido pelo formulário.');
         return reply(200,{...await synchronizeD1(pool,user.id),backup:user.role==='admin'?await backupStatus():null});

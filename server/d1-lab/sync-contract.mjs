@@ -21,7 +21,7 @@ export function validateEnvelope(command){
   }
   if(domainSyncFields[change.entity])try{validateDomainSnapshot(change.entity,d);}catch{throw fail(400,'Snapshot de domínio inválido.');}
   if(change.entity==='OperationalEvent'){
-   if(change.baseVersion!==null||change.id!==command.operationId||!['entry','exit','adjust','production','consume','journal'].includes(d.kind)||d.status!=='pending-central'||d.source_device_id!==command.deviceId)throw fail(400,'Evento operacional deve ser imutável e sintético.');
+   if(change.baseVersion!==null||change.id!==command.operationId||!['entry','exit','adjust','production','consume','journal','reversal'].includes(d.kind)||d.status!=='pending-central'||d.source_device_id!==command.deviceId)throw fail(400,'Evento operacional deve ser imutável e sintético.');
    try{const input=JSON.parse(d.command_json),result=JSON.parse(d.result_json);if(input.operationId!==change.id||result.operationId!==change.id||result.businessConfirmed!==false||result.externalConfirmed!==false)throw Error();}catch{throw fail(400,'Recibo de negócio inválido.');}
   }
    if(change.entity==='Employee')for(const k of ['cpf','rg','pix_key','bank'])if(d[k]&&!String(d[k]).startsWith('FICTICIO'))throw fail(400,'Documento sintético obrigatório.');

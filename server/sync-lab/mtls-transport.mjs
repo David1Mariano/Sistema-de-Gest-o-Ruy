@@ -7,6 +7,7 @@ export function createLabTransport({key,cert,ca,devices,upstream='http://127.0.0
  const privateIP=isIP(host)===4&&(/^(10\.|192\.168\.)/.test(host)||/^172\.(1[6-9]|2\d|3[01])\./.test(host));
  if(host!=='127.0.0.1'&&!(allowPrivateNetwork&&privateIP))throw Error('Loopback is the default; private network requires explicit opt-in.');
  if(!Array.isArray(devices)||!devices.length||devices.some(x=>!/^[A-F0-9]{64}$/.test(fingerprint(x.fingerprint))||!/^[a-f0-9]{64}$/.test(x.token)))throw Error('Certificate and device token bindings required.');
+ if(new Set(devices.map(x=>fingerprint(x.fingerprint))).size!==devices.length||new Set(devices.map(x=>x.token)).size!==devices.length)throw Error('Unique certificate and token per device required.');
  const bindings=new Map(devices.map(x=>[fingerprint(x.fingerprint),'Bearer '+x.token]));
  const server=https.createServer({key,cert,ca,requestCert:true,rejectUnauthorized:true,minVersion:'TLSv1.3'},async(req,res)=>{
   const reply=status=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify({error:'Laboratory request refused.'}));};

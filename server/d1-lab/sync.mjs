@@ -96,7 +96,7 @@ async function receive(pool,binding,page){
    for(const change of event.changes){
     const v=(await c.query('SELECT remote_version FROM d1_sync_versions WHERE actor=$1 AND record_id=$2',[binding.actor,change.id])).rows[0];
     if(v&&Number(v.remote_version)>=change.version)continue;
-    const pending=await c.query(`SELECT 1 FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1 AND coalesce(q.state,'pending')<>'acknowledged' AND(o.record_id=$2 OR coalesce(o.result->'cascata','[]'::jsonb) @> $3::jsonb) LIMIT 1`,[binding.actor,change.id,JSON.stringify([{record:{id:change.id}}])]);
+    const pending=await c.query(`SELECT 1 FROM lab_outbox o LEFT JOIN d1_sync_queue q USING(operation_id) WHERE o.actor=$1 AND coalesce(q.state,'pending') NOT IN ('acknowledged','resolved') AND(o.record_id=$2 OR coalesce(o.result->'cascata','[]'::jsonb) @> $3::jsonb) LIMIT 1`,[binding.actor,change.id,JSON.stringify([{record:{id:change.id}}])]);
     if(pending.rowCount)dirty.push(change.id);
     if(change.entity==='Employee'&&change.data._deleted==='true'&&(await employeeDependencies(c,binding.actor,change.id)).blocked)dirty.push(change.id);
     if(deletedEmployees.some(employee=>employee.id!==change.id&&referencesEmployee(change.data,employee.id)))dirty.push(change.id);

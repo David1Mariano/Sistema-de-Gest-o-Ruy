@@ -1,3 +1,4 @@
+import {assertActiveIntent} from './core.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {employeesUsingRole} from '../../src/lib/roleUtils.js';
@@ -34,7 +35,7 @@ export async function save(pool,user,deviceId,entity,id,body,hook=async()=>{}){
   if(!actor)throw fail(401,'Sessão revogada.');
   if(!['admin','writer'].includes(actor.role))throw fail(403,'Sem permissão de cadastro.');
   const prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[operationId])).rows[0];
-  if(prior){if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'Operação reutilizada com outro conteúdo.');return projectResult({...prior.result,replay:true},actor.role);}
+  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'Operação reutilizada com outro conteúdo.');return projectResult({...prior.result,replay:true},actor.role);}
   const current=(await c.query('SELECT * FROM d1_records WHERE id=$1 FOR UPDATE',[id])).rows[0];
   if(current&&(current.owner_id!==actor.id||current.entity!==entity))throw fail(403,'Registro fora da permissão.');
   if(operation==='create'?!!current:!current||Number(current.version)!==baseVersion)throw fail(409,'Conflito de versão; recarregue sem descartar seu formulário.');

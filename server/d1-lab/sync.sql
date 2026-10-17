@@ -5,7 +5,7 @@ CREATE TABLE IF NOT EXISTS d1_sync_binding (
 );
 CREATE TABLE IF NOT EXISTS d1_sync_queue (
  operation_id uuid PRIMARY KEY REFERENCES lab_outbox,
- state text NOT NULL CHECK(state IN ('pending','sending','acknowledged','conflict','rejected')),
+ state text NOT NULL CHECK(state IN ('pending','sending','acknowledged','conflict','rejected','resolved')),
  envelope jsonb,lease_until timestamptz,receipt jsonb,error text,confirmed_at timestamptz
 );
 CREATE TABLE IF NOT EXISTS d1_sync_versions (

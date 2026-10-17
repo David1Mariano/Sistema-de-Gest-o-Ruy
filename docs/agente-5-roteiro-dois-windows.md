@@ -2,6 +2,8 @@
 
 Status: **não executado**. O usuário autorizou apenas Pichau e ambientes simulados até identificar a segunda máquina. Não acessar computadores nem desconectar a rede da empresa nesta fase.
 
+Atualização RC3 (17/10/2026): repetir também revisão explícita de conflitos e retirada de edições dependentes; conferir o arquivo antes/depois, negar plano e formulário antigos e reaplicar uma alteração sobre a versão atual. Testar duas despesas simultâneas em conta própria sem saldo para ambas, estorno único com motivo e nova tentativa após perda de recibo. Para produção vinculada a ordem: rascunho não conclui a ordem; confirmação conclui e baixa estoque atomicamente; cancelamento estorna uma vez. Perdas devem estar detalhadas e incluídas na quantidade bruta. Instalação/reinstalação/reboot/restore com chaves próprias continuam pendentes em Windows B ou VM isolada autorizada. Não criar nem acessar VM por inferência de disponibilidade.
+
 ## Pré-condições obrigatórias para agendar
 
 1. Identificar máquina B, operador responsável, acesso autorizado e janela específica. Usar duas estações de laboratório, sem dados reais, sem apontar à produção/Supabase e sem usar os clusters operacionais.

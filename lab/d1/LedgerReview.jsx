@@ -1,0 +1,18 @@
+import {useEffect,useState} from 'react';
+import {request} from './client.mjs';
+import {useAuth} from '@/lib/AuthContext';
+export default function LedgerReview(){
+ const {user}=useAuth();const [accounts,setAccounts]=useState([]),[entity,setEntity]=useState('FinancialExpense'),[records,setRecords]=useState([]),[id,setId]=useState(''),[reason,setReason]=useState(''),[checked,setChecked]=useState(false),[busy,setBusy]=useState(false),[error,setError]=useState(''),[message,setMessage]=useState('');
+ useEffect(()=>{if(user?.role!=='admin')return;let active=true;setId('');setRecords([]);Promise.all([request('/operations/state'),request('/domain/'+entity)]).then(([state,list])=>{if(active){setAccounts(state.accounts);setRecords(list.records.filter(r=>['pago','recebido'].includes(r.status)));}}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[entity,user?.role,message]);
+ if(user?.role!=='admin')return <p role="alert">Contas e estornos exigem administrador autorizado.</p>;
+ return <section className="mx-auto max-w-3xl space-y-4 p-4"><h1 className="text-2xl font-semibold">Contas e estornos</h1><p>Razão do laboratório. Estorno compensa o lançamento original; não executa transferência bancária. A confirmação central exige sincronizar a fila.</p>
+ {error&&<p role="alert">{error}</p>}{message&&<p role="status">{message}</p>}
+ <ul>{accounts.map(row=><li key={row.account}>{row.account}: {(Number(row.balance_cents)/100).toFixed(2)}</li>)}</ul>
+ <form className="space-y-3 rounded border p-4" onSubmit={async event=>{event.preventDefault();setBusy(true);setError('');try{const row=records.find(r=>r.id===id);if(!row||!checked)throw Error('Selecione e confira o documento.');const key='ruy-reversal:'+user.id+':'+id,prior=JSON.parse(sessionStorage.getItem(key)||'null'),command=prior||{operationId:crypto.randomUUID(),entity,id,baseVersion:row._version,action:'reverse',reason};if(prior&&(prior.reason!==reason||prior.entity!==entity))throw Error('Existe tentativa sem recibo. Reenvie o mesmo motivo antes de mudar a proposta.');sessionStorage.setItem(key,JSON.stringify(command));await request('/domain/command',command);sessionStorage.removeItem(key);setMessage('Estorno registrado localmente e aguardando confirmação central. Consulte a fila.');setChecked(false);window.dispatchEvent(new Event('d1-changed'));}catch(e){setError(e.message);}finally{setBusy(false);}}}>
+ <label className="block">Tipo<select aria-label="Tipo para estorno" value={entity} disabled={busy} onChange={e=>{setEntity(e.target.value);setChecked(false);}}>{Object.entries({FinancialExpense:'Despesa',Revenue:'Receita',AccountsReceivable:'Recebível'}).map(([key,label])=><option key={key} value={key}>{label}</option>)}</select></label>
+ <label className="block">Documento liquidado<select aria-label="Documento para estorno" value={id} onChange={e=>{setId(e.target.value);setChecked(false);}} disabled={busy} required><option value="">Selecione</option>{records.map(r=><option key={r.id} value={r.id}>{r.description||r.id} — {r.amount??r.net_amount}</option>)}</select></label>
+ <label className="block">Motivo<input aria-label="Motivo do estorno" value={reason} maxLength={300} minLength={8} required onChange={e=>setReason(e.target.value)} className="block w-full rounded border p-2"/></label>
+ <label className="block"><input type="checkbox" aria-label="Confirmar estorno" checked={checked} onChange={e=>setChecked(e.target.checked)}/> Conferi o documento e autorizo o estorno auditado.</label>
+ <button disabled={busy||!id||!checked||reason.trim().length<8} className="rounded border p-2">Registrar estorno</button>
+ </form></section>;
+}
