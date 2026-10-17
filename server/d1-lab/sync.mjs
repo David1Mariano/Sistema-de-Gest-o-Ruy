@@ -1,3 +1,4 @@
+import {projectBusiness,businessConfirmation} from './business-projection.mjs';
 import {transaction,fail,uuid} from './core.mjs';
 import {unseal} from './environment.mjs';
 import {canonical,syncHash,dataOf,syncTable,validateEnvelope} from './sync-contract.mjs';
@@ -23,8 +24,9 @@ export async function syncStatus(pool,actor){
  const pendingDocuments=catalogReady?(await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE owner_id=$1 AND entity IN ('FinancialExpense','EmployeePayment','Revenue','AccountsPayable','AccountsReceivable') AND data->>'status' IN ('pago','recebido')",[actor])).rows[0].n:0;
  const filesReady=(await pool.query("SELECT to_regclass('public.d1_attachment_queue') AS name")).rows[0].name;
  const pendingFiles=filesReady?(await pool.query("SELECT count(*)::int n FROM d1_attachment_queue WHERE actor=$1 AND state<>'acknowledged'",[actor])).rows[0].n:null;
- const pendingBusiness=pendingEvents+pendingDocuments;
- return {enabled:!!binding,mode:'central-test-only',operationalSyncEnabled:false,...counts,conflicts:counts.conflicts+shadows,
+ const businessConfirmed=await businessConfirmation(pool,actor);
+ const pendingBusiness=businessConfirmed?0:pendingEvents+pendingDocuments;
+ return {businessConfirmed,enabled:!!binding,mode:'central-test-only',operationalSyncEnabled:false,...counts,conflicts:counts.conflicts+shadows,
  pendingBusiness,lastSyncAt:binding?.last_sync_at??null,lastError:binding?.last_error??null,cursor:binding?Number(binding.cursor):null,
  receiptsVerified:!!binding&&counts.missing===0,pullComplete:binding?.pull_complete===true,
  pendingFiles,attachmentsState:filesReady?'lab-transfer-only':'not-implemented'};
@@ -62,6 +64,7 @@ async function claim(pool,binding){
  });
 }
 function verifyReceipt(envelope,r){
+ if(r?.business&&(r.business.mode!=='authoritative-lab'||r.business.confirmed!==true))throw Error('Recibo de negocio invalido.');
  if(r?.protocol!=='D1LAB/1'||r.operationId!==envelope.operationId||r.deviceId!==envelope.deviceId||r.actorId!==envelope.actorId||r.workspaceId!==envelope.workspaceId||r.payloadHash!==syncHash(envelope)||!Number.isSafeInteger(r.cursor)||r.cursor<1||!Number.isFinite(Date.parse(r.confirmedAt))||!Array.isArray(r.changes)||r.changes.length!==envelope.changes.length)throw Error('Recibo inválido.');
  const expected=new Map(envelope.changes.map(c=>[c.id,c])),seen=new Set();
  for(const c of r.changes){const item=expected.get(c.id);if(!item||seen.has(c.id)||c.entity!==item.entity||c.version!==(item.baseVersion??0)+1||c.dataHash!==syncHash(item.data))throw Error('Recibo de registro inválido.');seen.add(c.id);}
@@ -116,6 +119,7 @@ async function receive(pool,binding,page){
     await rhHistoryInsert(c,{owner:binding.actor,id:change.id,entity:change.entity,operation:event.operation_id,actor:event.actor_id,device:event.device_id,version:localVersion,action:'remote_apply',snapshot:JSON.parse(change.data.payload_json||'null')});
    }
   }
+  await projectBusiness(c,binding,page);
   await c.query('UPDATE d1_sync_binding SET cursor=$2 WHERE actor=$1',[binding.actor,page.cursor]);
  });
 }

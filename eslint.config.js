@@ -6,7 +6,7 @@ import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
  {files:["lab/c2-runtime/**/*.{js,mjs}"],languageOptions:{globals:{...globals.node,...globals.browser},ecmaVersion:2022,sourceType:"module"},rules:{...pluginJs.configs.recommended.rules,"no-unused-vars":["error",{argsIgnorePattern:"^_"}]}},
- {files:["desktop/setup-preload.cjs","desktop/recovery-preload.cjs","desktop/electron-builder-h.cjs","desktop/electron-builder-agente5.cjs","desktop/electron-builder-agente5-rc.cjs"],languageOptions:{globals:globals.node,sourceType:"commonjs",ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
+ {files:["desktop/setup-preload.cjs","desktop/recovery-preload.cjs","desktop/electron-builder-h.cjs","desktop/electron-builder-agente5.cjs","desktop/electron-builder-agente5-rc.cjs","desktop/electron-builder-agente5-rc2.cjs"],languageOptions:{globals:globals.node,sourceType:"commonjs",ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
  {files:["desktop/setup-renderer.js","desktop/recovery-renderer.js"],languageOptions:{globals:globals.browser,ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
  {ignores:["artifacts/**","dist-d1/**","desktop/node_modules/**"]},
  {files:["desktop/**/*.mjs","server/sync-lab/**/*.mjs","server/local-lab/**/*.mjs","scripts/sync-lab/**/*.mjs","scripts/sync-lab.mjs"],languageOptions:{globals:{...globals.node,...globals.browser},ecmaVersion:2022,sourceType:"module"},rules:{...pluginJs.configs.recommended.rules,"no-unused-vars":["error",{argsIgnorePattern:"^_"}]}},

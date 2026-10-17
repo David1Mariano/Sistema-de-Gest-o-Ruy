@@ -18,6 +18,7 @@ export default function SyncStatus(){
   {open&&<div role="status" className="absolute right-0 top-10 w-80 rounded-xl border bg-card p-4 text-sm text-card-foreground shadow-lg">
    <strong>{labels[state]}</strong><p>Pendências: {value?.pending??'desconhecidas'}</p><p>Última confirmação: {value?.lastSyncAt?new Date(value.lastSyncAt).toLocaleString('pt-BR'):'nenhuma'}</p>
    {!!value?.pendingBusiness&&<p>Operações críticas aguardando reconciliação: {value.pendingBusiness}</p>}
+   {value?.businessConfirmed&&<p>Efeitos de estoque e financeiro conferidos na central de testes. Sincronização operacional continua desativada.</p>}
    <p>{value?.lastError||'Sincronização operacional desativada neste laboratório.'}</p><hr className="my-2"/>
    {value?.enabled&&<><p>Destino: somente central de testes local.</p><button type="button" className="my-2 underline" onClick={async()=>{setValue(v=>({...v,sending:1,lastError:null}));try{setValue(await request('/sync-now',{}));window.dispatchEvent(new Event('d1-changed'));}catch{setValue(v=>({...v,sending:0,lastError:'Não foi possível sincronizar com a central de testes.'}));}}}>Sincronizar central de testes</button></>}
    <strong>Backup — mecanismo independente</strong><p>{value?.backup?.lastError||(value?.backup?.createdAt?'Cópia local: '+new Date(value.backup.createdAt).toLocaleString('pt-BR'):'Backup ainda não verificado')}</p><p>Proteção contra perda do computador: não concluída.</p>

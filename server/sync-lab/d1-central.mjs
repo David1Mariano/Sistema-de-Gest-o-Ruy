@@ -1,3 +1,4 @@
+import {applyBusiness,businessSnapshot} from './business.mjs';
 import {transaction,fail,digest} from '../d1-lab/core.mjs';
 import {validateEnvelope,syncHash} from '../d1-lab/sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
@@ -8,14 +9,14 @@ async function authorize(c,token){
  if(!p?.active||p.role!=='admin')throw fail(403,'Ponte D1 restrita a administrador sintético autorizado.');
  return p;
 }
-export async function acceptD1(pool,token,command){
+export async function acceptD1(pool,token,command,{business=false}={}){
  validateEnvelope(command);
  return transaction(pool,async c=>{
   const p=await authorize(c,token);
   if(command.deviceId!==p.device_id||command.actorId!==p.actor_id||command.workspaceId!==p.workspace_id)throw fail(403,'Identidade D1 recusada.');
   await c.query('SELECT cursor FROM d1_central_clock WHERE singleton FOR UPDATE');
   const hash=syncHash(command),prior=(await c.query('SELECT * FROM d1_central_receipts WHERE operation_id=$1',[command.operationId])).rows[0];
-  if(prior){if(prior.payload_hash!==hash||prior.device_id!==p.device_id||prior.actor_id!==p.actor_id)throw fail(409,'UUID D1 reutilizado.');return {...prior.result,replay:true};}
+  if(prior){if(prior.payload_hash!==hash||prior.device_id!==p.device_id||prior.actor_id!==p.actor_id)throw fail(409,'UUID D1 reutilizado.');if(business&&!prior.result.business?.confirmed)throw fail(409,'Legacy receipt requires explicit business reconciliation.');return {...prior.result,replay:true};}
   const known=(await c.query('SELECT * FROM d1_central_records WHERE workspace_id=$1',[p.workspace_id])).rows;
   const records=new Map(known.map(r=>[r.id,r]));
   for(const change of command.changes){
@@ -63,6 +64,7 @@ export async function acceptD1(pool,token,command){
    if(change.entity==='Employee'&&d.function&&!values.some(r=>r.entity==='JobRole'&&r.data.name===d.function&&(!r.data.sector_name||r.data.sector_name===d.sector)))throw fail(409,'Função remota incompatível.');
    if(change.entity==='InventoryItem'&&d.preferred_supplier_id){const supplier=records.get(d.preferred_supplier_id);if(!supplier||supplier.entity!=='Supplier'||supplier.data.name!==d.preferred_supplier_name)throw fail(409,'Fornecedor remoto inexistente.');}
   }
+  if(business)await applyBusiness(c,p,command,records);
   const changes=[];
   for(const change of command.changes){
    const row=records.get(change.id),nameKey=change.entity==='SystemSettings'?'singleton':sectorKey(row.data.name);
@@ -70,13 +72,13 @@ export async function acceptD1(pool,token,command){
    changes.push({entity:row.entity,id:row.id,version:row.version,data:row.data});
   }
   const cursor=Number((await c.query('UPDATE d1_central_clock SET cursor=cursor+1 WHERE singleton RETURNING cursor')).rows[0].cursor);
-  const receipt={protocol:'D1LAB/1',operationId:command.operationId,deviceId:p.device_id,actorId:p.actor_id,workspaceId:p.workspace_id,payloadHash:hash,cursor,confirmedAt:new Date().toISOString(),changes:changes.map(r=>({entity:r.entity,id:r.id,version:r.version,dataHash:syncHash(r.data)}))};
+  const receipt={...(business?{business:{mode:'authoritative-lab',confirmed:true}}:{}),protocol:'D1LAB/1',operationId:command.operationId,deviceId:p.device_id,actorId:p.actor_id,workspaceId:p.workspace_id,payloadHash:hash,cursor,confirmedAt:new Date().toISOString(),changes:changes.map(r=>({entity:r.entity,id:r.id,version:r.version,dataHash:syncHash(r.data)}))};
   await c.query('INSERT INTO d1_central_receipts VALUES($1,$2,$3,$4,$5,$6)',[command.operationId,p.device_id,p.actor_id,p.workspace_id,hash,receipt]);
   await c.query('INSERT INTO d1_central_changes VALUES($1,$2,$3,$4,$5)',[cursor,command.operationId,p.workspace_id,p.device_id,JSON.stringify(changes)]);
   return receipt;
  });
 }
-export async function changesD1(pool,token,cursor){
+export async function changesD1(pool,token,cursor,{business=false}={}){
  if(!Number.isSafeInteger(cursor)||cursor<0)throw fail(400,'Cursor D1 inválido.');
  const c=await pool.connect();
  try{
@@ -85,6 +87,7 @@ export async function changesD1(pool,token,cursor){
   if(cursor>head)throw fail(409,'Central anterior ao cursor; reconciliação obrigatória.');
   const events=(await c.query('SELECT e.*,r.actor_id FROM d1_central_changes e JOIN d1_central_receipts r USING(operation_id) WHERE e.workspace_id=$1 AND e.cursor>$2 ORDER BY e.cursor LIMIT 100',[p.workspace_id,cursor])).rows.map(e=>({...e,cursor:Number(e.cursor)}));
   const hasMore=events.length===100;
-  await c.query('COMMIT');return {protocol:'D1LAB/1',events,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
+  const projection=business&&!hasMore?await businessSnapshot(c,p.workspace_id,head):null;
+  await c.query('COMMIT');return {...(projection?{business:projection}:{}),protocol:'D1LAB/1',events,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }

@@ -8,9 +8,10 @@ export async function relayD1(req,res,origin){
   const push=url.pathname==='/api/local/d1/push'&&req.method==='POST';
   const pull=url.pathname==='/api/local/d1/changes'&&req.method==='GET';
   const attachment=url.pathname.match(/^\/api\/local\/d1\/attachments\/([a-f0-9-]{36})$/);
+  const list=url.pathname==='/api/local/d1/attachments'&&req.method==='GET'&&/^\?record=[a-f0-9-]{36}$/.test(url.search);
   const upload=attachment&&req.method==='PUT'&&!url.search;
   const download=attachment&&req.method==='GET'&&!url.search;
-  if(!push&&!pull&&!upload&&!download){reply(404,{error:'Not found.'});return true;}
+  if(!push&&!pull&&!upload&&!download&&!list){reply(404,{error:'Not found.'});return true;}
   if(req.headers.cookie||!/^Bearer [a-f0-9]{64}$/.test(req.headers.authorization||'')){reply(403,{error:'Device credential required.'});return true;}
   if(req.headers.origin){reply(403,{error:'Server transport only.'});return true;}
   let body;
@@ -21,7 +22,7 @@ export async function relayD1(req,res,origin){
     body=Buffer.concat(chunks);
   }else if(pull&&!/^\?cursor=\d+$/.test(url.search)){reply(400,{error:'Invalid cursor.'});return true;}
   try{
-    const upstream=await fetch(origin+'/d1/'+(attachment?'attachments/'+attachment[1]:push?'push':'changes'+url.search),{method:req.method,redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:req.headers.authorization,...(push||upload?{'Content-Type':'application/json'}:{})},body});
+    const upstream=await fetch(origin+'/d1/'+(list?'attachments'+url.search:attachment?'attachments/'+attachment[1]:push?'push':'changes'+url.search),{method:req.method,redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:req.headers.authorization,...(push||upload?{'Content-Type':'application/json'}:{})},body});
     const value=await upstream.json();
     if(upstream.ok)reply(upstream.status,value);
     else reply([400,401,403,409,413].includes(upstream.status)?upstream.status:503,{error:'Synthetic central refused request.'});

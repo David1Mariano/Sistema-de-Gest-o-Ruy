@@ -3,7 +3,7 @@ import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import fs from 'node:fs/promises';
 import {randomUUID,randomBytes} from 'node:crypto';
-import {allowedNavigation, localOrigin, webPreferences} from './policy.mjs';
+import {allowedNavigation,allowedDownload, localOrigin, webPreferences} from './policy.mjs';
 import {createSupervisor} from './supervisor.mjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -18,6 +18,10 @@ let worker, window, timer, closing = false,preparing=false;
 let backupTimer,backupFlight,smokeAccount,supervisor;
 let stage='startup';
 const smoke = process.argv.includes('--lab-smoke');
+if(smoke&&process.env.RUY_D1_ALLOW_TESTS==='1'&&process.argv.includes('--lab-attachments-smoke')){
+ process.stdin.setEncoding('utf8');process.stdin.on('data',text=>{if(text.trim()==='shutdown')app.quit();});
+}
+
 const evidence = {purpose:'RUY_DESKTOP_SYNTHETIC_ONLY', packaged:app.isPackaged,version:app.getVersion(),revision:metadata.ruyRevision||'source-H1'};
 async function health() {
   const r = await fetch(localOrigin+'/health', {signal:AbortSignal.timeout(1500), redirect:'error'});
@@ -50,6 +54,12 @@ async function start() {
       const id=randomUUID(),password=randomBytes(24).toString('hex'),login='desktop-'+id+'@example.invalid';
       await pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[id,login,await core.hashPassword(password)]);
       smokeAccount={id,login,password};
+      if(process.argv.includes('--lab-attachments-smoke')){
+        if(process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Attachment smoke requires explicit opt-in');
+        const {operationalCommand}=await import(pathToFileURL(path.join(root,'server/d1-lab/operations.mjs')));
+        await operationalCommand(pool,{id,role:'admin'},marker.deviceId,{operationId:randomUUID(),kind:'journal',entries:[{account:'cash',cents:100000,baseVersion:0},{account:'bank',cents:100000,baseVersion:0},{account:'equity',cents:-200000,baseVersion:0}]});
+      }
+
       evidence.syntheticActor=id;
       const {save}=await import(pathToFileURL(path.join(root,'server/d1-lab/entities.mjs')));
       await save(pool,{id,role:'admin'},marker.deviceId,'Sector',randomUUID(),{operationId:randomUUID(),operation:'create',baseVersion:null,data:{name:'FICTICIO Setor do aplicativo',description:'Cadastro sintético para homologação visual',status:'ativo'}});
@@ -90,7 +100,9 @@ async function start() {
   browserSession.webRequest.onBeforeRequest({urls:['<all_urls>']}, (details,callback)=>{
     callback({cancel: !allowedNavigation(details.url)});
   });
-  browserSession.on('will-download', event=>event.preventDefault());
+  browserSession.on('will-download',(event,item,contents)=>{
+    if(!window||contents!==window.webContents||!allowedDownload(item.getURL())||!item.getURLChain().every(allowedDownload))event.preventDefault();
+  });
   preparing=false;
   window = new BrowserWindow({title:'Sistema de Gestão Ruy — Laboratório',width:1366,height:900,minWidth:900,minHeight:640,
     show:!smoke,icon:path.join(here,'assets/ruy.ico'),webPreferences:{...webPreferences,session:browserSession,backgroundThrottling:!smoke}});
@@ -160,6 +172,11 @@ async function start() {
           stage='payroll-forms';const {payrollSmoke}=await import('./payroll-smoke.mjs');
           const {catalogSave}=await import(pathToFileURL(path.join(root,'server/d1-lab/catalog.mjs')));
           evidence.payroll=await payrollSmoke(window,waitFor,localOrigin,persisted,smokeAccount.id,{catalogSave,marker});
+        }
+        if(process.argv.includes('--lab-attachments-smoke')){
+          stage='attachment-forms';const signalFile=process.argv.find(a=>a.startsWith('--lab-attachment-ready='))?.slice('--lab-attachment-ready='.length);
+          const {attachmentSmoke}=await import('./attachment-smoke.mjs');
+          evidence.attachments=await attachmentSmoke({window,pool:persisted,actor:smokeAccount.id,signalFile});
         }
         if(process.argv.includes('--lab-rh-smoke')){
           stage='rh-forms';const {rhSmoke}=await import('./rh-smoke.mjs');

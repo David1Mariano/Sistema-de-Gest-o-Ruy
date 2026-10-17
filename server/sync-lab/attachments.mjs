@@ -36,3 +36,12 @@ export async function getAttachment(pool,token,id){
   return {id:row.id,recordId:row.record_id,entity:row.entity,filename:row.filename,mediaType:row.media_type,sha256:row.sha256,bytes:row.bytes.toString('base64')};
  });
 }
+export async function listAttachments(pool,token,recordId){
+ if(!uuid(recordId))throw fail(400,'Invalid record identity.');
+ return transaction(pool,async c=>{
+  const p=await principal(c,token);
+  const record=(await c.query('SELECT entity FROM d1_central_records WHERE workspace_id=$1 AND id=$2',[p.workspace_id,recordId])).rows[0];
+  if(!record)throw fail(403,'Record unavailable.');await reference(c,p,recordId,record.entity);
+  return {records:(await c.query('SELECT id,record_id AS "recordId",entity,filename,media_type AS "mediaType",sha256 FROM d1_attachment_objects WHERE workspace_id=$1 AND record_id=$2 ORDER BY id LIMIT 200',[p.workspace_id,recordId])).rows};
+ });
+}

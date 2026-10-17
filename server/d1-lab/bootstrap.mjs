@@ -61,7 +61,7 @@ export async function ensureLocalDatabase(){
  try{pgCommand(marker.bin,'pg_ctl',['-D',cluster,'status']);}catch{
   await new Promise((resolve,reject)=>{
    const child=spawn(path.join(marker.bin,'pg_ctl.exe'),['-D',cluster,'-l',path.join(home,'postgres.log'),'-t','180','-w','start'],{windowsHide:true,stdio:'ignore'});
-   const timer=setTimeout(()=>{child.kill();reject(Error('PostgreSQL não confirmou partida em 180 segundos; cluster preservado.'));},190000);
+   const timer=setTimeout(()=>{reject(Error('PostgreSQL não confirmou partida em 180 segundos; cluster preservado.'));},190000);
    child.once('error',()=>{clearTimeout(timer);reject(Error('Executável PostgreSQL indisponível.'));});
    child.once('exit',code=>{clearTimeout(timer);if(code===0)resolve();else reject(Error('PostgreSQL não confirmou partida; verificar log privado, sem repetir init.'));});
   });started=true;

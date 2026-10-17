@@ -1,0 +1,190 @@
+{
+  "date": "2026-10-17",
+  "base": "b09b9d8",
+  "branch": "agente-5-consolidacao-windows-d1-c2-20261016",
+  "restrictedToHomologation": true,
+  "operationalSyncEnabled": false,
+  "transfer": {
+    "checks": 19,
+    "results": [
+      "provisioned DPAPI mTLS: D1 outbox through HTTPS gateway and SQL central to peer",
+      "local attachment queue validates permission, version, size and integrity",
+      "offline upload leaves the same UUID pending with no central object",
+      "lost reply after central commit retries same UUID without duplicate bytes or audit",
+      "peer download through mTLS verifies hash and persists an offline cache",
+      "server rejects viewer, revoked token, cross-workspace access and identity collisions",
+      "corrupt central bytes and corrupt local cache are denied, not served",
+      "restart of owned central/gateway preserves attachment, receipt and downloaded cache",
+      "transactional inventory and production snapshots cross TLS; authoritative balance reaches both peers",
+      "funded financial settlement confirms once; paid changes and replay cannot debit twice",
+      "concurrent devices cannot consume the same authoritative stock; both proposals preserved",
+      "different payment UUIDs for the same payroll obligation debit exactly once",
+      "one payable cannot be settled twice even with fresh expense and operation UUIDs",
+      "same supplier invoice with different UUIDs cannot create a second debit",
+      "corrupt business projection rolls back locally and clean retry recovers",
+      "central rollback preserves stock, cursor and receipt on invalid multi-effect production",
+      "unpaired paid document and insufficient global funds cannot create a settlement",
+      "encrypted dumps restore queue, cache, bytes and receipt into fresh synthetic databases",
+      "local authenticated API enforces CSRF and cached attachment permissions"
+    ],
+    "databases": [
+      {
+        "name": "ruy_d1_rc_14834b33bfb67ca5",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_765bed0b209d2d2d",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_b08a30c66ac752e1",
+        "port": 55435
+      },
+      {
+        "name": "ruy_d1_rc_2fc99215b28ca966",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_a844c1e27c7aabb0",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_7e32136cb92c7a79",
+        "port": 55435
+      }
+    ],
+    "restartFixture": "e5aaec701010f607",
+    "syntheticOnly": true,
+    "tls": "1.3",
+    "provisionedWithDPAPI": true,
+    "physicalComputers": false,
+    "networkFailuresSimulated": true,
+    "productionChanged": false,
+    "operationalRelease": false,
+    "globalBalanceAppliedToPeer": true,
+    "encryptedBackupRestore": true
+  },
+  "postgres": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "oldPid": 1992,
+    "newPid": 28264,
+    "databases": 4,
+    "sha256": "f8c4197d7faa18c3edb7260799d9261226fd9d78567dec8d19eb086d196ee18f",
+    "queues": 3,
+    "caches": 3,
+    "persistenceVerified": true,
+    "source55436Restarted": false,
+    "forcedTermination": false
+  },
+  "windows": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "version": "0.5.1-rc.2",
+    "revision": "A5-RC2-20261017",
+    "databaseStartup": {
+      "started": false,
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+    },
+    "syntheticActor": "948ddddf-564a-4a12-afbb-f7ff6bf576b0",
+    "apiOwned": true,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18091"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: alterações pendentes",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true,
+    "originalStockPage": {
+      "created": true,
+      "quantityMilli": 2000
+    },
+    "employee": {
+      "created": true,
+      "edited": true,
+      "queriedAfterReload": true,
+      "authorizedTombstone": true,
+      "auditCount": 3,
+      "id": "c74bd9e8-e296-4a93-9b34-91e93c9d72bb",
+      "bounds": {
+        "top": 50.02000045776367,
+        "bottom": 768.2199516296387,
+        "height": 718.199951171875,
+        "viewport": 788,
+        "scrollable": true,
+        "overflow": "auto"
+      },
+      "networkPhysicallyDisconnected": false
+    },
+    "domains": {
+      "recipeForm": true,
+      "dailyForm": true,
+      "confirmedConsumption": true,
+      "stockMilliAfterConsumption": 1000,
+      "expenseForm": true,
+      "expenseAmount": 12.34,
+      "revenueForm": true,
+      "cardAndReceiptForms": true,
+      "financialReport": true,
+      "reloaded": true
+    },
+    "attachments": {
+      "queued": true,
+      "offlineFailurePreservedUUID": true,
+      "reconnectedSameUUID": true,
+      "remoteReceipt": true,
+      "cached": true,
+      "previewEscaped": true,
+      "downloadHash": "98c07b20dcafc7b294e8af0b6d8f30a9558eb75ef35759a8418e053a9ea9ba8d",
+      "reloadPersisted": true,
+      "viewerDenied": true,
+      "id": "f6787ab7-add7-490e-98b7-a9bf19532cd5",
+      "recordId": "1221e278-7214-4097-a688-eec22c2bb3be"
+    },
+    "physicalComputers": 1,
+    "connectionLossSimulatedByOwnedTLSService": true,
+    "companyNetworkChanged": false,
+    "centralObjectCount": 1,
+    "centralUploadAuditCount": 1,
+    "centralStockMilli": 1000
+  },
+  "artifact": {
+    "revision": "A5-RC2-20261017",
+    "version": "0.5.1-rc.2",
+    "dependencies": 13,
+    "criticalSourcesMatch": true,
+    "privateFilesAbsent": true,
+    "installer": "artifacts/agente5-rc2-20261017/Sistema-Ruy-A5-RC2-20261017-Setup.exe",
+    "sha256": "7fa055a90f509825b82c24eba9fa2cebbe5882605100acc202ffd74ea7bb8f04",
+    "signed": false,
+    "restrictedToHomologation": true,
+    "cleanSecondWindowsTested": false
+  },
+  "checks": {
+    "lint": true,
+    "standardBuild": true,
+    "d1Build": true,
+    "unitTests": 70,
+    "unitFailures": 0,
+    "stockInternalAssertions": 121,
+    "legacyIntegration": 11,
+    "supervision": 5
+  },
+  "remaining": [
+    "second authorized physical Windows",
+    "physical network reconnection",
+    "clean install/reboot/reinstall and independent recovery on Windows B",
+    "final least-privilege service role",
+    "financial custom accounts and explicit reversal",
+    "supervised conflict reconciliation and production aggregate acceptance",
+    "normal shutdown channel of old API18080",
+    "operational approval"
+  ],
+  "production8080Changed": false,
+  "supabaseAccessed": false,
+  "realPersonalDataUsed": false,
+  "forcedTermination": false
+}

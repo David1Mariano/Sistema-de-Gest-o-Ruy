@@ -1,3 +1,4 @@
+import {Link} from 'react-router-dom';
 import { Menu, Bell, LogOut } from 'lucide-react';
 import SyncStatus from './SyncStatus';
 import { useAuth } from '@/lib/AuthContext';
@@ -21,7 +22,7 @@ export default function Topbar({ title, onMenu }) {
         <h1 className="text-base sm:text-lg font-semibold tracking-tight text-slate-900 truncate">{title}</h1>
       </div>
 
-      <div className="ml-auto flex items-center gap-1 sm:gap-2"><SyncStatus/>
+      <div className="ml-auto flex items-center gap-1 sm:gap-2"><Link to="/anexos" className="rounded border px-3 py-2 text-sm">Anexos</Link><SyncStatus/>
         <Button variant="ghost" size="icon" className="relative rounded-xl" aria-label="Alertas">
           <Bell className="h-5 w-5" />
         </Button>

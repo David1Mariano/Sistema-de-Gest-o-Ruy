@@ -1,3 +1,4 @@
+import {businessConfirmation} from './business-projection.mjs';
 import {transaction,fail,uuid} from './core.mjs';
 import {randomUUID} from 'node:crypto';
 import {syncHash} from './sync-contract.mjs';
@@ -81,5 +82,5 @@ export async function createStockItem(pool,user,deviceId,body){
 export async function operationalState(pool,user){
  if(user.role!=='admin')throw fail(403,'Estado operacional restrito ao administrador sintético.');
  const movements=(await pool.query('SELECT * FROM d1_stock_movements WHERE owner_id=$1 ORDER BY created_at DESC,id',[user.id])).rows.map(r=>({id:r.id,item_id:r.item_id,item_name:r.item_name,unit:r.unit,quantity:Math.abs(Number(r.quantity_milli))/1000,unit_cost:Number(r.unit_cents)/100,total_cost:Math.abs(Number(r.quantity_milli))*Number(r.unit_cents)/100000,balance_after:Number(r.balance_after)/1000,movement_type:r.movement_type,date:r.created_at,created_date:r.created_at,responsible_user:'Operador fictício local'}));
- return {movements,balances:(await pool.query('SELECT * FROM d1_stock_balances WHERE owner_id=$1',[user.id])).rows,accounts:(await pool.query('SELECT * FROM d1_financial_accounts WHERE owner_id=$1 ORDER BY account',[user.id])).rows,businessConfirmed:false,operationalSyncEnabled:false};
+ return {movements,balances:(await pool.query('SELECT * FROM d1_stock_balances WHERE owner_id=$1',[user.id])).rows,accounts:(await pool.query('SELECT * FROM d1_financial_accounts WHERE owner_id=$1 ORDER BY account',[user.id])).rows,businessConfirmed:await businessConfirmation(pool,user.id),operationalSyncEnabled:false};
 }

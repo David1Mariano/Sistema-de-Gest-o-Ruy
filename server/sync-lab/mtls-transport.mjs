@@ -14,7 +14,8 @@ export function createLabTransport({key,cert,ca,devices,upstream='http://127.0.0
   if(!req.socket.authorized||!device||req.headers.authorization!==device||req.headers.cookie||req.headers.origin)return reply(403);
   const push=req.method==='POST'&&req.url==='/api/local/d1/push';
   const attachment=/^\/api\/local\/d1\/attachments\/[a-f0-9-]{36}$/.test(req.url)&&['PUT','GET'].includes(req.method);
-  if(!push&&!attachment&&!(req.method==='GET'&&/^\/api\/local\/d1\/changes\?cursor=\d+$/.test(req.url)))return reply(404);
+  const list=req.method==='GET'&&/^\/api\/local\/d1\/attachments\?record=[a-f0-9-]{36}$/.test(req.url);
+  if(!push&&!attachment&&!list&&!(req.method==='GET'&&/^\/api\/local\/d1\/changes\?cursor=\d+$/.test(req.url)))return reply(404);
   const writes=push||attachment&&req.method==='PUT';
   if(writes&&!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))return reply(415);
   try{

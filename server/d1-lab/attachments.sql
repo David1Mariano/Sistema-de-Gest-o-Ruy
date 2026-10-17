@@ -7,6 +7,6 @@ CREATE TABLE d1_attachment_queue (
 );
 CREATE TABLE d1_attachment_cache (
  actor uuid NOT NULL,id uuid NOT NULL,record_id uuid NOT NULL,entity text NOT NULL,
- sha256 text NOT NULL,bytes bytea NOT NULL CHECK(octet_length(bytes) BETWEEN 1 AND 524288),
+ sha256 text NOT NULL,bytes bytea NOT NULL CHECK(octet_length(bytes) BETWEEN 1 AND 524288),filename text NOT NULL,media_type text NOT NULL,
  PRIMARY KEY(actor,id)
 );

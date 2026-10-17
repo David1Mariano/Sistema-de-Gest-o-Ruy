@@ -1,4 +1,4 @@
-import {enqueueAttachment,transferAttachment,fetchAttachment,readCachedAttachment} from './attachment-transfer.mjs';
+import {enqueueAttachment,transferAttachment,fetchAttachment,listLocalAttachments,localAttachment,authorizeAttachmentRecord} from './attachment-transfer.mjs';
 import {provisionedRequest} from './tls-provision.mjs';
 import http from 'node:http';
 import {employeeDeleteCheck} from './employee-delete.mjs';
@@ -64,9 +64,22 @@ export function createServer(pool,deviceId) {
       if(!user)throw fail(401,'Sessão expirada/revogada.');
       if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatório.');
       if(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'){
+        if(url.pathname==='/api/d1/attachments'&&req.method==='GET')return reply(200,await listLocalAttachments(pool,user.id));
+        if(url.pathname==='/api/d1/attachments/remote'&&req.method==='GET'){
+          const id=url.searchParams.get('record');await authorizeAttachmentRecord(pool,user.id,id);
+          const binding=(await pool.query('SELECT * FROM d1_sync_binding WHERE actor=$1',[user.id])).rows[0];if(!binding)throw fail(403,'Dispositivo nao provisionado.');
+          const transport=await provisionedRequest(binding);return reply(200,await transport.request(transport.token,'/attachments?record='+id));
+        }
         if(url.pathname==='/api/d1/attachments'&&req.method==='POST')return reply(200,await enqueueAttachment(pool,user.id,body));
+        const download=url.pathname.match(/^\/api\/d1\/attachments\/([a-f0-9-]{36})\/download$/);
+        if(download&&req.method==='GET'&&!url.search){
+          const file=await localAttachment(pool,user.id,download[1]);
+          if(!/^FICTICIO-[a-zA-Z0-9_-]+\.(pdf|png|jpg|webp|txt)$/.test(file.filename))throw fail(503,'Nome de arquivo invalido.');
+          const bytes=Buffer.from(file.bytes,'base64');
+          res.writeHead(200,{'Content-Type':'application/octet-stream','Content-Length':bytes.length,'Content-Disposition':'attachment; filename="'+file.filename+'"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"});res.end(bytes);return;
+        }
         const match=url.pathname.match(/^\/api\/d1\/attachments\/([a-f0-9-]{36})(?:\/(send|fetch))?$/);
-        if(match&&!match[2]&&req.method==='GET')return reply(200,{id:match[1],bytes:(await readCachedAttachment(pool,user.id,match[1])).toString('base64')});
+        if(match&&!match[2]&&req.method==='GET')return reply(200,await localAttachment(pool,user.id,match[1]));
         if(match&&match[2]&&req.method==='POST'){
           const binding=(await pool.query('SELECT * FROM d1_sync_binding WHERE actor=$1',[user.id])).rows[0];
           if(!binding)throw fail(403,'Dispositivo nao provisionado.');
