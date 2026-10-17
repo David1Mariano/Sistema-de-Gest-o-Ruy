@@ -1,0 +1,13 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {patchCore,patchEntities} from './integration.mjs';
+const root='C:/Users/Pichau/Sistema-de-Gest-o-Ruy/';
+const core=await fs.readFile(root+'server/local/core.mjs','utf8'),entities=await fs.readFile(root+'src/lib/localEntities.mjs','utf8');
+const contract=await fs.readFile(new URL('./rh-contract.mjs',import.meta.url),'utf8');
+const changes=[['server/local/core.mjs',core,patchCore(core)],['src/lib/localEntities.mjs',entities,patchEntities(entities)],['server/local/rh-contract.mjs','',contract]];
+const normalized=changes.map(([name,before,after])=>[name,before,after.replace(/\r\n/g,'\n').replace(/\n/g,before.includes('\r\n')?'\r\n':'\n')]);
+const python="import sys,json,difflib\nsys.stdout.reconfigure(newline='')\nfor path,before,after in json.load(sys.stdin):\n sys.stdout.write(''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+path if before else '/dev/null',tofile='b/'+path)))";
+await fs.writeFile(new URL('./rh.patch',import.meta.url),execFileSync('python',['-c',python],{input:JSON.stringify(normalized),encoding:'utf8',windowsHide:true}));
+await fs.writeFile(new URL('./baseline.json',import.meta.url),JSON.stringify(normalized.map(([path,before])=>({path,beforeSHA256:createHash('sha256').update(before).digest('hex')})),null,2)+'\n');
+console.log('RH patch generated only in isolated proposal directory.');

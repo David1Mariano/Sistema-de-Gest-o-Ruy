@@ -1,0 +1,15 @@
+{
+  "reference": "C:/Users/Pichau/Sistema-de-Gest-o-Ruy/",
+  "changes": [
+    {
+      "path": "src/lib/localSession.mjs",
+      "beforeSHA256": "302f16d61be1c291d337ef5dac4d06e1227e4375ab52fe946c371d27e8fb09a5",
+      "afterSHA256": "8714e7ed81e7adc71ef00886d7dbab7dc42de10b66adc2eefeb8261477ff3921"
+    },
+    {
+      "path": "src/lib/localEntities.mjs",
+      "beforeSHA256": "280de421ac4b992e6ff3979bcaca5970e4a4ca1c6d56cae3744d3692f13d5d95",
+      "afterSHA256": "75400baa2ee86683386fde129c1fe4df202e0e76649469786c5288e1751d7fa2"
+    }
+  ]
+}

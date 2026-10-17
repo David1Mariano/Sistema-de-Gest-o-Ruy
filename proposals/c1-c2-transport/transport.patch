@@ -1,0 +1,143 @@
+--- a/src/lib/localSession.mjs
++++ b/src/lib/localSession.mjs
+@@ -1,30 +1,73 @@
+ export function createLocalSession({ request = globalThis.fetch, timeoutMs = 8000, onUnauthorized = () => {} } = {}) {
+   let csrf;
++  const intentions = new Map();
+   async function call(path, body) {
++    const write = body !== undefined;
++    const operationId = body?.operationId;
++    let sent = false, response;
+     const controller = new AbortController();
+-    const timer = setTimeout(()=>controller.abort(),timeoutMs);
++    const failure = (message, code, outcome, status) => Object.assign(new Error(message), { code, outcome, status, operationId });
++    let serialized;
++    try { serialized = write ? JSON.stringify(body) : undefined; }
++    catch { throw failure('Conteúdo local inválido.', 'INVALID_REQUEST', 'not_sent'); }
++    if (operationId !== undefined) {
++      if (!/^[a-f0-9]{8}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{4}-[a-f0-9]{12}$/i.test(operationId)) throw failure('UUID de operação inválido.', 'INVALID_OPERATION_ID', 'not_sent');
++      const intention = JSON.stringify([path, serialized]);
++      if (intentions.has(operationId) && intentions.get(operationId) !== intention) throw failure('UUID reutilizado com intenção diferente.', 'IDEMPOTENCY_REUSE', 'not_sent');
++      intentions.set(operationId, intention);
++    }
++    if (!Number.isFinite(timeoutMs) || timeoutMs <= 0) throw failure('Prazo local esgotado antes do envio.', 'TIMEOUT', 'not_sent');
++    const timer = setTimeout(()=>controller.abort(), timeoutMs);
++    const outcome = () => write ? (sent ? 'unknown' : 'not_sent') : 'not_applicable';
++    async function abortable(task) {
++      let listener;
++      const interrupted = new Promise((_, reject) => {
++        listener = () => reject(failure('Servidor local não respondeu no prazo.', 'TIMEOUT', outcome(), response?.status));
++        controller.signal.addEventListener('abort', listener, { once:true });
++        if (controller.signal.aborted) listener();
++      });
++      try { return await Promise.race([task, interrupted]); }
++      finally { controller.signal.removeEventListener('abort', listener); }
++    }
+     try {
+-      const response = await request(`/api/local/${path}`,{
+-        method:body === undefined ? 'GET' : 'POST',credentials:'same-origin',signal:controller.signal,
+-        headers:body === undefined ? {} : { 'Content-Type':'application/json',...(csrf ? {'x-csrf-token':csrf} : {}) },
+-        body:body === undefined ? undefined : JSON.stringify(body),
+-      });
++      sent = true;
++      response = await abortable(request(`/api/local/${path}`, {
++        method:write ? 'POST' : 'GET', credentials:'same-origin', signal:controller.signal,
++        headers:write ? { 'Content-Type':'application/json', ...(csrf ? {'x-csrf-token':csrf} : {}) } : {},
++        body:serialized,
++      }));
+       if (response.status === 401) { csrf=undefined; onUnauthorized(); }
+-      const value = await response.json().catch(()=>({}));
+-      if (!response.ok) throw Object.assign(new Error(value.error || `API local HTTP ${response.status}`),{status:response.status,code:value.code,dependencies:value.dependencies,total:value.total,resumo:value.resumo});
++      let value;
++      try { value = JSON.parse(await abortable(response.text())); }
++      catch (error) {
++        if (error.code === 'TIMEOUT') throw error;
++        // A malformed error response still preserves its HTTP status.
++        throw failure('Resposta JSON local inválida ou interrompida.', error instanceof SyntaxError ? 'INVALID_RESPONSE' : 'RESPONSE_INTERRUPTED',
++          !response.ok && response.status < 500 ? 'rejected' : outcome(), response.status);
++      }
++      if (!value || typeof value !== 'object' || Array.isArray(value) && path !== 'pending' && !path.endsWith('/audit')) throw failure('Envelope local inválido.', 'INVALID_RESPONSE', outcome(), response.status);
++      if (!response.ok) throw Object.assign(failure(value.error || `API local HTTP ${response.status}`, value.code || `HTTP_${response.status}`,
++        write && response.status >= 500 ? 'unknown' : 'rejected', response.status),
++        { dependencies:value.dependencies, total:value.total, resumo:value.resumo });
+       return value;
+-    } catch(error) {
+-      if (error.name === 'AbortError') throw Error('Servidor local não respondeu no prazo. Nenhuma troca para a nuvem foi realizada.');
+-      throw error;
++    } catch (error) {
++      if (error.outcome) throw error;
++      throw failure('Falha de conexão com a API local.', 'CONNECTION_ERROR', outcome(), response?.status);
+     } finally { clearTimeout(timer); }
+   }
+   function profile(value) {
+-    if (!value.user?.id || !['admin','operator','viewer'].includes(value.user.role) || !value.csrf) throw Error('Resposta de sessão local inválida.');
++    if (!value.user?.id || !['admin','operator','viewer'].includes(value.user.role) || typeof value.csrf !== 'string' || !value.csrf) throw Object.assign(Error('Resposta de sessão local inválida.'), {code:'INVALID_RESPONSE', outcome:'unknown'});
+     csrf=value.csrf;
+     return {...value.user,full_name:value.user.email,identity_source:'local',employee_payment_access:false};
+   }
+   return {
+-    async request(path,body) { if(body !== undefined && !csrf) await this.me(); return call(path,body); },
++    async request(path,body) {
++      if(body !== undefined && !csrf) {
++        try { await this.me(); }
++        catch(error) { throw Object.assign(new Error(error.message), {status:error.status, code:error.code, outcome:'not_sent', operationId:body?.operationId}); }
++      }
++      return call(path,body);
++    },
+     async loginViaEmailPassword(email,password) { return profile(await call('login',{email,password})); },
+     async me() { return profile(await call('me')); },
+     async logout() { if (!csrf) await this.me(); await call('logout',{}); csrf=undefined; },
+--- a/src/lib/localEntities.mjs
++++ b/src/lib/localEntities.mjs
+@@ -3,15 +3,17 @@
+   const versions=new Map(),pending=new Map(),preparedUpdates=new Map();
+   const check=()=>{if(!LOCAL_C2_ENTITIES.has(entity)) throw Error('Módulo ainda não integrado ao modo local.');};
+   function decode(row) {
++    if(!row || typeof row.id!=='string' || !row.data || typeof row.data!=='object' || Array.isArray(row.data) || !Number.isSafeInteger(Number(row.version)) || Number(row.version)<1)throw Object.assign(Error('Registro local inválido.'),{code:'INVALID_RESPONSE',outcome:'unknown'});
+     versions.set(row.id,Number(row.version));
+     return {...row.data,id:row.id,created_date:row.created_date,updated_date:row.updated_date,updated_at:row.updated_date,_localVersion:Number(row.version)};
+   }
+-  const get=async id=>{check();const value=await session.request(`records/${entity}/${encodeURIComponent(id)}`);if(!value.records.length)throw Error('Registro local não encontrado; histórico remoto não recuperado.');return decode(value.records[0]);};
++  const records=value=>{if(!value || !Array.isArray(value.records))throw Object.assign(Error('Lista local inválida.'),{code:'INVALID_RESPONSE',outcome:'not_applicable'});return value.records;};
++  const get=async id=>{check();const value=await session.request(`records/${entity}/${encodeURIComponent(id)}`);if(!records(value).length)throw Error('Registro local não encontrado; histórico remoto não recuperado.');return decode(value.records[0]);};
+   async function rows() {
+     check(); const all=[];
+     for(let offset=0;;offset+=200) {
+       const page=await session.request(`records/${entity}?offset=${offset}`);
+-      all.push(...page.records.map(decode)); if(page.records.length<200)break;
++      all.push(...records(page).map(decode)); if(page.records.length<200)break;
+     }
+     return all;
+   }
+@@ -20,10 +22,18 @@
+     check(); const clean=data ? Object.fromEntries(Object.entries(data).filter(([key])=>key!=='_localVersion')) : undefined;
+     const key=JSON.stringify([operation,id,clean,baseVersion,confirmation]);
+     const payload=pending.get(key)||{operationId:uuid(),operation,baseVersion,data:clean,confirmation};pending.set(key,payload);
+-    const result=await session.request(`records/${entity}/${id}`,payload);
+-    pending.delete(key);
+-    if(operation==='delete'){versions.delete(id);return {id,deleted:true,tombstone:true};}
+-    return result.replay ? get(id) : decode(result);
++    try {
++      const result=await session.request(`records/${entity}/${id}`,payload);
++      if(result?.replay!==true) {
++        const decoded=decode(result);
++        if(decoded.id!==id || (operation==='delete' && result.deleted!==true))throw Object.assign(Error('Confirmação local inválida.'),{code:'INVALID_RESPONSE',outcome:'unknown'});
++      }
++      if(operation==='delete'){pending.delete(key);versions.delete(id);return {id,deleted:true,tombstone:true};}
++      const saved=result.replay ? await get(id) : decode(result);
++      pending.delete(key);return saved;
++    } catch(error) {
++      throw Object.assign(new Error(error.message),error,{operationId:payload.operationId,outcome:error.outcome||'unknown'});
++    }
+   }
+   return {
+     async list(order,limit) {const result=sort(await rows(),order);return limit?result.slice(0,limit):result;},
+@@ -46,7 +56,7 @@
+       if(current._localVersion!==version)throw Object.assign(Error('Registro alterado por outra sessão. Recarregue antes de editar.'),{status:409});
+       const data={...current,...patch};preparedUpdates.set(updateKey,{data,version});
+       try {const result=await write('update',id,data,version);preparedUpdates.delete(updateKey);return result;}
+-      catch(error){if(error.status && error.status<500)preparedUpdates.delete(updateKey);throw error;}
++      catch(error){if(['rejected','not_sent'].includes(error.outcome))preparedUpdates.delete(updateKey);throw error;}
+     },
+     async delete(id,{baseVersion,confirmation}={}) {return write('delete',id,undefined,baseVersion,confirmation);},
+     subscribe(callback) {const timer=setInterval(callback,20000);return()=>clearInterval(timer);},

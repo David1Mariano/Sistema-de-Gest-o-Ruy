@@ -1,0 +1,16 @@
+import fs from 'node:fs/promises';
+import {createHash} from 'node:crypto';
+import {execFileSync} from 'node:child_process';
+import {proposeEntities} from './entity-changes.mjs';
+const root='C:/Users/Pichau/Sistema-de-Gest-o-Ruy/';
+const session=await fs.readFile(root+'src/lib/localSession.mjs','utf8');
+const entities=await fs.readFile(root+'src/lib/localEntities.mjs','utf8');
+const proposed=await fs.readFile(new URL('./localSession.proposed.mjs',import.meta.url),'utf8');
+const changes=[['src/lib/localSession.mjs',session,proposed.replace('// Isolated proposal: not imported by the application.\n','')],['src/lib/localEntities.mjs',entities,proposeEntities(entities)]];
+const script="import sys,json,difflib\nsys.stdout.reconfigure(newline='')\nfor path,before,after in json.load(sys.stdin):\n sys.stdout.write(''.join(difflib.unified_diff(before.splitlines(True),after.splitlines(True),fromfile='a/'+path,tofile='b/'+path)))";
+const normalized=changes.map(([name,before,after])=>[name,before,after.replace(/\r\n/g,'\n').replace(/\n/g,before.includes('\r\n')?'\r\n':'\n')]);
+const patch=execFileSync('python',['-c',script],{input:JSON.stringify(normalized),encoding:'utf8',windowsHide:true});
+await fs.writeFile(new URL('./transport.patch',import.meta.url),patch);
+const hashes=normalized.map(([path,before,after])=>({path,beforeSHA256:createHash('sha256').update(before).digest('hex'),afterSHA256:createHash('sha256').update(after).digest('hex')}));
+await fs.writeFile(new URL('./baseline.json',import.meta.url),JSON.stringify({reference:root,changes:hashes},null,2)+'\n');
+console.log('Generated review-only patch and baseline hashes; no target file modified.');

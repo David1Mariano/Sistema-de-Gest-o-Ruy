@@ -1,0 +1,14 @@
+[
+  {
+    "path": "server/local/core.mjs",
+    "beforeSHA256": "399ad48a1423883b5dc8d789bd5fd1fd4592108228d23cb44cdb35866b5cacee"
+  },
+  {
+    "path": "src/lib/localEntities.mjs",
+    "beforeSHA256": "280de421ac4b992e6ff3979bcaca5970e4a4ca1c6d56cae3744d3692f13d5d95"
+  },
+  {
+    "path": "server/local/rh-contract.mjs",
+    "beforeSHA256": "e3b0c44298fc1c149afbf4c8996fb92427ae41e4649b934ca495991b7852b855"
+  }
+]

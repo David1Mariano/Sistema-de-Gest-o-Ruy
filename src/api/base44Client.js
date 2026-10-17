@@ -1,17 +1,10 @@
-// Este app não depende mais do Base44. `base44` continua com o mesmo
-// formato de antes (base44.entities.X.list/create/update/delete...,
-// base44.auth.*, base44.integrations.Core.UploadFile) para que nenhuma
-// página precisasse ser reescrita — só a implementação por trás mudou:
-// agora tudo roda localmente no navegador (IndexedDB + localStorage),
-// sem servidor externo.
-import { createEntityClient as createLocalEntityClient, uploadFileLocal } from '@/lib/localDb';
-import {
-  createEntityClient as createCloudEntityClient,
-  isCloudConfigured,
-} from '@/lib/cloudDb';
+// Backend selection is independent of session validity. No browser database fallback.
+import { uploadFileLocal } from '@/lib/localDb';
+import { createLocalApiEntityClient, authAdapter as localApiAuthAdapter } from '@/lib/localApiClient';
+import { createEntityClient as createCloudEntityClient, isCloudConfigured } from '@/lib/cloudDb';
 import { supabaseAuth } from '@/lib/supabaseClient';
+import { resolveBackend, localContractUnavailable } from '@/lib/backendSelection.mjs';
 
-// Mesmas entidades que existiam no projeto Base44 (base44/entities/*.jsonc).
 const ENTITY_NAMES = [
   'Absence',
   'AccountsPayable',
@@ -55,22 +48,37 @@ const ENTITY_NAMES = [
   'Warning',
 ];
 
-// Com o Supabase configurado, os dados vão para a NUVEM (compartilhados
-// entre máquinas); sem configuração, continua no IndexedDB local.
-const makeEntityClient = isCloudConfigured() ? createCloudEntityClient : createLocalEntityClient;
 
-const entities = {};
-for (const name of ENTITY_NAMES) entities[name] = makeEntityClient(name);
-
-// Sobe para a nuvem, uma única vez por navegador, o que já existia local.
-// Login não deve migrar ou regravar dados locais automaticamente.
-
+const mode = () => globalThis.localStorage?.getItem('gr_data_backend') || null;
+const selected = () => resolveBackend(mode(), {
+  local: { entity: createLocalApiEntityClient, auth: localApiAuthAdapter, upload: localContractUnavailable },
+  cloud: { entity: createCloudEntityClient, auth: supabaseAuth, upload: uploadFileLocal },
+  cloudConfigured: isCloudConfigured(),
+});
+// Stable facades: modules capturing an entity at import time still use the selected mode.
+const entities = Object.fromEntries(ENTITY_NAMES.map(name => [name, Object.fromEntries(
+  ['list','filter','get','create','update','delete','transact','bulkCreate','deleteMany','subscribe'].map(method => [method, (...args) => {
+    const client = selected().entity(name);
+    return client[method](...args);
+  }])
+)]));
 export const base44 = {
   entities,
-  auth: supabaseAuth,
-  integrations: {
-    Core: {
-      UploadFile: uploadFileLocal,
-    },
-  },
+  auth: new Proxy({}, { get: (_, method) => (...args) => {
+    const auth = selected().auth;
+    return auth[method](...args);
+  }}),
+  integrations: { Core: { UploadFile: (...args) => selected().upload(...args) } },
 };
+export async function setDataBackend(backend) {
+  if (!['local-api', 'supabase'].includes(backend)) throw new Error('Escolha LOCAL (local-api) ou NUVEM (supabase).');
+  localStorage.setItem('gr_data_backend', backend);
+  // Reload clears captured identities and query caches. Session expiry never changes mode.
+  window.location.reload();
+}
+export function getDataBackend() { return mode(); }
+export { localApiAuthAdapter as localApiAuth };
+export async function loginViaLocalApi(email, password) {
+  if (mode() !== 'local-api') throw new Error('Selecione LOCAL antes do login local.');
+  return localApiAuthAdapter.login(email, password);
+}
