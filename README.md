@@ -1,6 +1,6 @@
 # Sistema de Gestão Ruy
 
-Agente 5: [resolucao dos bloqueios e instalador de homologacao](docs/agente-5-resolucao-20261017.md).
+Agente 5: [RC1, matriz de homologacao e instalacao](docs/agente-5-rc1-homologacao-20261017.md).
 
 Preparação Windows offline para homologação: [estado atual e bloqueios](docs/etapa-e-producao-financeiro.md)
 e [continuidade em outro computador](docs/continuar-em-outro-computador.md).

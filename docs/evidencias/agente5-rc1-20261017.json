@@ -1,0 +1,181 @@
+{
+  "date": "2026-10-17",
+  "baseline": "4bb4289",
+  "artifact": {
+    "revision": "A5-RC1-20261017",
+    "version": "0.5.1-rc.1",
+    "dependencies": 13,
+    "criticalSourcesMatch": true,
+    "privateFilesAbsent": true,
+    "installer": "artifacts/agente5-rc1-20261017/Sistema-Ruy-A5-RC1-20261017-Setup.exe",
+    "sha256": "d7fb2cd129d2515a3481e01c56bcd6d1411e398eb3ec470e524c6b6940517f8f",
+    "signed": false,
+    "restrictedToHomologation": true,
+    "cleanSecondWindowsTested": false
+  },
+  "windows": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "version": "0.5.1-rc.1",
+    "revision": "A5-RC1-20261017",
+    "databaseStartup": {
+      "started": false,
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+    },
+    "syntheticActor": "87efa2b0-2e2f-467c-924b-c5e239c15016",
+    "apiOwned": true,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18091"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: estado desconhecido",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true,
+    "originalStockPage": {
+      "created": true,
+      "quantityMilli": 2000
+    },
+    "employee": {
+      "created": true,
+      "edited": true,
+      "queriedAfterReload": true,
+      "authorizedTombstone": true,
+      "auditCount": 3,
+      "id": "1ee572e6-ec34-4d59-a447-0f02d178090e",
+      "bounds": {
+        "top": 50.02000045776367,
+        "bottom": 768.2199516296387,
+        "height": 718.199951171875,
+        "viewport": 788,
+        "scrollable": true,
+        "overflow": "auto"
+      },
+      "networkPhysicallyDisconnected": false
+    },
+    "domains": {
+      "recipeForm": true,
+      "dailyForm": true,
+      "confirmedConsumption": true,
+      "stockMilliAfterConsumption": 1000,
+      "expenseForm": true,
+      "expenseAmount": 12.34,
+      "revenueForm": true,
+      "cardAndReceiptForms": true,
+      "financialReport": true,
+      "reloaded": true
+    }
+  },
+  "windowsDataPersistedAfterNormalExit": true,
+  "transfer": {
+    "checks": 12,
+    "results": [
+      "provisioned DPAPI mTLS: D1 outbox through HTTPS gateway and SQL central to peer",
+      "local attachment queue validates permission, version, size and integrity",
+      "offline upload leaves the same UUID pending with no central object",
+      "lost reply after central commit retries same UUID without duplicate bytes or audit",
+      "peer download through mTLS verifies hash and persists an offline cache",
+      "server rejects viewer, revoked token, cross-workspace access and identity collisions",
+      "corrupt central bytes and corrupt local cache are denied, not served",
+      "restart of owned central/gateway preserves attachment, receipt and downloaded cache",
+      "transactional inventory and production snapshots cross TLS; global balance stays unconfirmed",
+      "financial aggregate crosses TLS atomically and concurrent edit preserves losing proposal",
+      "encrypted dumps restore queue, cache, bytes and receipt into fresh synthetic databases",
+      "local authenticated API enforces CSRF and cached attachment permissions"
+    ],
+    "databases": [
+      {
+        "name": "ruy_d1_rc_f4d944d6c373c03b",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_68e688d888f52610",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_966f3921062b30b9",
+        "port": 55435
+      },
+      {
+        "name": "ruy_d1_rc_07004f01a2017a62",
+        "port": 55437
+      },
+      {
+        "name": "ruy_d1_rc_e7240cd3c29af27a",
+        "port": 55437
+      },
+      {
+        "name": "ruy_c2_rc_3784dde075f299ef",
+        "port": 55435
+      }
+    ],
+    "restartFixture": "e5aaec701010f607",
+    "syntheticOnly": true,
+    "tls": "1.3",
+    "provisionedWithDPAPI": true,
+    "physicalComputers": false,
+    "networkFailuresSimulated": true,
+    "productionChanged": false,
+    "operationalRelease": false,
+    "globalBalanceAppliedToPeer": false,
+    "encryptedBackupRestore": true
+  },
+  "postgresRestart": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "oldPid": 23840,
+    "newPid": 6368,
+    "databases": 4,
+    "sha256": "2176ccd40654282af7d015cf906a14822391d944147d502f73d52a8e8dc1b99a",
+    "queues": 3,
+    "caches": 3,
+    "persistenceVerified": true,
+    "source55436Restarted": false,
+    "forcedTermination": false
+  },
+  "legacyIntegration": {
+    "checks": 11,
+    "apiPort": 18092,
+    "dbPort": 55436,
+    "restartFixture": null,
+    "peerDatabase": "ruy_d1_peer_75c5570470f02e42",
+    "actorA": "7d09aa2f-bf00-4ef3-be41-87b1b43afb83",
+    "actorB": "9f732bd7-4269-434e-ae04-31430484ae8b",
+    "workspace": "f07a1996-eca4-4156-b60f-2104936a9d9e",
+    "windowsSource": null,
+    "physicalComputers": false,
+    "operationalSyncEnabled": false
+  },
+  "supervision": {
+    "port": 18092,
+    "checks": 5,
+    "realPostgreSQL": true,
+    "forcedTermination": false,
+    "old18080Untouched": true
+  },
+  "checks": {
+    "lint": true,
+    "build": true,
+    "d1Build": true,
+    "regressions": 69,
+    "stockAssertions": 121,
+    "transportRegressionChecks": 6
+  },
+  "blocked": {
+    "globalStockLedger": true,
+    "globalFinancialConfirmation": true,
+    "attachmentUserInterface": true,
+    "secondPhysicalWindows": true,
+    "physicalReconnect": true,
+    "cleanInstallationReinstall": true,
+    "oldApi18080": true
+  },
+  "oldApi": {
+    "port": 18080,
+    "pid": 22292,
+    "preserved": true
+  },
+  "operationalRelease": false
+}

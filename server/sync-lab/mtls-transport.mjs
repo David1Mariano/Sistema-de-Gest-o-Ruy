@@ -13,12 +13,14 @@ export function createLabTransport({key,cert,ca,devices,upstream='http://127.0.0
   const device=bindings.get(fingerprint(req.socket.getPeerCertificate().fingerprint256));
   if(!req.socket.authorized||!device||req.headers.authorization!==device||req.headers.cookie||req.headers.origin)return reply(403);
   const push=req.method==='POST'&&req.url==='/api/local/d1/push';
-  if(!push&&!(req.method==='GET'&&/^\/api\/local\/d1\/changes\?cursor=\d+$/.test(req.url)))return reply(404);
-  if(push&&!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))return reply(415);
+  const attachment=/^\/api\/local\/d1\/attachments\/[a-f0-9-]{36}$/.test(req.url)&&['PUT','GET'].includes(req.method);
+  if(!push&&!attachment&&!(req.method==='GET'&&/^\/api\/local\/d1\/changes\?cursor=\d+$/.test(req.url)))return reply(404);
+  const writes=push||attachment&&req.method==='PUT';
+  if(writes&&!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))return reply(415);
   try{
    const chunks=[];let size=0;
    for await(const chunk of req){size+=chunk.length;if(size>1024*1024)return reply(413);chunks.push(chunk);}
-   const response=await fetch(upstream+req.url,{method:req.method,redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:device,...(push?{'Content-Type':'application/json'}:{})},body:push?Buffer.concat(chunks):undefined});
+   const response=await fetch(upstream+req.url,{method:req.method,redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:device,...(writes?{'Content-Type':'application/json'}:{})},body:writes?Buffer.concat(chunks):undefined});
    if(![200,400,401,403,409,413,503].includes(response.status))return reply(503);
    // Never relay upstream diagnostics or credentials.
    if(!response.ok)return reply(response.status);

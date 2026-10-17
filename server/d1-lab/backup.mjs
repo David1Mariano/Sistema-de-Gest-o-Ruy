@@ -8,7 +8,7 @@ import {wrapRecoveryKey,unwrapRecoveryKey} from './key-envelope.mjs';
 
 const magic=Buffer.from('RUYBAK01'),limit=64*1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
-const snapshotTables=['d2_catalog','d1_rh_history','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events'];
+const snapshotTables=['d2_catalog','d1_rh_history','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events','d1_attachment_queue','d1_attachment_cache'];
 async function recoveryState(client,tables=snapshotTables){
  if(!Array.isArray(tables)||tables.some(table=>!snapshotTables.includes(table)))throw Error('Tabela de recuperação não permitida.');
  const result={};

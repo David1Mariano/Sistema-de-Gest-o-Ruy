@@ -1,3 +1,5 @@
+import {enqueueAttachment,transferAttachment,fetchAttachment,readCachedAttachment} from './attachment-transfer.mjs';
+import {provisionedRequest} from './tls-provision.mjs';
 import http from 'node:http';
 import {employeeDeleteCheck} from './employee-delete.mjs';
 import {randomBytes} from 'node:crypto';
@@ -30,7 +32,7 @@ export function createServer(pool,deviceId) {
         if(req.headers.origin!==origin)throw fail(403,'Origem obrigatória.');
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))throw fail(415,'JSON obrigatório.');
         const chunks=[];let size=0;
-        for await(const chunk of req){size+=chunk.length;if(size>16384)throw fail(413,'Limite de conteúdo.');chunks.push(chunk);}
+        for await(const chunk of req){size+=chunk.length;if(size>(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'?1024*1024:16384))throw fail(413,'Limite de conteúdo.');chunks.push(chunk);}
         try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw fail(400,'JSON inválido.');}
         if(!body||typeof body!=='object'||Array.isArray(body))throw fail(400,'Objeto JSON obrigatório.');
       }
@@ -61,6 +63,18 @@ export function createServer(pool,deviceId) {
       const user=(await pool.query('SELECT u.id,u.role,s.csrf FROM lab_sessions s JOIN lab_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active',[digest(token)])).rows[0];
       if(!user)throw fail(401,'Sessão expirada/revogada.');
       if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatório.');
+      if(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'){
+        if(url.pathname==='/api/d1/attachments'&&req.method==='POST')return reply(200,await enqueueAttachment(pool,user.id,body));
+        const match=url.pathname.match(/^\/api\/d1\/attachments\/([a-f0-9-]{36})(?:\/(send|fetch))?$/);
+        if(match&&!match[2]&&req.method==='GET')return reply(200,{id:match[1],bytes:(await readCachedAttachment(pool,user.id,match[1])).toString('base64')});
+        if(match&&match[2]&&req.method==='POST'){
+          const binding=(await pool.query('SELECT * FROM d1_sync_binding WHERE actor=$1',[user.id])).rows[0];
+          if(!binding)throw fail(403,'Dispositivo nao provisionado.');
+          const transport=await provisionedRequest(binding);
+          return reply(200,await (match[2]==='send'?transferAttachment:fetchAttachment)(pool,user.id,match[1],transport));
+        }
+        throw fail(404,'Rota de anexo inexistente.');
+      }
       if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:{id:user.id,role:user.role},csrf:user.csrf,deviceId});
       if(url.pathname==='/api/d1/logout'&&req.method==='POST'){
         await pool.query('DELETE FROM lab_sessions WHERE token_hash=$1',[digest(token)]);return reply(200,{ok:true},{'Set-Cookie':cookie('',0)});

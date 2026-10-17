@@ -11,7 +11,7 @@ const root = app.isPackaged ? app.getAppPath() : path.resolve(here, '..');
 const metadata=JSON.parse(await fs.readFile(path.join(here,'package.json'),'utf8'));
 app.setName('Sistema de Gestão Ruy');
 // Namespace exclusivo: não usa sessão, cache ou cluster operacional.
-const profileName=metadata.ruyRevision==='A5-HOMOLOG-20261017'?'SistemaGestaoRuy-Agente5-Homolog':process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab';
+const profileName=metadata.ruyRevision?.startsWith('A5-')?'SistemaGestaoRuy-Agente5-Homolog':process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab';
 app.setPath('userData', path.join(app.getPath('appData'),profileName));
 app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
 let worker, window, timer, closing = false,preparing=false;

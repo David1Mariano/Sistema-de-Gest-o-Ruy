@@ -4,6 +4,7 @@ import {canonical,syncHash,dataOf,syncTable,validateEnvelope} from './sync-contr
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {rhHistoryInsert} from './rh-domain.mjs';
 import {employeeDependencies,referencesEmployee} from './employee-delete.mjs';
+import {provisionedRequest} from './tls-provision.mjs';
 export const centralOrigin=process.env.RUY_D1_BRIDGE_TEST_ORIGIN||'http://127.0.0.1:18086';
 if(!['http://127.0.0.1:18086','http://127.0.0.1:18080','http://127.0.0.1:18089'].includes(centralOrigin)||centralOrigin!=='http://127.0.0.1:18086'&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Synthetic bridge opt-in required.');
 const locked=(pool,actor,fn)=>transaction(pool,async c=>{await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[actor]);return fn(c);});
@@ -20,11 +21,13 @@ export async function syncStatus(pool,actor){
  const pendingEvents=eventsReady?(await pool.query("SELECT count(*)::int n FROM d1_operation_events WHERE owner_id=$1 AND data->>'status'='pending-central'",[actor])).rows[0].n:0;
  const catalogReady=(await pool.query("SELECT to_regclass('public.d2_catalog') AS name")).rows[0].name;
  const pendingDocuments=catalogReady?(await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE owner_id=$1 AND entity IN ('FinancialExpense','EmployeePayment','Revenue','AccountsPayable','AccountsReceivable') AND data->>'status' IN ('pago','recebido')",[actor])).rows[0].n:0;
+ const filesReady=(await pool.query("SELECT to_regclass('public.d1_attachment_queue') AS name")).rows[0].name;
+ const pendingFiles=filesReady?(await pool.query("SELECT count(*)::int n FROM d1_attachment_queue WHERE actor=$1 AND state<>'acknowledged'",[actor])).rows[0].n:null;
  const pendingBusiness=pendingEvents+pendingDocuments;
  return {enabled:!!binding,mode:'central-test-only',operationalSyncEnabled:false,...counts,conflicts:counts.conflicts+shadows,
  pendingBusiness,lastSyncAt:binding?.last_sync_at??null,lastError:binding?.last_error??null,cursor:binding?Number(binding.cursor):null,
  receiptsVerified:!!binding&&counts.missing===0,pullComplete:binding?.pull_complete===true,
- pendingFiles:null,attachmentsState:'not-implemented'};
+ pendingFiles,attachmentsState:filesReady?'lab-transfer-only':'not-implemented'};
 }
 async function remote(token,route,body){
  const r=await fetch(centralOrigin+(centralOrigin.endsWith(':18086')?'/d1':'/api/local/d1')+route,{method:body?'POST':'GET',redirect:'error',signal:AbortSignal.timeout(5000),headers:{Authorization:'Bearer '+token,...(body?{'Content-Type':'application/json'}:{})},body:body?canonical(body):undefined});
@@ -124,7 +127,8 @@ export async function synchronizeD1(pool,actor,options={}){
  if(!binding)throw fail(403,'Usuário não provisionado na central de testes.');
  const device=(await pool.query('SELECT id FROM lab_device WHERE singleton')).rows[0];
  if(device?.id!==binding.device_id)throw fail(403,'Dispositivo da ponte divergiu.');
- const token=options.token??await credentials(binding),send=options.request??remote;
+ const tls=process.env.RUY_D1_MTLS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'&&!options.request?await provisionedRequest(binding):null;
+ const token=options.token??tls?.token??await credentials(binding),send=options.request??tls?.request??remote;
  const lock=await pool.connect();let acquired=false;
  try{
   acquired=(await lock.query('SELECT pg_try_advisory_lock(hashtextextended($1,0)) AS ok',['d1-sync:'+actor])).rows[0].ok;
