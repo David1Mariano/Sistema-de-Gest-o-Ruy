@@ -16,7 +16,7 @@ function run(args) {
 }
 async function installRuntime() {
   await fs.mkdir(runtime, { recursive: true });
-  for (const name of ['store.mjs', 'server.mjs', 'supervisor.mjs']) {
+  for (const name of ['store.mjs', 'server.mjs', 'supervisor.mjs', 'anexos.mjs', 'anexosAuth.mjs', 'anexosApi.mjs']) {
     try { await fs.copyFile(path.join(scripts, name), path.join(runtime, name), 1); }
     catch (error) { if (error.code !== 'EEXIST') throw error; }
   }

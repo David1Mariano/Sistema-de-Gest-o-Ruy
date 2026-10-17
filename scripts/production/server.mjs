@@ -4,6 +4,7 @@ import path from 'node:path';
 import os from 'node:os';
 import { pathToFileURL } from 'node:url';
 import { productionHome, state, verifyRelease, mime, safeFile, validId } from './store.mjs';
+import { createAnexosApi } from './anexosApi.mjs';
 
 const ipv4 = ip => ip.split('.').reduce((n, part) => ((n << 8) | Number(part)) >>> 0, 0);
 export function localPeer(address, interfaces = os.networkInterfaces()) {
@@ -21,12 +22,17 @@ export function createProductionServer({ home = productionHome, enforceLocal = t
     if (!versions.has(id)) versions.set(id, await verifyRelease(home, id));
     return versions.get(id);
   };
+  // API local de anexos (Agente 4): autenticada, com POST/DELETE e corpo
+  // próprio. Passa ANTES das regras GET/HEAD do site estático.
+  const anexosApi = createAnexosApi({ home });
   const server = http.createServer(async (req, res) => {
     const fail = code => { res.writeHead(code, { 'Content-Type': 'text/plain; charset=utf-8', 'Cache-Control': 'no-store' }); res.end(http.STATUS_CODES[code]); };
     try {
       if (enforceLocal && !localPeer(req.socket.remoteAddress)) return fail(403);
+      const rawPath = req.url.split('?')[0];
+      if (rawPath.startsWith('/api/anexos')) return await anexosApi(req, res);
       if (!['GET', 'HEAD'].includes(req.method)) return fail(405);
-      const raw = decodeURIComponent(req.url.split('?')[0]);
+      const raw = decodeURIComponent(rawPath);
       if (!raw.startsWith('/') || /[\\\x00-\x1f:]/.test(raw) || raw.split('/').some(p => p.startsWith('.'))) return fail(400);
       if (/^\/(?:src|scripts|node_modules|api|@vite|@fs)(?:\/|$)/i.test(raw)) return fail(404);
       const current = await state(home);
@@ -59,7 +65,9 @@ export function createProductionServer({ home = productionHome, enforceLocal = t
       res.end(req.method === 'HEAD' ? undefined : bytes);
     } catch { if (!res.headersSent) fail(503); else res.destroy(); }
   });
-  server.requestTimeout = 15000;
+  // Upload de anexos na LAN pode levar alguns segundos; o teto antigo de 15 s
+  // derrubava conexões grandes no meio do corpo (o `.part` seria varrido depois).
+  server.requestTimeout = 120000;
   server.headersTimeout = 10000;
   return server;
 }
