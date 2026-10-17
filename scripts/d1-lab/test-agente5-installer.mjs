@@ -1,0 +1,18 @@
+import assert from 'node:assert/strict';
+import {createRequire} from 'node:module';
+import fs from 'node:fs';
+import {createHash} from 'node:crypto';
+const require=createRequire(new URL('../../desktop/package.json',import.meta.url));
+const asar=require('@electron/asar'),config=require('./electron-builder-agente5.cjs');
+const directory='artifacts/agente5-homolog-20261017';
+const file=directory+'/win-unpacked/resources/app.asar';
+const files=asar.listPackage(file).map(f=>f.replaceAll('\\','/'));
+const modules=config.files.filter(x=>typeof x==='object'&&x.to.startsWith('node_modules/')).map(x=>x.to);
+for(const name of modules)assert.ok(files.includes('/'+name+'/package.json'),name);
+assert.equal(files.some(f=>/(?:^|\/)\.env(?:\.|$)|\.(?:dpapi|ruybak|ruykey|pem|key)$|\/cluster\//i.test(f)),false);
+const metadata=JSON.parse(asar.extractFile(file,'package.json'));
+assert.equal(metadata.ruyRevision,'A5-HOMOLOG-20261017');
+const installer=directory+'/Sistema-Ruy-A5-Homolog-20261017-Setup.exe';
+const report={productionDependencies:modules.length,privateFilesAbsent:true,revision:metadata.ruyRevision,signed:false,cleanInstallationTested:false,installer,sha256:createHash('sha256').update(fs.readFileSync(installer)).digest('hex')};
+fs.writeFileSync('logs/agente5-installer-integrity-20261017.json',JSON.stringify(report));
+console.log(JSON.stringify(report));

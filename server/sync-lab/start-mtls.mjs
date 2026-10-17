@@ -1,0 +1,10 @@
+import fs from 'node:fs/promises';
+import {createLabTransport} from './mtls-transport.mjs';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!process.env.RUY_MTLS_CONFIG)throw Error('Explicit protected laboratory configuration required.');
+const config=JSON.parse(await fs.readFile(process.env.RUY_MTLS_CONFIG,'utf8'));
+const transport=createLabTransport({...config,key:await fs.readFile(config.keyFile),cert:await fs.readFile(config.certFile),ca:await fs.readFile(config.caFile),allowPrivateNetwork:process.argv.includes('--authorized-private-lab')});
+await transport.listen(18443);
+const close=()=>{transport.server.close();process.stdin.pause();};
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,close);
+process.stdin.resume();process.stdin.once('end',close);process.stdin.setEncoding('utf8');
+process.stdin.on('data',chunk=>{if(chunk.trim()==='shutdown'){close();process.stdin.pause();}});

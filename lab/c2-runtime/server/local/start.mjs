@@ -5,7 +5,7 @@ if (!process.env.RUY_LOCAL_CONFIG) throw Error('Set RUY_LOCAL_CONFIG to protecte
 const pool = createPool(JSON.parse(await fs.readFile(process.env.RUY_LOCAL_CONFIG,'utf8')));
 await pool.query('SELECT 1 FROM local_activation LIMIT 1');
 const port=Number(process.env.RUY_LOCAL_PORT||18080);
-if(![18080,18089].includes(port))throw Error('Only laboratory ports permitted.');
+if(![18080,18089,18092].includes(port)||port===18092&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Only laboratory ports permitted.');
 const origin = process.env.RUY_LOCAL_ORIGIN || `http://127.0.0.1:${port}`;
 if (![`http://127.0.0.1:${port}`,'http://127.0.0.1:5180'].includes(origin)) throw Error('Only isolated development origins permitted.');
 const centralPort=Number(process.env.RUY_D1_CENTRAL_TEST_PORT||18086);
@@ -17,6 +17,7 @@ server.listen(port,'127.0.0.1',()=>console.log(`Local DEVELOPMENT API: http://12
 for (const signal of ['SIGINT','SIGTERM']) process.on(signal,()=>server.close(async()=>{ await pool.end(); process.exit(0); }));
 // Only a parent with an explicit pipe can request controlled shutdown.
 if (!process.stdin.isTTY) {
+  process.stdin.once('end',()=>server.close(async()=>{await pool.end();process.exit(0);}));
   process.stdin.setEncoding('utf8');
   let input='';
   process.stdin.on('data',chunk=>{

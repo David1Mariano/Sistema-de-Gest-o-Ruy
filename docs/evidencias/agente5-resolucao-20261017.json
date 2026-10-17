@@ -1,0 +1,136 @@
+{
+  "date": "2026-10-17",
+  "baseline": "5ca4434",
+  "supervision": {
+    "port": 18092,
+    "checks": 5,
+    "realPostgreSQL": true,
+    "forcedTermination": false,
+    "old18080Untouched": true
+  },
+  "failureRecovery": {
+    "checks": 3,
+    "databaseFailureRecovered": true,
+    "retryLimitVerified": true,
+    "staleLockPreserved": true,
+    "forcedTermination": false
+  },
+  "transport": {
+    "checks": 6,
+    "tls": "1.3",
+    "mutualAuthentication": true,
+    "loopbackOnly": true,
+    "physicalMachines": false,
+    "upstream": "synthetic HTTP fixture",
+    "privateKeysCommitted": false
+  },
+  "integration": {
+    "checks": 11,
+    "apiPort": 18092,
+    "dbPort": 55436,
+    "restartFixture": null,
+    "peerDatabase": "ruy_d1_peer_f1ba2f78e77183f5",
+    "actorA": "03d77fae-b0f1-4f41-8dbe-cf66e3423b1e",
+    "actorB": "e6a37ebc-513f-409a-8675-cbfb39120dae",
+    "workspace": "5f617bd8-44c7-4990-8945-f2f6ccd0d126",
+    "windowsSource": null,
+    "physicalComputers": false,
+    "operationalSyncEnabled": false
+  },
+  "modules": {
+    "operationalHttpSQLChecks": 6,
+    "domainHttpSQLChecks": 15,
+    "syntheticOnly": true,
+    "globalBusinessConfirmation": false,
+    "attachmentsD1TransferImplemented": false
+  },
+  "packagedWindows": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "version": "0.5.0",
+    "revision": "A5-HOMOLOG-20261017",
+    "databaseStartup": {
+      "started": false,
+      "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b"
+    },
+    "syntheticActor": "a723ba48-55fa-49a7-9fbc-98133b5e222c",
+    "apiOwned": true,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18091"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: alterações pendentes",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true,
+    "originalStockPage": {
+      "created": true,
+      "quantityMilli": 2000
+    },
+    "employee": {
+      "created": true,
+      "edited": true,
+      "queriedAfterReload": true,
+      "authorizedTombstone": true,
+      "auditCount": 3,
+      "id": "6e03a392-cb67-4cd5-90a9-c5ad9c2b186e",
+      "bounds": {
+        "top": 50.02000045776367,
+        "bottom": 768.2199516296387,
+        "height": 718.199951171875,
+        "viewport": 788,
+        "scrollable": true,
+        "overflow": "auto"
+      },
+      "networkPhysicallyDisconnected": false
+    },
+    "domains": {
+      "recipeForm": true,
+      "dailyForm": true,
+      "confirmedConsumption": true,
+      "stockMilliAfterConsumption": 1000,
+      "expenseForm": true,
+      "expenseAmount": 12.34,
+      "revenueForm": true,
+      "cardAndReceiptForms": true,
+      "financialReport": true,
+      "reloaded": true
+    }
+  },
+  "packagedPersistence": {
+    "checks": 3,
+    "firstAppDataSurvivedSecondLaunch": true,
+    "secondAppDataPersistedAfterExit": true,
+    "employeeTombstoneVersion": 3,
+    "syntheticOnly": true,
+    "osRestartTested": false,
+    "reinstallationTested": false
+  },
+  "installer": {
+    "productionDependencies": 13,
+    "privateFilesAbsent": true,
+    "revision": "A5-HOMOLOG-20261017",
+    "signed": false,
+    "cleanInstallationTested": false,
+    "installer": "artifacts/agente5-homolog-20261017/Sistema-Ruy-A5-Homolog-20261017-Setup.exe",
+    "sha256": "c1cc5e7e917e87c1d2645716c5af38ad20e8508cd614bdd2e649c20705b37aa5"
+  },
+  "checks": {
+    "lint": true,
+    "build": true,
+    "d1Build": true,
+    "regressions": 64,
+    "stockAssertions": 121,
+    "healthClientAliases": 5
+  },
+  "oldApi": {
+    "port": 18080,
+    "pid": 22292,
+    "changed": false
+  },
+  "physicalWindowsPairTested": false,
+  "productionChanged": false,
+  "operationalRelease": false
+}

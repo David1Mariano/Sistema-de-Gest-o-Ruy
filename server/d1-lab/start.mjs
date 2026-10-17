@@ -13,6 +13,9 @@ server.listen(API_PORT,'127.0.0.1',async()=>{
   await fs.writeFile(path.join(home,'api.pid'),String(process.pid));
   console.log(`Laboratório sintético em http://127.0.0.1:${API_PORT}; sincronização desligada.`);
 });
-for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>{
-  server.close(()=>pool.end().finally(()=>process.exit(0)));server.closeAllConnections();
-});
+let shutdownFlight;
+export function shutdown(){
+ if(!shutdownFlight)shutdownFlight=new Promise(resolve=>server.close(resolve)).then(()=>pool.end());
+ return shutdownFlight;
+}
+for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>shutdown().then(()=>process.exit(0)));

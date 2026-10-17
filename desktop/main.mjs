@@ -11,7 +11,8 @@ const root = app.isPackaged ? app.getAppPath() : path.resolve(here, '..');
 const metadata=JSON.parse(await fs.readFile(path.join(here,'package.json'),'utf8'));
 app.setName('Sistema de Gestão Ruy');
 // Namespace exclusivo: não usa sessão, cache ou cluster operacional.
-app.setPath('userData', path.join(app.getPath('appData'), process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab'));
+const profileName=metadata.ruyRevision==='A5-HOMOLOG-20261017'?'SistemaGestaoRuy-Agente5-Homolog':process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab';
+app.setPath('userData', path.join(app.getPath('appData'),profileName));
 app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
 let worker, window, timer, closing = false,preparing=false;
 let backupTimer,backupFlight,smokeAccount,supervisor;
@@ -196,7 +197,14 @@ else {
   app.on('before-quit',event=>{
     supervisor?.close();
     clearInterval(timer);clearInterval(backupTimer);
-    if(!closing&&backupFlight){event.preventDefault();closing=true;backupFlight.finally(()=>{worker?.kill();app.quit();});return;}
-    closing=true;worker?.kill();
+    if(closing)return;
+    event.preventDefault();closing=true;
+    void (async()=>{
+      try{await backupFlight;}finally{
+        const owned=worker;
+        if(owned)await new Promise(resolve=>{owned.once('exit',resolve);owned.postMessage({type:'shutdown'});});
+        app.quit();
+      }
+    })();
   });
 }
