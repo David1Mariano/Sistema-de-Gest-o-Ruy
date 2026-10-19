@@ -7,6 +7,7 @@ import {request,setSession,getSession} from '../../lab/d1/client.mjs';
 import {validateAttachment,attachmentHash} from '../../server/d1-lab/attachment-contract.mjs';
 import {allowedDownload} from '../../desktop/policy.mjs';
 import {validateEnvelope} from '../../server/d1-lab/sync-contract.mjs';
+import {attachmentSamples} from './stage3-attachment-samples.mjs';
 
 test('A2 adaptation: exact D1 origin, credentials, CSRF and no fallback',async()=>{
  const seen=[],call=createD1Transport({fetchImpl:async(...args)=>{seen.push(args);return new Response('{}');}});
@@ -46,7 +47,8 @@ test('A4 checks reused against existing D1: MIME, extension, hash, base64 and bo
  const bytes=Buffer.from('FICTICIO synthetic contract');const valid=fixture(bytes,'FICTICIO-check.txt','text/plain');assert.deepEqual(validateAttachment(valid),bytes);
  for(const patch of [{filename:'../FICTICIO-check.txt'},{filename:'FICTICIO-check.pdf'},{mediaType:'application/pdf'},{sha256:'0'.repeat(64)},{bytes:valid.bytes+'\n'},{recordVersion:0},{entity:'DeliveryOrder'},{url:'https://example.invalid'}])assert.throws(()=>validateAttachment({...valid,...patch}),e=>e.status===400);
  assert.throws(()=>validateAttachment(fixture(Buffer.from('FICTICIO '+'x'.repeat(524288)),'FICTICIO-large.txt','text/plain')));
- for(const [hex,name,type] of [['255044462d','FICTICIO-file.pdf','application/pdf'],['89504e470d0a1a0a','FICTICIO-file.png','image/png'],['ffd8ff','FICTICIO-file.jpg','image/jpeg'],['524946460000000057454250','FICTICIO-file.webp','image/webp']])assert.deepEqual(validateAttachment(fixture(Buffer.from(hex,'hex'),name,type)),Buffer.from(hex,'hex'));
+ for(const sample of attachmentSamples)assert.deepEqual(validateAttachment(fixture(sample.bytes,sample.filename,sample.mediaType)),sample.bytes);
+ const webp=Buffer.from('524946460000000057454250','hex');assert.deepEqual(validateAttachment(fixture(webp,'FICTICIO-file.webp','image/webp')),webp);
 });
 test('A4 compatibility: no parallel signed download or bearer URL accepted in Electron',()=>{
  const id=randomUUID();assert.equal(allowedDownload('http://127.0.0.1:18087/api/d1/attachments/'+id+'/download'),true);
