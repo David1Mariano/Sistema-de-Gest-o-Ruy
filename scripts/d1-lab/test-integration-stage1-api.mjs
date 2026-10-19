@@ -1,0 +1,30 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import {randomUUID,randomBytes} from 'node:crypto';
+import pg from 'pg';
+import {createFixture} from './rc-fixture.mjs';
+import {config,DB_PORT,API_PORT} from '../../server/d1-lab/environment.mjs';
+import {hashPassword} from '../../server/d1-lab/core.mjs';
+import {createServer,origin} from '../../server/d1-lab/api.mjs';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||DB_PORT!==55437||API_PORT!==18091)throw Error('Only isolated copy 55437 and laboratory API18091 allowed.');
+const fixture=await createFixture();const db=await fixture.database('local',['schema','entities','catalog','sync','operations','domain','attachments','business'].map(n=>'d1-lab/'+n+'.sql'));
+const device=randomUUID(),actor=randomUUID(),viewer=randomUUID(),password=randomBytes(24).toString('hex'),login=actor+'@example.invalid';
+await db.pool.query('INSERT INTO lab_device VALUES(true,$1)',[device]);
+for(const [id,role,email] of [[actor,'admin',login],[viewer,'viewer',viewer+'@example.invalid']])await db.pool.query('INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,$4)',[id,email,await hashPassword(password),role]);
+await db.pool.query(`GRANT CONNECT ON DATABASE ${db.config.database} TO ruy_d1_app; GRANT USAGE ON SCHEMA public TO ruy_d1_app; GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ruy_d1_app; GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ruy_d1_app; REVOKE UPDATE,DELETE ON lab_outbox,lab_audit,d1_rh_history FROM ruy_d1_app; REVOKE INSERT,UPDATE,DELETE ON lab_device FROM ruy_d1_app`);
+const pool=new pg.Pool({...await config(),database:db.config.database}),server=createServer(pool,device),results=[];
+const check=async(name,fn)=>{await fn();results.push(name);console.log('PASS '+name);};
+const call=(route,{body,cookie,csrf,source=origin}={})=>fetch(origin+'/api/d1'+route,{method:body?'POST':'GET',headers:{...(cookie?{Cookie:cookie}:{}),...(body?{Origin:source,'Content-Type':'application/json',...(csrf?{'X-CSRF-Token':csrf}:{})}:{})},body:body?JSON.stringify(body):undefined});
+let cookie,csrf;const id=randomUUID(),operationId=randomUUID(),command={operationId,operation:'create',baseVersion:null,data:{name:'FICTICIO Stage1 sector',description:'Synthetic contract only',status:'ativo'}};
+try{
+ await new Promise((r,j)=>{server.once('error',j);server.listen(18091,'127.0.0.1',r);});
+ await check('actual D1 API rejects missing session and cross-origin login',async()=>{assert.equal((await call('/me')).status,401);assert.equal((await call('/login',{body:{login,password},source:'https://example.invalid'})).status,403);});
+ await check('same D1 login yields HttpOnly Strict cookie with eight-hour TTL',async()=>{const r=await call('/login',{body:{login,password}});assert.equal(r.status,200);const header=r.headers.get('set-cookie');assert.match(header,/HttpOnly/);assert.match(header,/SameSite=Strict/);assert.match(header,/Max-Age=28800/);cookie=header.split(';')[0];csrf=(await r.json()).csrf;assert.ok(csrf);});
+ await check('CSRF missing/wrong and wrong origin reject before a write',async()=>{for(const options of [{cookie},{cookie,csrf:'FICTICIO-wrong'},{cookie,csrf,source:'https://example.invalid'}])assert.equal((await call('/entities/Sector/'+id,{...options,body:command})).status,403);assert.equal((await db.pool.query('SELECT count(*)::int n FROM lab_outbox')).rows[0].n,0);});
+ await check('existing D1 UUID replay is persistent and changed payload is refused',async()=>{for(let n=0;n<2;n++)assert.equal((await call('/entities/Sector/'+id,{cookie,csrf,body:command})).status,200);assert.equal((await db.pool.query('SELECT count(*)::int n FROM lab_outbox WHERE operation_id=$1',[operationId])).rows[0].n,1);assert.equal((await call('/entities/Sector/'+id,{cookie,csrf,body:{...command,data:{...command.data,name:'FICTICIO collision'}}})).status,409);});
+ await check('Delivery remains disabled with no records or outbox side effects',async()=>{const before=(await db.pool.query('SELECT count(*)::int n FROM lab_outbox')).rows[0].n;const r=await call('/domain/command',{cookie,csrf,body:{operationId:randomUUID(),entity:'DeliveryOrder',id:randomUUID(),action:'save',baseVersion:null,data:{name:'FICTICIO delivery'}}});assert.ok(r.status>=400);assert.equal((await db.pool.query('SELECT count(*)::int n FROM lab_outbox')).rows[0].n,before);});
+ await check('server enforces viewer permissions independently of client role',async()=>{await db.pool.query("UPDATE lab_users SET role='viewer' WHERE id=$1",[actor]);assert.equal((await call('/entities/Sector/'+randomUUID(),{cookie,csrf,body:{...command,operationId:randomUUID()}})).status,403);await db.pool.query("UPDATE lab_users SET role='admin' WHERE id=$1",[actor]);});
+ await check('session expiry rejects protected attachment routes, no signed URL bypass',async()=>{await db.pool.query("UPDATE lab_sessions SET expires_at=now()-interval '1 second' WHERE user_id=$1",[actor]);process.env.RUY_D1_ATTACHMENTS_LAB='1';assert.equal((await call('/attachments',{cookie})).status,401);assert.equal((await call('/attachments/'+randomUUID()+'/download?token=FICTICIO',{cookie})).status,401);delete process.env.RUY_D1_ATTACHMENTS_LAB;});
+ await check('logout revokes server session and does not change backend',async()=>{const r=await call('/login',{body:{login,password}});cookie=r.headers.get('set-cookie').split(';')[0];csrf=(await r.json()).csrf;const out=await call('/logout',{cookie,csrf,body:{}});assert.equal(out.status,200);assert.match(out.headers.get('set-cookie'),/Max-Age=0/);assert.equal((await call('/me',{cookie})).status,401);});
+ await fs.writeFile('logs/stage1-api.json',JSON.stringify({checks:results.length,results,apiPort:18091,dbPort:55437,database:db.config.database,syntheticOnly:true,source55436Used:false,central55435Used:false,operationalSyncEnabled:false},null,2));
+}finally{if(server.listening)await new Promise(r=>server.close(r));await pool.end();await fixture.close();}

@@ -1,0 +1,76 @@
+{
+  "date": "2026-10-19",
+  "stage": 1,
+  "base": "db99024",
+  "branch": "agente-5-auditoria-integracao-20261019",
+  "contractVersion": "RUY-INTEGRATION-CONTRACTS/1",
+  "sources": {
+    "agent2": "c53b7a1",
+    "agent4": "7fffc09"
+  },
+  "adopted": [
+    "bounded D1 same-origin request including JSON body read",
+    "conservative write-outcome classification without retry",
+    "401 session invalidation through existing D1 session",
+    "Agent4 validation and TTL checks against existing D1 attachment contract"
+  ],
+  "deliveryEnabled": false,
+  "facadeReplaced": false,
+  "additionalAuthentication": false,
+  "additionalPersistence": false,
+  "stages2to4Started": false,
+  "checks": {
+    "targeted": 15,
+    "targetedFailed": 0,
+    "regression": 85,
+    "regressionFailed": 0,
+    "stockInternalAssertions": 121,
+    "mtlsScenarios": 7,
+    "lint": true,
+    "webBuild": true,
+    "d1Build": true
+  },
+  "api": {
+    "checks": 8,
+    "results": [
+      "actual D1 API rejects missing session and cross-origin login",
+      "same D1 login yields HttpOnly Strict cookie with eight-hour TTL",
+      "CSRF missing/wrong and wrong origin reject before a write",
+      "existing D1 UUID replay is persistent and changed payload is refused",
+      "Delivery remains disabled with no records or outbox side effects",
+      "server enforces viewer permissions independently of client role",
+      "session expiry rejects protected attachment routes, no signed URL bypass",
+      "logout revokes server session and does not change backend"
+    ],
+    "apiPort": 18091,
+    "dbPort": 55437,
+    "database": "ruy_d1_rc_75ff05db78e88781",
+    "syntheticOnly": true,
+    "source55436Used": false,
+    "central55435Used": false,
+    "operationalSyncEnabled": false
+  },
+  "isolation": {
+    "fixture": "e5aaec701010f607",
+    "port": 55437,
+    "pgdataVerified": true,
+    "shared55436Touched": false,
+    "restarted": false,
+    "forcedTermination": false
+  },
+  "wipSha256Unchanged": true,
+  "wipFiles": 10,
+  "originalHead": "db99024",
+  "production8080Changed": false,
+  "old18080Changed": false,
+  "supabaseAccessed": false,
+  "shared55436Used": false,
+  "remoteBranchCheck": "git ls-remote before commits: branch absent",
+  "limitations": [
+    "No new Windows UI/installer validation",
+    "Delivery contract reserved; server rejects DeliveryOrder",
+    "Attachment signed URL TTL not imported; existing session TTL applies",
+    "Stage2 requires further authorization"
+  ],
+  "contractCommit": "64dfb6a"
+}

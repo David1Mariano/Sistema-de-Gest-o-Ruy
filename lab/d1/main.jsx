@@ -25,6 +25,7 @@ function App(){
  const [session,update]=useState(null),[ready,setReady]=useState(false),[error,setError]=useState(''),[pending,setPending]=useState(0);
  const {alternar}=useTheme();
  const adopt=value=>{setSession(value);update(value);setCurrentUser(value?{...value.user,full_name:'Operador fictício D1'}:null);};
+ useEffect(()=>{const expired=()=>adopt(null);window.addEventListener('d1-session-expired',expired);return()=>window.removeEventListener('d1-session-expired',expired);},[]);
  useEffect(()=>{request('/me').then(adopt).catch(()=>{}).finally(()=>setReady(true));},[]);
  useEffect(()=>{const listener=e=>setError(e.detail);window.addEventListener('d1-error',listener);return()=>window.removeEventListener('d1-error',listener);},[]);
  useEffect(()=>{if(!session)return;const refresh=()=>request('/pending').then(r=>setPending(r.total)).catch(e=>setError(e.message));refresh();window.addEventListener('d1-changed',refresh);return()=>window.removeEventListener('d1-changed',refresh);},[session]);

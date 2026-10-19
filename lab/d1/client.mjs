@@ -1,13 +1,23 @@
+import {createD1Transport} from './http-transport.mjs';
 import {catalogFields} from '../../server/d1-lab/catalog-contract.mjs';
 import {createDomainAdapter,isDomain} from './domain-client.mjs';
 let session=null,generation=0;
 export function setSession(value){if(session?.user.id!==value?.user.id){generation++;cache.clear();audits.clear();domain.clear();}session=value;}
 export function getSession(){return session;}
+const transport=createD1Transport();
 export async function request(route,body){
  const started=generation;
- const r=await fetch('/api/d1'+route,{method:body?'POST':'GET',credentials:'same-origin',redirect:'error',headers:body?{'Content-Type':'application/json','X-CSRF-Token':session?.csrf||''}:{},body:body?JSON.stringify(body):undefined});
- const value=await r.json();if(started!==generation)throw Object.assign(Error('Sessão alterada; recarregue a consulta.'),{status:401,d1SessionChanged:true});if(!r.ok){const e=Object.assign(Error(value.error||'Falha local.'),{status:r.status});throw e;}return value;
+ const changed=error=>Object.assign(Error('Sessao alterada; recarregue a consulta.'),{...error,status:401,d1SessionChanged:true,outcome:body?'unknown':'not_applicable'});
+ try{
+  const value=await transport(route,body,session?.csrf);
+  if(started!==generation)throw changed();return value;
+ }catch(error){
+  if(started!==generation)throw changed(error);
+  if(error.status===401&&session){setSession(null);globalThis.dispatchEvent?.(new Event('d1-session-expired'));}
+  throw error;
+ }
 }
+
 const cache=new Map(),audits=new Map();
 const allowed={Sector:['name','description','role_purpose','responsible_name','status'],JobRole:['name','sector_id','sector_name','status'],...catalogFields};
 const route=entity=>(catalogFields[entity]?'/catalog/':'/entities/')+entity;
