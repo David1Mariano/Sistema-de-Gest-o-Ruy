@@ -5,6 +5,7 @@ import pluginReactHooks from "eslint-plugin-react-hooks";
 import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
+ {files:["scripts/sync-lab/**/*.cjs"],languageOptions:{globals:globals.node,sourceType:"commonjs",ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
  {files:["lab/c2-runtime/**/*.{js,mjs}"],languageOptions:{globals:{...globals.node,...globals.browser},ecmaVersion:2022,sourceType:"module"},rules:{...pluginJs.configs.recommended.rules,"no-unused-vars":["error",{argsIgnorePattern:"^_"}]}},
  {files:["desktop/setup-preload.cjs","desktop/recovery-preload.cjs","desktop/electron-builder-h.cjs","desktop/electron-builder-agente5.cjs","desktop/electron-builder-agente5-rc.cjs","desktop/electron-builder-agente5-rc2.cjs","desktop/electron-builder-agente5-rc3.cjs"],languageOptions:{globals:globals.node,sourceType:"commonjs",ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
  {files:["desktop/setup-renderer.js","desktop/recovery-renderer.js"],languageOptions:{globals:globals.browser,ecmaVersion:2022},rules:{...pluginJs.configs.recommended.rules}},
