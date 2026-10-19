@@ -33,7 +33,10 @@ try{
   for(const database of databases){
    const client=new pg.Client({...owner,database});await client.connect();
    try{
-    for(const table of ['d1_attachment_queue','d1_attachment_cache','d1_stock_balances','d1_financial_entries','d1_financial_accounts','d1_business_local','d1_stock_movements','d1_local_reversals','d1_reconciliation']){
+    // Isolation can place central schemas on 55437 too; verify their actual tables.
+    const isCentral=!!(await client.query("SELECT to_regclass('public.d1_principals') AS t")).rows[0].t;
+    const tables=isCentral?['d1_central_records','d1_central_receipts','d1_central_changes','d1_business_stock','d1_business_movements','d1_business_accounts','d1_business_entries','d1_business_reversals','d1_attachment_objects','d1_attachment_receipts','d1_attachment_audit']:['d1_attachment_queue','d1_attachment_cache','d1_stock_balances','d1_financial_entries','d1_financial_accounts','d1_business_local','d1_stock_movements','d1_local_reversals','d1_reconciliation'];
+    for(const table of tables){
      const rows=(await client.query(`SELECT to_jsonb(t) AS value FROM ${table} t ORDER BY to_jsonb(t)::text`)).rows;
      hash.update(database+table+JSON.stringify(rows));if(table==='d1_attachment_queue')queues+=rows.length;if(table==='d1_attachment_cache')caches+=rows.length;
     }

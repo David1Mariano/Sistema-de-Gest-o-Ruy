@@ -10,6 +10,7 @@ import assert from 'node:assert/strict';
 import pg from 'pg';
 import {config as localConfig,validateHome} from '../../server/d1-lab/environment.mjs';
 import {config as centralConfig,marker} from '../../server/sync-lab/environment.mjs';
+import {fixtureTarget} from './fixture-target.mjs';
 const exec=promisify(execFile);
 export async function createFixture(){
  if(process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Explicit synthetic opt-in required');
@@ -19,11 +20,11 @@ export async function createFixture(){
  await exec('icacls.exe',[home,'/inheritance:r','/grant:r',process.env.USERDOMAIN+'\\'+process.env.USERNAME+':(OI)(CI)F'],{windowsHide:true});
  const pools=[],databases=[];
  async function database(kind,schemas=[]){
-  const base=kind==='central'?central:local,name='ruy_'+(kind==='central'?'c2':'d1')+'_rc_'+randomBytes(8).toString('hex');
+  const base=fixtureTarget(kind,{local,central,isolateCentral:process.env.RUY_D1_ISOLATE_CENTRAL,allowTests:process.env.RUY_D1_ALLOW_TESTS,restartFixture:process.env.RUY_D1_RESTART_FIXTURE}),name='ruy_'+(base===central?'c2':'d1')+'_rc_'+randomBytes(8).toString('hex');
   const owner=new pg.Client(base);await owner.connect();try{await owner.query('CREATE DATABASE '+name);}finally{await owner.end();}
   const pool=new pg.Pool({...base,database:name,max:8,connectionTimeoutMillis:5000});pools.push(pool);databases.push({name,port:base.port});
   for(const file of schemas)await pool.query(await fs.readFile(new URL('../../server/'+file,import.meta.url),'utf8'));
-  return {pool,config:{...base,database:name},bin:kind==='central'?centralMarker.bin:localMarker.bin};
+  return {pool,config:{...base,database:name},bin:base===central?centralMarker.bin:localMarker.bin};
  }
  async function certificate(name){
   await exec('C:/Program Files/Git/usr/bin/openssl.exe',['req','-x509','-newkey','rsa:2048','-nodes','-keyout',path.join(home,name+'.key'),'-out',path.join(home,name+'.crt'),'-days','1','-subj','/CN=localhost','-addext','subjectAltName=DNS:localhost,IP:127.0.0.1'],{windowsHide:true});
