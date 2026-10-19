@@ -1,0 +1,146 @@
+{
+  "date": "2026-10-19",
+  "stage": 3,
+  "base": "ba6f8cc",
+  "source": "7fffc09",
+  "branch": "agente-5-auditoria-integracao-20261019",
+  "functionalCommit": "951180c",
+  "contract": "RUY-INTEGRATION-CONTRACTS/1",
+  "runtimeChanges": [
+    "Shared D1 attachment closing markers for PDF PNG JPEG, tail window 4096 bytes"
+  ],
+  "additionalAuthentication": false,
+  "additionalStorage": false,
+  "additionalDependencies": false,
+  "beforeFix": {
+    "tests": 7,
+    "passed": 4,
+    "failed": 3,
+    "reason": "Matching-hash truncated PDF PNG JPEG were accepted"
+  },
+  "isolated": {
+    "checks": 14,
+    "results": [
+      "01 actual D1 API rejects missing session, CSRF, origin, owner and viewer",
+      "02 authorized upload queue, exact replay, collision and entity/version validation",
+      "03 local HTTP download verifies SHA and safe non-cacheable attachment headers",
+      "04 simulated offline transfer preserves pending UUID and no central bytes",
+      "05 real mTLS lost ACK retries same UUID without duplicate object receipt or audit",
+      "06 authorized peer lists and downloads over provisioned mTLS then reads offline cache",
+      "07 central access rejects foreign workspace viewer revoked token and mismatched certificate",
+      "08 corrupted SQL object and cache are refused before content delivery",
+      "09 matching-hash truncated PDF PNG JPEG rejected; complete structural uploads cross D1 C2",
+      "10 session TTL logout and account revocation deny access without deleting retained bytes",
+      "11 deleted reference revokes local and central reads even when bytes still exist",
+      "12 real auxiliary API process normal restart preserves session queue cache and downloads",
+      "13 encrypted SQL backups restore local queue cache and central objects receipts audit",
+      "14 existing D1 C2 contracts and business disabled flag survive attachment integration"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "syntheticOnly": true,
+    "actualHttpAndMtls": true,
+    "apiProcessRestarted": true,
+    "physicalWindows": false,
+    "electronInstalledRestartTested": false,
+    "networkFailuresSimulated": true,
+    "retentionDeletionImplemented": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "shared55436Touched": false,
+    "central55435Connected": false,
+    "forcedTermination": false
+  },
+  "regression": {
+    "tests": 96,
+    "failed": 0,
+    "newContentTests": 10,
+    "stockInternalChecks": 121,
+    "phase2a": 7,
+    "stockStaticIntegrity": true,
+    "lint": true,
+    "webBuild": true,
+    "d1Build": true
+  },
+  "stage2Rerun": {
+    "checks": 16,
+    "results": [
+      "01 stock opening and entry calculate integer weighted cost",
+      "02 exit replay is exact; UUID collision and insufficient stock roll back",
+      "03 second-input failure rolls back first debit, event, outbox and audit",
+      "04 failure after ledger and audit writes rolls back the entire local transaction",
+      "05 draft and proportional preview do not consume stock; losses are validated",
+      "06 confirmation aggregate rollback, atomic debit, replay and duplicate rejection",
+      "07 cancellation restores consumption once and preserves loss history",
+      "08 opposing ingredient order serializes; stale concurrent command cannot lose updates",
+      "09 offline and lost ACK resume the same UUID through real HTTP central receipts",
+      "10 central second-input rejection rolls back ledger, cursor, records and receipt",
+      "11 server permissions and revoked device credentials prevent writes",
+      "12 two simulated devices competing at the same stock version produce one central debit",
+      "13 encrypted backup restores local aggregate, ledger, queue and audit exactly",
+      "14 controlled disposable PostgreSQL restart preserves all three database digests",
+      "15 post-restart encrypted backup and restore preserves central receipts and stock",
+      "16 post-restart HTTP receipt replay and D1 pull preserve central ledger"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "digests": [
+      "78bcb4d2b93b4f5d77a1940104050a496200a3df807758fa89ebea2cb3baba5d",
+      "c627d2f22a68f043dd0cc7ecb39d999350aeddc6d3f55ba7cf766d5b0e3cbca8",
+      "9ff2e76f156048f775d73db453fa68c81936bc86618e70408b762c79bdc0f3ab"
+    ],
+    "syntheticOnly": true,
+    "physicalWindows": false,
+    "networkFailureSimulated": true,
+    "postgresRestarted": true,
+    "shared55436Touched": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "forcedTermination": false
+  },
+  "stage1Rerun": {
+    "checks": 8,
+    "apiPort": 18091,
+    "dbPort": 55437,
+    "results": [
+      "actual D1 API rejects missing session and cross-origin login",
+      "same D1 login yields HttpOnly Strict cookie with eight-hour TTL",
+      "CSRF missing/wrong and wrong origin reject before a write",
+      "existing D1 UUID replay is persistent and changed payload is refused",
+      "Delivery remains disabled with no records or outbox side effects",
+      "server enforces viewer permissions independently of client role",
+      "session expiry rejects protected attachment routes, no signed URL bypass",
+      "logout revokes server session and does not change backend"
+    ]
+  },
+  "preservation": {
+    "etapaAWipSha256Matched": 10,
+    "originalHead": "db99024",
+    "stage1ContractDocumentUnchanged": true,
+    "stockProductionCoreUnchanged": true,
+    "production8080Touched": false,
+    "oldApi18080Touched": false,
+    "supabaseAccessed": false,
+    "agentBranchesChanged": false,
+    "deliveryStarted": false
+  },
+  "limits": [
+    "No complete media parser or malware scan; WebP signature only",
+    "No operational content expiry or read-audit policy implemented",
+    "SQL bytes not individually encrypted; host protection requires validation",
+    "API auxiliary process restart real; installed Electron restart pending",
+    "Two physical Windows and real network recovery pending"
+  ],
+  "logSha256": {
+    "stage3-before.log": "37ddfc0c2eb68d8b9970285a1145742a3b8a396cc56cd8ec2a2184518feb45af",
+    "stage3-isolated.log": "d720f3b25790de6d0b9586f6861a4c7734e7160cf6ebc810e44102043ebdcb7c",
+    "stage3-regression.log": "4aa47d0a343cf9ab3a2d49eacc307f21edc7fe67d0741a9611a5fd3e22cd2674",
+    "stage3-lint.log": "a6941718893765ea10b77b59b50a45e763935a24beec99c03bddf8b4378e87fc",
+    "stage3-build.log": "5c20d391655bf8fe3b98ed292e28db6371c12bac34c0f643ac622954fc0e43b2",
+    "stage3-build-d1.log": "d27d574746f5a5e79686c44abeb6d5c2d2bc170cc904b5b95c836a3c286a2adb",
+    "stage3-stage2.log": "65546212445dc4c5b2cc6d392a2436a223e1ce3f1bc54c567f76f7327f3525d1",
+    "stage3-stage1-api.log": "3315a2aee3a322f13c887a9277a87be9f4e78df3148b041c328e2059597139c9"
+  }
+}
