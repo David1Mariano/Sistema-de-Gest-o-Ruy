@@ -11,7 +11,7 @@ const root = app.isPackaged ? app.getAppPath() : path.resolve(here, '..');
 const metadata=JSON.parse(await fs.readFile(path.join(here,'package.json'),'utf8'));
 app.setName('Sistema de Gestão Ruy');
 // Namespace exclusivo: não usa sessão, cache ou cluster operacional.
-const profileName=metadata.ruyRevision?.startsWith('A5-')?'SistemaGestaoRuy-Agente5-Homolog':process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab';
+const profileName=metadata.ruyRevision==='A5-I5-20261019'?'SistemaGestaoRuy-Agente5-I5-Homolog':metadata.ruyRevision?.startsWith('A5-')?'SistemaGestaoRuy-Agente5-Homolog':process.env.RUY_D1_TEST_API_PORT==='18091'&&process.env.RUY_D1_ALLOW_TESTS==='1'?'SistemaGestaoRuy-Agente5-Test':'SistemaGestaoRuy-Lab';
 app.setPath('userData', path.join(app.getPath('appData'),profileName));
 app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
 let worker, window, timer, closing = false,preparing=false;
@@ -32,6 +32,7 @@ async function health() {
 }
 async function start() {
   stage='environment';
+  if(metadata.ruyRevision==='A5-I5-20261019'&&(process.env.RUY_D1_ALLOW_TESTS!=='1'||process.env.RUY_D1_RESTART_FIXTURE!=='e5aaec701010f607'||process.env.RUY_D1_TEST_API_PORT!=='18091'))throw Error('I5 candidate requires the explicitly provisioned disposable laboratory; operational use is blocked.');
   const env = await import(pathToFileURL(path.join(root, 'server/d1-lab/environment.mjs')));
   try{await fs.lstat(env.home);}catch(error){
     if(error.code!=='ENOENT')throw error;
