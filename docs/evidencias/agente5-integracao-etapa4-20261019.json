@@ -1,0 +1,257 @@
+{
+  "date": "2026-10-19",
+  "stage": 4,
+  "base": "69c6981",
+  "branch": "agente-5-auditoria-integracao-20261019",
+  "sources": {
+    "agent1": "b29d543",
+    "agent2": "c53b7a1"
+  },
+  "commits": [
+    "2d1ecf0",
+    "a0fda50",
+    "81b82d7",
+    "a3841f6",
+    "6caf2d1",
+    "8ec3e47",
+    "98d01ad"
+  ],
+  "contracts": [
+    "RUY-INTEGRATION-CONTRACTS/1",
+    "D1LAB/1",
+    "D1BUS/1"
+  ],
+  "integrated": [
+    "atomic own-channel order snapshot and items",
+    "SQL outbox/audit/CAS/receipts and explicit reconciliation",
+    "synthetic customer/menu/driver catalogs",
+    "Windows D1 workspace with same session and transport",
+    "integer estimated metrics and authenticated non-PII CSV"
+  ],
+  "isolated": {
+    "checks": 17,
+    "results": [
+      "01 actual API creates one aggregate with authoritative menu prices and exact UUID replay",
+      "02 item changes are one CAS transaction and stale concurrent edits lose no update",
+      "03 failure after aggregate outbox and audit writes rolls back everything",
+      "04 authorized state machine concludes pickup; items and financial state cannot be smuggled",
+      "05 cancellation reason and exact replay preserve items without issuing refund",
+      "06 server permissions and isolated feature gate reject writes before side effects",
+      "07 simulated offline then lost ACK resumes existing D1 queue without duplicate central order",
+      "08 two simulated D1 peers preserve conflicting proposals and reconcile explicitly",
+      "09 central rejects forged totals skipped states and foreign device permissions",
+      "10 real auxiliary API process restart preserves order items queue audit and session",
+      "11 encrypted backup restores delivery aggregates and existing D1 queue exactly",
+      "12 delivery never changes stock production financial ledger or operational flag",
+      "13 customer menu driver CRUD uses real domain CAS and blocks inactive references and personal fields",
+      "14 delivery courier dispatch and immutable advanced order use canonical states",
+      "15 Windows bundle route is served locally and server status never enables operational delivery",
+      "16 actual isolated Windows Electron creates catalogs edits order items concludes and cancels",
+      "17 authenticated CSV API exports typed amounts without customer or item data"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "actualApi": true,
+    "actualPostgresql": true,
+    "apiProcessRestarted": true,
+    "simulatedClients": 2,
+    "networkFailureSimulated": true,
+    "physicalWindows": false,
+    "paymentIntegration": false,
+    "externalProvidersEnabled": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "shared55436Touched": false,
+    "central55435Connected": false,
+    "forcedTermination": false
+  },
+  "windows": {
+    "passed": true,
+    "packaged": false,
+    "actualElectron": true,
+    "syntheticOnly": true,
+    "steps": 36,
+    "orderItemsEdited": true,
+    "statesConcluded": true,
+    "cancelled": true,
+    "catalogsCreated": true
+  },
+  "csv": {
+    "checks": 6,
+    "actualApi": true,
+    "dbPort": 55437,
+    "listener": "own-ephemeral",
+    "canonicalHost": "127.0.0.1:18087",
+    "syntheticOnly": true,
+    "personalFieldsExported": false,
+    "operationalSyncEnabled": false
+  },
+  "regression": {
+    "nodeTests": 108,
+    "failed": 0,
+    "stockInternalAssertions": 121,
+    "contractFinalTests": 15,
+    "lint": true,
+    "webBuild": true,
+    "d1Build": true
+  },
+  "stage1": {
+    "checks": 8,
+    "results": [
+      "actual D1 API rejects missing session and cross-origin login",
+      "same D1 login yields HttpOnly Strict cookie with eight-hour TTL",
+      "CSRF missing/wrong and wrong origin reject before a write",
+      "existing D1 UUID replay is persistent and changed payload is refused",
+      "Delivery remains disabled with no records or outbox side effects",
+      "server enforces viewer permissions independently of client role",
+      "session expiry rejects protected attachment routes, no signed URL bypass",
+      "logout revokes server session and does not change backend"
+    ]
+  },
+  "stage2": {
+    "checks": 16,
+    "results": [
+      "01 stock opening and entry calculate integer weighted cost",
+      "02 exit replay is exact; UUID collision and insufficient stock roll back",
+      "03 second-input failure rolls back first debit, event, outbox and audit",
+      "04 failure after ledger and audit writes rolls back the entire local transaction",
+      "05 draft and proportional preview do not consume stock; losses are validated",
+      "06 confirmation aggregate rollback, atomic debit, replay and duplicate rejection",
+      "07 cancellation restores consumption once and preserves loss history",
+      "08 opposing ingredient order serializes; stale concurrent command cannot lose updates",
+      "09 offline and lost ACK resume the same UUID through real HTTP central receipts",
+      "10 central second-input rejection rolls back ledger, cursor, records and receipt",
+      "11 server permissions and revoked device credentials prevent writes",
+      "12 two simulated devices competing at the same stock version produce one central debit",
+      "13 encrypted backup restores local aggregate, ledger, queue and audit exactly",
+      "14 controlled disposable PostgreSQL restart preserves all three database digests",
+      "15 post-restart encrypted backup and restore preserves central receipts and stock",
+      "16 post-restart HTTP receipt replay and D1 pull preserve central ledger"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "digests": [
+      "3b360e29d3f8a1c097d20fb643cf9f40b2b28364998e209baa874bc1f9e65dfc",
+      "d1b1586220c29396ed23db692e0f80ce8fb6569798ee09e7713c2f3ec6d37aa8",
+      "06499dd15e82a053ed9ca786f3e6309b0564c09e7cccc854b2f348190358e983"
+    ],
+    "syntheticOnly": true,
+    "physicalWindows": false,
+    "networkFailureSimulated": true,
+    "postgresRestarted": true,
+    "shared55436Touched": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "forcedTermination": false
+  },
+  "stage3": {
+    "checks": 14,
+    "results": [
+      "01 actual D1 API rejects missing session, CSRF, origin, owner and viewer",
+      "02 authorized upload queue, exact replay, collision and entity/version validation",
+      "03 local HTTP download verifies SHA and safe non-cacheable attachment headers",
+      "04 simulated offline transfer preserves pending UUID and no central bytes",
+      "05 real mTLS lost ACK retries same UUID without duplicate object receipt or audit",
+      "06 authorized peer lists and downloads over provisioned mTLS then reads offline cache",
+      "07 central access rejects foreign workspace viewer revoked token and mismatched certificate",
+      "08 corrupted SQL object and cache are refused before content delivery",
+      "09 matching-hash truncated PDF PNG JPEG rejected; complete structural uploads cross D1 C2",
+      "10 session TTL logout and account revocation deny access without deleting retained bytes",
+      "11 deleted reference revokes local and central reads even when bytes still exist",
+      "12 real auxiliary API process normal restart preserves session queue cache and downloads",
+      "13 encrypted SQL backups restore local queue cache and central objects receipts audit",
+      "14 existing D1 C2 contracts and business disabled flag survive attachment integration"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "syntheticOnly": true,
+    "actualHttpAndMtls": true,
+    "apiProcessRestarted": true,
+    "physicalWindows": false,
+    "electronInstalledRestartTested": false,
+    "networkFailuresSimulated": true,
+    "retentionDeletionImplemented": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "shared55436Touched": false,
+    "central55435Connected": false,
+    "forcedTermination": false
+  },
+  "authorizedTestCleanup": {
+    "pid": 28952,
+    "identityVerified": true,
+    "explicitUserAuthorization": true,
+    "syntheticElectronOnly": true,
+    "productionOrDatabaseForcedStop": false
+  },
+  "preservation": {
+    "originalHead": "db99024",
+    "wipSha256Matched": 10,
+    "production8080Touched": false,
+    "oldApi18080Touched": false,
+    "supabaseAccessed": false,
+    "shared55436Connected": false,
+    "central55435Connected": false,
+    "operationalMigrations": false,
+    "originalAgentBranchesModified": false,
+    "mainMerged": false,
+    "deployed": false,
+    "stage5Started": false
+  },
+  "blocked": [
+    "Operational activation",
+    "Financial settlement payment refund integration requiring central contract review",
+    "External providers attendance messages AI",
+    "Packaged installer clean installation and second physical Windows",
+    "Real network disconnect/reconnect",
+    "Operational policies per role/store retention read auditing and host protection"
+  ],
+  "modifiedFiles": [
+    "desktop/delivery-lab-smoke.mjs",
+    "desktop/policy.mjs",
+    "docs/etapa4-auditoria-plano-delivery-20261019.md",
+    "docs/etapa4-resultados-lotes-20261019.md",
+    "docs/evidencias/agente5-integracao-etapa4-20261019.json",
+    "docs/relatorio-integracao-etapa4-20261019.md",
+    "lab/d1/Delivery.jsx",
+    "lab/d1/Topbar.jsx",
+    "lab/d1/main.jsx",
+    "scripts/d1-lab/run-integration-stage4-isolated.mjs",
+    "scripts/d1-lab/test-delivery-connectors.mjs",
+    "scripts/d1-lab/test-delivery-contract.mjs",
+    "scripts/d1-lab/test-delivery-csv-api.mjs",
+    "scripts/d1-lab/test-delivery-isolation.mjs",
+    "scripts/d1-lab/test-delivery-report.mjs",
+    "scripts/d1-lab/test-delivery-ui.mjs",
+    "scripts/d1-lab/test-integration-stage1.mjs",
+    "scripts/d1-lab/test-integration-stage4.mjs",
+    "server/d1-lab/api.mjs",
+    "server/d1-lab/delivery-connectors.mjs",
+    "server/d1-lab/delivery-contract.mjs",
+    "server/d1-lab/delivery-report.mjs",
+    "server/d1-lab/delivery.mjs",
+    "server/d1-lab/delivery.sql",
+    "server/d1-lab/domain-contract.mjs",
+    "server/d1-lab/domain.mjs",
+    "server/sync-lab/d1-central.mjs"
+  ],
+  "screenshot": {
+    "purpose": "layout only; final states and amounts asserted in DOM and SQL",
+    "sha256": "4e5ec982ff5b92e7cffcdddb20a0cb078708bb8e69c0d0b2c5149cdf1f3e0cf2"
+  },
+  "logSha256": {
+    "stage4-final-isolated.log": "3c1af7806e848a22e8fb314a93fd904b456060d20b11dd4a4f4fa99957c2a7cc",
+    "stage4-regression.log": "ec53f846d6b15a1305a2d805902e65be4f252359321f5ccdafa33ceb16a18a3d",
+    "stage4-lint.log": "a6941718893765ea10b77b59b50a45e763935a24beec99c03bddf8b4378e87fc",
+    "stage4-build.log": "709805ade3c7cecdba41e9216c77f6e8aa657c5853e6e3d8ce7352afb14f1365",
+    "stage4-build-d1.log": "a1dad95709b7303414c8b88a19b1e272f584ee7ad83871ee5d758c802a3bc77e",
+    "stage4-stage1.log": "3315a2aee3a322f13c887a9277a87be9f4e78df3148b041c328e2059597139c9",
+    "stage4-stage2.log": "65546212445dc4c5b2cc6d392a2436a223e1ce3f1bc54c567f76f7327f3525d1",
+    "stage4-stage3.log": "d720f3b25790de6d0b9586f6861a4c7734e7160cf6ebc810e44102043ebdcb7c",
+    "stage4-contract-final.log": "bdef7488790ec7ea463a3962c9ccbc34d07048de14f2196de79fa32696c91484",
+    "stage4-e-api.log": "d6e77b11fb7762efe5842bf2fabb8bbff679cc84a3bffd154ae1c80d07ae4936"
+  }
+}

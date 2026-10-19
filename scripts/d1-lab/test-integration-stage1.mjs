@@ -54,6 +54,6 @@ test('A4 compatibility: no parallel signed download or bearer URL accepted in El
  const id=randomUUID();assert.equal(allowedDownload('http://127.0.0.1:18087/api/d1/attachments/'+id+'/download'),true);
  for(const url of ['http://127.0.0.1:8080/api/anexos/'+id,'ruy-anexo://'+id,'https://example.invalid/file?token=FICTICIO','http://127.0.0.1:18087/api/d1/attachments/'+id+'/download?token=FICTICIO'])assert.equal(allowedDownload(url),false);
 });
-test('Delivery contract remains disabled in the actual RC3 envelope',()=>{
+test('Delivery malformed snapshot remains rejected by the D1 envelope',()=>{
  assert.throws(()=>validateEnvelope({protocol:'D1LAB/1',operationId:randomUUID(),actorId:randomUUID(),deviceId:randomUUID(),workspaceId:randomUUID(),changes:[{entity:'DeliveryOrder',id:randomUUID(),baseVersion:null,data:{name:'FICTICIO order'}}]}),e=>e.status===400);
 });
