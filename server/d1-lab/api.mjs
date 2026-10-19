@@ -97,7 +97,7 @@ export function createServer(pool,deviceId) {
       }
       if(url.pathname==='/api/d1/delivery/status'&&req.method==='GET'){
         if(user.role!=='admin')throw fail(403,'Delivery exige administrador de laboratório.');
-        const ready=deliveryEnabled()&&(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;
+        const ready=deliveryEnabled()&&(await pool.query("SELECT current_setting('port')='55437' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$' AND EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;
         return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
       }
       if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:{id:user.id,role:user.role},csrf:user.csrf,deviceId});

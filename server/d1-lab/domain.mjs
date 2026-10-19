@@ -1,6 +1,6 @@
 import {assertActiveIntent} from './core.mjs';
 import {isDelivery} from './delivery-contract.mjs';
-import {assertDeliveryLab,prepareDelivery} from './delivery.mjs';
+import {assertDeliveryLab,assertDeliveryDatabase,prepareDelivery} from './delivery.mjs';
 import {randomUUID} from 'node:crypto';
 import {transaction,fail,uuid} from './core.mjs';
 import {record} from './entities.mjs';
@@ -50,7 +50,7 @@ async function get(c,owner,entity,id){
 }
 async function rows(c,owner,entity){return (await c.query('SELECT * FROM d2_catalog WHERE owner_id=$1 AND entity=$2 ORDER BY id',[owner,entity])).rows;}
 export async function domainList(pool,user,entity){
- if(isDelivery(entity))assertDeliveryLab();
+ if(isDelivery(entity))await assertDeliveryDatabase(pool);
  if(!isDomain(entity))throw fail(404,'Domínio desconhecido.');
  if(user.role!=='admin')throw fail(403,'Domínio restrito ao administrador sintético.');
  if(readOnlyDomains.includes(entity))throw fail(501,'Fonte '+entity+' ainda não portada; relatório completo indisponível.');

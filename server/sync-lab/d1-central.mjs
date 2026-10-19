@@ -65,7 +65,7 @@ export async function acceptD1(pool,token,command,{business=false}={}){
    if(change.entity==='Employee'&&d.function&&!values.some(r=>r.entity==='JobRole'&&r.data.name===d.function&&(!r.data.sector_name||r.data.sector_name===d.sector)))throw fail(409,'Função remota incompatível.');
    if(change.entity==='InventoryItem'&&d.preferred_supplier_id){const supplier=records.get(d.preferred_supplier_id);if(!supplier||supplier.entity!=='Supplier'||supplier.data.name!==d.preferred_supplier_name)throw fail(409,'Fornecedor remoto inexistente.');}
   }
-  validateDeliveryChanges(command,records,known);
+  await validateDeliveryChanges(c,command,records,known);
   if(business)await applyBusiness(c,p,command,records);
   const changes=[];
   for(const change of command.changes){

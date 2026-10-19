@@ -1,12 +1,16 @@
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes} from 'node:crypto';
-import {fork} from 'node:child_process';
+import {fork,spawn} from 'node:child_process';
+import fs from 'node:fs/promises';
+import path from 'node:path';
 import {createFixture} from './rc-fixture.mjs';
 import {digest,hashPassword} from '../../server/d1-lab/core.mjs';
 import {domainCommand,domainList} from '../../server/d1-lab/domain.mjs';
 import {synchronizeD1} from '../../server/d1-lab/sync.mjs';
 import {reconciliationPlan,reconcile} from '../../server/d1-lab/reconciliation.mjs';
 import {createD1Central} from '../../server/sync-lab/d1-server.mjs';
+import {deliveryReport} from '../../server/d1-lab/delivery-report.mjs';
+import {testDeliveryCsvApi} from './test-delivery-csv-api.mjs';
 export async function runStage4(){
  assert.equal(process.env.RUY_D1_RESTART_FIXTURE,'e5aaec701010f607');assert.equal(process.env.RUY_D1_DELIVERY_LAB,'1');
  const fixture=await createFixture(),results=[],check=async(name,fn)=>{await fn();results.push(name);console.log('PASS '+name);};
@@ -64,6 +68,15 @@ export async function runStage4(){
    assert.equal(row.driverId,driver);assert.equal(row.financialStatus,'unpaid');assert.equal((await syncA()).lastError,null);assert.equal((await syncB()).lastError,null);
   });
   await check('15 Windows bundle route is served locally and server status never enables operational delivery',async()=>{const status=await api('/delivery/status');assert.equal(status.status,200);assert.equal(status.body.enabled,true);assert.equal(status.body.operationalSyncEnabled,false);assert.equal(status.body.paymentIntegration,false);const page=await fetch('http://127.0.0.1:18091/delivery-lab');assert.equal(page.status,200);assert.match(page.headers.get('content-type'),/text\/html/);assert.match(await page.text(),/\/assets\//);});
+  if(process.env.RUY_D1_DELIVERY_UI==='1')await check('16 actual isolated Windows Electron creates catalogs edits order items concludes and cancels',async()=>{
+   const executable='C:/Users/Pichau/gestao-ruy-windows-oficial-20261015/desktop/node_modules/electron/dist/electron.exe';await fs.access(executable);
+   const configFile=path.join(fixture.home,'ui-config.json');await fs.writeFile(configFile,JSON.stringify({purpose:'RUY_DELIVERY_UI_SYNTHETIC',home:fixture.home,login:actorA+'@example.invalid',password,baseline:deliveryReport(await domainList(A.pool,userA,'DeliveryOrder'))}),{flag:'wx'});
+   const env={...process.env,RUY_D1_TEST_API_PORT:'18091',RUY_D1_DELIVERY_UI_CONFIG:configFile};delete env.ELECTRON_RUN_AS_NODE;
+   await new Promise((r,j)=>{const child=spawn(executable,['desktop/delivery-lab-smoke.mjs'],{windowsHide:true,stdio:['ignore','inherit','inherit'],env});child.once('error',j);child.once('exit',code=>code===0?r():j(Error('Owned synthetic Electron test failed; private evidence preserved')));});
+   const result=JSON.parse(await fs.readFile(path.join(fixture.home,'delivery-ui-result.json'),'utf8'));assert.equal(result.passed,true);await fs.mkdir('logs',{recursive:true});await fs.writeFile('logs/stage4-ui.json',JSON.stringify({...result,evidenceDirectory:fixture.home},null,2));
+   const created=(await domainList(A.pool,userA,'DeliveryOrder')).filter(r=>(r.items||[]).some(i=>i.name==='FICTICIO Windows item'));assert.equal(created.length,2);const concluded=created.find(r=>r.status==='concluded');assert.equal(concluded.items[0].quantityMilli,3500);assert.equal(concluded.items[0].unitCents,875);assert.equal(concluded.totalCents,3938);assert.ok(created.some(r=>r.status==='cancelled'&&r.totalCents===875));
+  });
+  await check('17 authenticated CSV API exports typed amounts without customer or item data',testDeliveryCsvApi);
   return {checks:results.length,results,databasePorts:[...new Set(fixture.databases.map(d=>d.port))],actualApi:true,actualPostgresql:true,apiProcessRestarted:true,simulatedClients:2,networkFailureSimulated:true,physicalWindows:false,paymentIntegration:false,externalProvidersEnabled:false,operationalSyncEnabled:false};
  }finally{await stop();if(central?.listening)await new Promise(r=>central.close(r));await fixture.close();}
 }

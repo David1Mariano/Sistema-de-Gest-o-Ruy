@@ -47,13 +47,13 @@ export default function Delivery(){
  const {user}=useAuth(),[enabled,setEnabled]=useState(null),[orders,setOrders]=useState([]),[catalogs,setCatalogs]=useState({}),[busy,setBusy]=useState(false),[error,setError]=useState('');
  const refresh=async()=>{const values=await Promise.all(Object.keys(deliveryFields).map(async entity=>[entity,await localDomain.entity(entity).list('-created_date',1000)]));const data=Object.fromEntries(values);setOrders(data.DeliveryOrder);setCatalogs(data);};
  useEffect(()=>{let active=true;if(user?.role!=='admin'){setEnabled(false);return;}request('/delivery/status').then(async status=>{if(!active)return;setEnabled(status.enabled);if(status.enabled)await refresh();}).catch(e=>{if(active)setError(e.message);});return()=>{active=false;};},[user?.id,user?.role]);
- async function run(fn){setBusy(true);setError('');try{await fn();try{await refresh();}catch{setError('Grava??o confirmada; a consulta n?o foi atualizada. Use Atualizar consultas, sem reenviar o pedido.');}return true;}catch(e){setError(e.message);throw e;}finally{setBusy(false);}}
+ async function run(fn){setBusy(true);setError('');try{await fn();try{await refresh();}catch{setError('Gravação confirmada; a consulta não foi atualizada. Use Atualizar consultas, sem reenviar o pedido.');}return true;}catch(e){setError(e.message);throw e;}finally{setBusy(false);}}
  if(user?.role!=='admin')return <p>Delivery exige administrador local de laboratório.</p>;
  if(!enabled)return <section className="p-4"><h1>Delivery — bloqueado para uso operacional</h1><p>{enabled===null?'Verificando laboratório…':'Disponível somente no laboratório autorizado e provisionado.'}</p>{error&&<p role="alert">{error}</p>}</section>;
  const perform=fn=>run(fn).catch(()=>false);
  return <>{error&&<p role="alert" className="border border-red-500 p-3">{error}. Em falha sem confirmação, reenvie os mesmos campos; não crie outra tentativa.</p>}<DeliveryWorkspace orders={orders} catalogs={catalogs} busy={busy} onRefresh={()=>perform(async()=>{})}
-  onSaveCatalog={async(entity,row,data)=>{const ok=await perform(()=>localDomain.command(entity,row?.id||null,{...data,_version:row?._version}));if(!ok)throw Error('Cadastro não confirmado');}}
-  onSaveOrder={async(row,data)=>{const ok=await perform(()=>localDomain.command('DeliveryOrder',row?.id||null,{...data,_version:row?._version}));if(!ok)throw Error('Pedido não confirmado');}}
+  onSaveCatalog={(entity,row,data)=>perform(()=>localDomain.command(entity,row?.id||null,{...data,_version:row?._version}))}
+  onSaveOrder={(row,data)=>perform(()=>localDomain.command('DeliveryOrder',row?.id||null,{...data,_version:row?._version}))}
   onTransition={(row,status)=>perform(()=>localDomain.command('DeliveryOrder',row.id,{status,_version:row._version},'transition'))}
   onCancel={(row,reason)=>perform(()=>localDomain.command('DeliveryOrder',row.id,{_version:row._version},'cancel',{reason}))}/></>;
 }

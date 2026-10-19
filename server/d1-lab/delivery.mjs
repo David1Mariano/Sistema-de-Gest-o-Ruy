@@ -2,9 +2,13 @@ import {fail} from './core.mjs';
 import {deliveryFields,isDelivery,validateDeliveryPayload,deliveryTotals,validateDeliveryEvolution} from './delivery-contract.mjs';
 export const deliveryEnabled=()=>process.env.RUY_D1_ALLOW_TESTS==='1'&&process.env.RUY_D1_DELIVERY_LAB==='1'&&process.env.RUY_D1_RESTART_FIXTURE==='e5aaec701010f607';
 export function assertDeliveryLab(){if(!deliveryEnabled())throw fail(403,'Delivery restrito ao laboratório isolado autorizado.');}
+export async function assertDeliveryDatabase(c){
+ assertDeliveryLab();const target=(await c.query("SELECT current_setting('port') AS port,current_database() AS database")).rows[0];
+ if(target.port!=='55437'||!/^ruy_d1_rc_[a-f0-9]{16}$/.test(target.database))throw fail(403,'Delivery exige banco novo no clone descartável 55437.');
+}
 const conflict=message=>{throw fail(409,message);};
 export async function prepareDelivery(c,actor,body,old){
- assertDeliveryLab();
+ await assertDeliveryDatabase(c);
  if(body.entity!=='DeliveryOrder'){
   if(body.action!=='save')throw fail(409,'Cadastro Delivery usa edição versionada e inativação.');
   const supplied=body.data;if(!supplied||typeof supplied!=='object'||Array.isArray(supplied)||Object.keys(supplied).some(k=>!deliveryFields[body.entity].includes(k)&&!['id','_version','created_date','updated_date'].includes(k)))throw fail(400,'Campos de cadastro Delivery inválidos.');
@@ -33,9 +37,9 @@ export async function prepareDelivery(c,actor,body,old){
  }
  validateDeliveryPayload(body.entity,next);try{validateDeliveryEvolution(old,next);}catch{conflict('Transição ou edição Delivery inválida.');}return next;
 }
-export function validateDeliveryChanges(command,records,known){
+export async function validateDeliveryChanges(c,command,records,known){
  if(!command.changes.some(change=>isDelivery(change.entity)))return;
- assertDeliveryLab();if(command.changes.length!==1)throw fail(400,'Envelope Delivery deve conter um único agregado.');
+ await assertDeliveryDatabase(c);if(command.changes.length!==1)throw fail(400,'Envelope Delivery deve conter um único agregado.');
  for(const change of command.changes){
   const next=JSON.parse(change.data.payload_json);validateDeliveryPayload(change.entity,next);
   if(change.entity!=='DeliveryOrder')continue;
