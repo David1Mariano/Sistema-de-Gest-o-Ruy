@@ -1,4 +1,6 @@
 import {assertActiveIntent} from './core.mjs';
+import {isDelivery} from './delivery-contract.mjs';
+import {assertDeliveryLab,prepareDelivery} from './delivery.mjs';
 import {randomUUID} from 'node:crypto';
 import {transaction,fail,uuid} from './core.mjs';
 import {record} from './entities.mjs';
@@ -48,6 +50,7 @@ async function get(c,owner,entity,id){
 }
 async function rows(c,owner,entity){return (await c.query('SELECT * FROM d2_catalog WHERE owner_id=$1 AND entity=$2 ORDER BY id',[owner,entity])).rows;}
 export async function domainList(pool,user,entity){
+ if(isDelivery(entity))assertDeliveryLab();
  if(!isDomain(entity))throw fail(404,'Domínio desconhecido.');
  if(user.role!=='admin')throw fail(403,'Domínio restrito ao administrador sintético.');
  if(readOnlyDomains.includes(entity))throw fail(501,'Fonte '+entity+' ainda não portada; relatório completo indisponível.');
@@ -88,7 +91,8 @@ export async function domainPreview(pool,user,id){
  return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
 }
 export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
-  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch'].includes(body.action)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch','transition'].includes(body.action)||body.action==='transition'&&!isDelivery(body.entity)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+ if(isDelivery(body.entity))assertDeliveryLab();
  return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
   const actor=(await c.query('SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rows[0];
@@ -106,7 +110,8 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    changes.push({entity,record:record(row)});return unwrapDomain(row);
   };
   let data;
-  if(body.action==='save'){
+  if(isDelivery(body.entity))data=await prepareDelivery(c,actor,body,old);
+  else if(body.action==='save'){
    if(old?.status==='cancelado')throw fail(409,'Documento cancelado é imutável; reabertura exige fluxo homologado.');
    if(old?.local_status&&old.local_status!=='rascunho')throw fail(409,'Produção confirmada/cancelada é imutável; use cancelamento.');
    const supplied=Object.fromEntries(Object.entries(body.data||{}).filter(([k])=>!metadata.includes(k)));

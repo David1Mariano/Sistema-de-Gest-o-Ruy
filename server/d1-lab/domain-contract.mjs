@@ -1,7 +1,9 @@
+import {deliveryFields,isDelivery,validateDeliveryPayload} from './delivery-contract.mjs';
 // Versioned document snapshots. Monetary documents do not execute bank payments.
 const fields = text => text.split(' ');
 const common = 'date status observation responsible_user';
 export const domainFields = {
+ ...deliveryFields,
  Vale: fields('employee_id employee_name sector date amount type motive payment_method authorized_by status observation proof_url deduction_payment_id deduction_payment_version'),
  Consumption: fields('employee_id employee_name sector date time product quantity amount registered_by status deduction_payment_id deduction_payment_version'),
  ProductionProduct: fields('name category yield_quantity yield_unit preparation_time_minutes instructions status total_cost unit_cost ingredients'),
@@ -30,6 +32,7 @@ export const domainSyncFields = Object.fromEntries(Object.keys(domainFields).map
 export function validateDomainSnapshot(entity,data){
  if(!domainSyncFields[entity])return;
  const payload=JSON.parse(data.payload_json);
+ if(isDelivery(entity))validateDeliveryPayload(entity,payload);
  const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'];
  if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!domainFields[entity].includes(k)&&!derived.includes(k)))throw Error('Invalid domain snapshot');
  if(entity==='ProductionProduct'&&(!payload.name?.startsWith('FICTICIO ')||!Array.isArray(payload.ingredients)))throw Error('Invalid recipe');
