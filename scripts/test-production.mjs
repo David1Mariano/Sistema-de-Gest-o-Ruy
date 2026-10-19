@@ -98,6 +98,9 @@ test('Referência preexistente a manifest ausente é removida apenas do build pu
   const site = await build('manifest-check');
   const file = path.join(site, 'index.html');
   await fs.appendFile(file, '<link rel="manifest" href="/manifest.json" />');
+  await fs.writeFile(path.join(site, '_headers'), 'fixture');
+  await fs.writeFile(path.join(site, '_redirects'), 'fixture');
+  await assert.rejects(inspectBuild(site, 'manifest-check'));
   await prepareBuild(site);
   assert.doesNotMatch(await fs.readFile(file, 'utf8'), /manifest.json/);
   await inspectBuild(site, 'manifest-check');

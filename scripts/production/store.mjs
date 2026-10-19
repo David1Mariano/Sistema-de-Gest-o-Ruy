@@ -10,6 +10,12 @@ export const safeFile = name => typeof name === 'string' && !name.includes('\\')
 export const digest = bytes => createHash('sha256').update(bytes).digest('hex');
 
 export async function prepareBuild(dir) {
+  // Metadados de hospedagem estática não pertencem ao manifesto do servidor local.
+  // Remove somente estes arquivos da cópia compilada; preserva public/ e os checks.
+  for (const name of ['_headers', '_redirects']) {
+    try { await fs.unlink(path.join(dir, name)); }
+    catch (error) { if (error.code !== 'ENOENT') throw error; }
+  }
   // O HTML atual referencia /manifest.json, mas o projeto não fornece esse
   // arquivo. Retira só esse link quebrado da cópia publicada, sem tocar no DEV.
   const file = path.join(dir, 'index.html');

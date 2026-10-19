@@ -6,6 +6,16 @@ import pluginUnusedImports from "eslint-plugin-unused-imports";
 
 export default [
   {
+    files: ['server/local-lab/**/*.mjs','server/sync-lab/**/*.mjs','scripts/local-lab.mjs','scripts/sync-lab.mjs','scripts/local-lab/**/*.{mjs,cjs}','scripts/sync-lab/**/*.mjs'],
+    ...pluginJs.configs.recommended,
+    languageOptions: { globals: globals.node, ecmaVersion: 2022, sourceType: 'module' },
+  },
+  {
+    files: ['server/local-lab/web/*.{js,mjs}'],
+    ...pluginJs.configs.recommended,
+    languageOptions: { globals: globals.browser, ecmaVersion: 2022, sourceType: 'module' },
+  },
+  {
     files: [
       "src/components/**/*.{js,mjs,cjs,jsx}",
       "src/pages/**/*.{js,mjs,cjs,jsx}",
