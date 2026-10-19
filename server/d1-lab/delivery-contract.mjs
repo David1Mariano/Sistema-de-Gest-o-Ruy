@@ -32,7 +32,7 @@ export function validateDeliveryPayload(entity,payload){
  const totals=deliveryTotals(payload);for(const [key,value] of Object.entries(totals))if(payload[key]!==value)bad('Totais Delivery divergentes.');
  const ids=new Set();for(const item of payload.items){keys(item,['id','menuItemId','name','quantityMilli','unitCents','lineCents']);if(!deliveryUUID(item.id)||ids.has(item.id)||!deliveryUUID(item.menuItemId)||!item.name?.startsWith('FICTICIO ')||item.name.length>80||item.lineCents!==safe((BigInt(item.quantityMilli)*BigInt(item.unitCents)+500n)/1000n))bad('Item Delivery inválido.');ids.add(item.id);}
  if(payload.status==='cancelled'?!payload.cancelReason.trim():payload.cancelReason!=='')bad('Motivo de cancelamento divergente.');
- if(payload.fulfillment==='delivery'&&payload.status==='dispatched'&&!payload.driverId)bad('Expedição exige entregador.');
+ if(payload.fulfillment==='delivery'&&!payload.driverId)bad('Modalidade entrega exige entregador neste laboratório.');
 }
 export function validateDeliveryEvolution(old,next){
  if(!old){if(next.status!=='placed')bad('Pedido nasce em placed.');return;}

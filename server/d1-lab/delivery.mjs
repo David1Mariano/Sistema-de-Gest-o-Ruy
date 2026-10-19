@@ -5,7 +5,11 @@ export function assertDeliveryLab(){if(!deliveryEnabled())throw fail(403,'Delive
 const conflict=message=>{throw fail(409,message);};
 export async function prepareDelivery(c,actor,body,old){
  assertDeliveryLab();
- if(body.entity!=='DeliveryOrder')throw fail(501,'Cadastro Delivery aguarda lote C.');
+ if(body.entity!=='DeliveryOrder'){
+  if(body.action!=='save')throw fail(409,'Cadastro Delivery usa edição versionada e inativação.');
+  const supplied=body.data;if(!supplied||typeof supplied!=='object'||Array.isArray(supplied)||Object.keys(supplied).some(k=>!deliveryFields[body.entity].includes(k)&&!['id','_version','created_date','updated_date'].includes(k)))throw fail(400,'Campos de cadastro Delivery inválidos.');
+  const payload=Object.fromEntries(Object.entries(supplied).filter(([k])=>deliveryFields[body.entity].includes(k)));validateDeliveryPayload(body.entity,payload);return payload;
+ }
  if(!['save','transition','cancel'].includes(body.action))conflict('Pagamento e reembolso Delivery não integrados ao financeiro central.');
  const supplied=body.data||{};
  if(Object.keys(supplied).some(k=>!deliveryFields.DeliveryOrder.includes(k)&&!['id','_version','created_date','updated_date'].includes(k)))throw fail(400,'Campos Delivery inválidos.');
