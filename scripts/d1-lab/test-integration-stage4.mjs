@@ -63,6 +63,7 @@ export async function runStage4(){
    for(const status of ['confirmed','preparing','ready','dispatched','concluded'])row=(await send(command({status},row.id,row._version,'transition'))).domainRecord;
    assert.equal(row.driverId,driver);assert.equal(row.financialStatus,'unpaid');assert.equal((await syncA()).lastError,null);assert.equal((await syncB()).lastError,null);
   });
+  await check('15 Windows bundle route is served locally and server status never enables operational delivery',async()=>{const status=await api('/delivery/status');assert.equal(status.status,200);assert.equal(status.body.enabled,true);assert.equal(status.body.operationalSyncEnabled,false);assert.equal(status.body.paymentIntegration,false);const page=await fetch('http://127.0.0.1:18091/delivery-lab');assert.equal(page.status,200);assert.match(page.headers.get('content-type'),/text\/html/);assert.match(await page.text(),/\/assets\//);});
   return {checks:results.length,results,databasePorts:[...new Set(fixture.databases.map(d=>d.port))],actualApi:true,actualPostgresql:true,apiProcessRestarted:true,simulatedClients:2,networkFailureSimulated:true,physicalWindows:false,paymentIntegration:false,externalProvidersEnabled:false,operationalSyncEnabled:false};
  }finally{await stop();if(central?.listening)await new Promise(r=>central.close(r));await fixture.close();}
 }
