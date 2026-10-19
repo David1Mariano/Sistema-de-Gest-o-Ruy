@@ -1,0 +1,108 @@
+{
+  "date": "2026-10-19",
+  "stage": 2,
+  "base": "abc3385",
+  "rc3": "db99024",
+  "agent3": "dc7e6b5",
+  "branch": "agente-5-auditoria-integracao-20261019",
+  "contract": "RUY-INTEGRATION-CONTRACTS/1",
+  "runtimeBusinessChanges": false,
+  "extraDependencies": false,
+  "adopted": [
+    "Agent3 checklist adapted to RC3 transactions and existing isolated clone",
+    "Node/CommonJS recommended lint for existing C2 guard"
+  ],
+  "isolated": {
+    "checks": 16,
+    "results": [
+      "01 stock opening and entry calculate integer weighted cost",
+      "02 exit replay is exact; UUID collision and insufficient stock roll back",
+      "03 second-input failure rolls back first debit, event, outbox and audit",
+      "04 failure after ledger and audit writes rolls back the entire local transaction",
+      "05 draft and proportional preview do not consume stock; losses are validated",
+      "06 confirmation aggregate rollback, atomic debit, replay and duplicate rejection",
+      "07 cancellation restores consumption once and preserves loss history",
+      "08 opposing ingredient order serializes; stale concurrent command cannot lose updates",
+      "09 offline and lost ACK resume the same UUID through real HTTP central receipts",
+      "10 central second-input rejection rolls back ledger, cursor, records and receipt",
+      "11 server permissions and revoked device credentials prevent writes",
+      "12 two simulated devices competing at the same stock version produce one central debit",
+      "13 encrypted backup restores local aggregate, ledger, queue and audit exactly",
+      "14 controlled disposable PostgreSQL restart preserves all three database digests",
+      "15 post-restart encrypted backup and restore preserves central receipts and stock",
+      "16 post-restart HTTP receipt replay and D1 pull preserve central ledger"
+    ],
+    "databasePorts": [
+      55437
+    ],
+    "digests": [
+      "32ba51c2516b0ef38fdf5d3814ca99b8cc98b389966e94368c07d0d254a25f1b",
+      "abe30e2bd51ba40140e0954b246e50242fae4920044b2550cc18502bde460033",
+      "d5f9316775e889f0e1ef4f8bb19c443a3e5cad0af2f7f61873bf1846246cb3a8"
+    ],
+    "syntheticOnly": true,
+    "physicalWindows": false,
+    "networkFailureSimulated": true,
+    "postgresRestarted": true,
+    "shared55436Touched": false,
+    "operationalSyncEnabled": false,
+    "pgdataVerified": true,
+    "forcedTermination": false
+  },
+  "compatibility": {
+    "checks": 8,
+    "results": [
+      "actual D1 API rejects missing session and cross-origin login",
+      "same D1 login yields HttpOnly Strict cookie with eight-hour TTL",
+      "CSRF missing/wrong and wrong origin reject before a write",
+      "existing D1 UUID replay is persistent and changed payload is refused",
+      "Delivery remains disabled with no records or outbox side effects",
+      "server enforces viewer permissions independently of client role",
+      "session expiry rejects protected attachment routes, no signed URL bypass",
+      "logout revokes server session and does not change backend"
+    ],
+    "apiPort": 18091,
+    "dbPort": 55437,
+    "operationalSyncEnabled": false
+  },
+  "regression": {
+    "nodeTests": 86,
+    "failed": 0,
+    "stockInternalAssertions": 121,
+    "phase2aCases": 7,
+    "phase2aStatic": true,
+    "stockIntegrityStatic": true,
+    "lint": true,
+    "webBuild": true,
+    "d1Build": true,
+    "buildWarnings": [
+      "chunk size over 500 kB",
+      "outdated Browserslist data"
+    ]
+  },
+  "preservation": {
+    "wipSha256Matched": 10,
+    "originalWorktreeHead": "db99024",
+    "production8080Touched": false,
+    "oldApi18080Touched": false,
+    "shared55436Touched": false,
+    "central55435Connected": false,
+    "supabaseAccessed": false,
+    "agentBranchesModified": false,
+    "stage3Started": false
+  },
+  "limits": [
+    "Two client databases simulated on one Windows; not two physical computers",
+    "Network and ACK failures injected; no company network changes",
+    "Lock ordering refactor not justified by current serialized official paths",
+    "No operational release or synchronization activation"
+  ],
+  "logSha256": {
+    "stage2-isolated.log": "65546212445dc4c5b2cc6d392a2436a223e1ce3f1bc54c567f76f7327f3525d1",
+    "stage2-regression.log": "142a1e99827c27c3dc2955aac94fed5ad3f746d79789fea692f13706894c6237",
+    "stage2-lint.log": "a6941718893765ea10b77b59b50a45e763935a24beec99c03bddf8b4378e87fc",
+    "stage2-build.log": "86602be8c15a43ebd878818c30dfb124561ee7c607c5b869ae0c6fe7f0fd842b",
+    "stage2-build-d1.log": "9134a8eb5c4a729d74b27da486ae2cfd85989f03800324d131fe19d6e679a499",
+    "stage2-stage1-api.log": "3315a2aee3a322f13c887a9277a87be9f4e78df3148b041c328e2059597139c9"
+  }
+}
