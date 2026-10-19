@@ -12,7 +12,8 @@ import {backupStatus} from './backup.mjs';
 import {catalogRoute} from './catalog.mjs';
 import {syncReady,syncStatus,synchronizeD1} from './sync.mjs';
 import {operationalCommand,operationalState,createStockItem} from './operations.mjs';
-import {domainRoute} from './domain.mjs';
+import {domainRoute,domainList} from './domain.mjs';
+import {deliveryCSV} from './delivery-report.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
 export function createServer(pool,deviceId) {
   let dummy;
@@ -23,7 +24,7 @@ export function createServer(pool,deviceId) {
       if(req.headers.host!==`127.0.0.1:${API_PORT}`)throw fail(403,'Host recusado.');
       if(req.headers.origin&&req.headers.origin!==origin)throw fail(403,'Origem recusada.');
       if(req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site']))throw fail(403,'Cross-site recusado.');
-      if(!['GET','POST'].includes(req.method))throw fail(405,'MÃ©todo recusado.');
+      if(!['GET','POST'].includes(req.method))throw fail(405,'Método recusado.');
       const url=new URL(req.url,origin);
       if(await staticRoute(req,res,url))return;
       if(url.pathname==='/health'&&req.method==='GET'){
@@ -31,16 +32,16 @@ export function createServer(pool,deviceId) {
       }
       let body={};
       if(req.method==='POST'){
-        if(req.headers.origin!==origin)throw fail(403,'Origem obrigatÃ³ria.');
-        if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))throw fail(415,'JSON obrigatÃ³rio.');
+        if(req.headers.origin!==origin)throw fail(403,'Origem obrigatória.');
+        if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))throw fail(415,'JSON obrigatório.');
         const chunks=[];let size=0;
-        for await(const chunk of req){size+=chunk.length;if(size>(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'?1024*1024:16384))throw fail(413,'Limite de conteÃºdo.');chunks.push(chunk);}
-        try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw fail(400,'JSON invÃ¡lido.');}
-        if(!body||typeof body!=='object'||Array.isArray(body))throw fail(400,'Objeto JSON obrigatÃ³rio.');
+        for await(const chunk of req){size+=chunk.length;if(size>(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'?1024*1024:16384))throw fail(413,'Limite de conteúdo.');chunks.push(chunk);}
+        try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw fail(400,'JSON inválido.');}
+        if(!body||typeof body!=='object'||Array.isArray(body))throw fail(400,'Objeto JSON obrigatório.');
       }
       if(url.pathname==='/api/d1/login'&&req.method==='POST'){
         const login=typeof body.login==='string'?body.login.trim().toLowerCase():'';
-        if(login.length>254)throw fail(400,'Identificador invÃ¡lido.');
+        if(login.length>254)throw fail(400,'Identificador inválido.');
         const attemptKey=digest(req.socket.remoteAddress+'|'+login);
         const limit=(await pool.query(`INSERT INTO lab_attempts(address,attempts,expires_at) VALUES($1,1,now()+interval '15 minutes')
           ON CONFLICT(address) DO UPDATE SET attempts=CASE WHEN lab_attempts.expires_at<now() THEN 1 ELSE lab_attempts.attempts+1 END,
@@ -49,7 +50,7 @@ export function createServer(pool,deviceId) {
         const user=(await pool.query('SELECT * FROM lab_users WHERE login=$1',[login])).rows[0];
         dummy ||= hashPassword(randomBytes(24).toString('hex'));
         const valid=await verifyPassword(body.password,user?.password_hash||await dummy);
-        if(!valid||!user?.active){await pool.query("INSERT INTO lab_audit(action) VALUES('login_denied')");throw fail(401,'Credenciais invÃ¡lidas.');}
+        if(!valid||!user?.active){await pool.query("INSERT INTO lab_audit(action) VALUES('login_denied')");throw fail(401,'Credenciais inválidas.');}
         const token=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');
         await transaction(pool,async c=>{
           const active=(await c.query('SELECT id FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rowCount;
@@ -61,10 +62,10 @@ export function createServer(pool,deviceId) {
         return reply(200,{user:{id:user.id,role:user.role},csrf,deviceId},{'Set-Cookie':cookie(token)});
       }
       const token=(req.headers.cookie||'').match(/(?:^|;\s*)ruy_d1_lab=([a-f0-9]{64})(?:;|$)/)?.[1];
-      if(!token)throw fail(401,'SessÃ£o obrigatÃ³ria.');
+      if(!token)throw fail(401,'Sessão obrigatória.');
       const user=(await pool.query('SELECT u.id,u.role,s.csrf FROM lab_sessions s JOIN lab_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active',[digest(token)])).rows[0];
-      if(!user)throw fail(401,'SessÃ£o expirada/revogada.');
-      if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatÃ³rio.');
+      if(!user)throw fail(401,'Sessão expirada/revogada.');
+      if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatório.');
       if(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'){
         if(url.pathname==='/api/d1/attachments'&&req.method==='GET')return reply(200,await listLocalAttachments(pool,user.id));
         if(url.pathname==='/api/d1/attachments/remote'&&req.method==='GET'){
@@ -90,8 +91,12 @@ export function createServer(pool,deviceId) {
         }
         throw fail(404,'Rota de anexo inexistente.');
       }
+      if(url.pathname==='/api/d1/delivery/report.csv'&&req.method==='GET'&&!url.search){
+        const csv=deliveryCSV(await domainList(pool,user,'DeliveryOrder'));
+        res.writeHead(200,{'Content-Type':'text/csv; charset=utf-8','Content-Disposition':'attachment; filename="FICTICIO-delivery.csv"','Cache-Control':'no-store','X-Content-Type-Options':'nosniff','Content-Security-Policy':"default-src 'none'; sandbox"});res.end(csv);return;
+      }
       if(url.pathname==='/api/d1/delivery/status'&&req.method==='GET'){
-        if(user.role!=='admin')throw fail(403,'Delivery exige administrador de laboratÃ³rio.');
+        if(user.role!=='admin')throw fail(403,'Delivery exige administrador de laboratório.');
         const ready=deliveryEnabled()&&(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;
         return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
       }
@@ -110,7 +115,7 @@ export function createServer(pool,deviceId) {
       if(url.pathname==='/api/d1/reconciliation/plan'&&req.method==='GET')return reply(200,await reconciliationPlan(pool,user));
       if(url.pathname==='/api/d1/reconciliation/apply'&&req.method==='POST')return reply(200,await reconcile(pool,user,body));
       if(url.pathname==='/api/d1/sync-now'&&req.method==='POST'){
-        if(Object.keys(body).length)throw fail(400,'O usuÃ¡rio/dispositivo nÃ£o pode ser escolhido pelo formulÃ¡rio.');
+        if(Object.keys(body).length)throw fail(400,'O usuário/dispositivo não pode ser escolhido pelo formulário.');
         return reply(200,{...await synchronizeD1(pool,user.id),backup:user.role==='admin'?await backupStatus():null});
       }
       const domain=await domainRoute(pool,user,deviceId,req,url,body);
@@ -124,8 +129,8 @@ export function createServer(pool,deviceId) {
       if(catalog)return reply(200,catalog);
       const handled=await entitiesRoute(pool,user,deviceId,req,url,body);
       if(handled)return reply(200,handled);
-      throw fail(404,'Rota nÃ£o implementada no laboratÃ³rio.');
-    }catch(e){reply(e.status||(e.code==='23505'?409:500),{error:e.status?e.message:'Falha local; consultar estado do laboratÃ³rio.'});}
+      throw fail(404,'Rota não implementada no laboratório.');
+    }catch(e){reply(e.status||(e.code==='23505'?409:500),{error:e.status?e.message:'Falha local; consultar estado do laboratório.'});}
   });
   server.requestTimeout=10000;server.headersTimeout=10000;
   return server;
