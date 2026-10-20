@@ -2,7 +2,7 @@ import fs from 'node:fs/promises';
 import path from 'node:path';
 import {spawn} from 'node:child_process';
 import {randomBytes, randomUUID, createCipheriv, createDecipheriv, createHash} from 'node:crypto';
-import {home, validateHome, config, seal, unseal, DB_PORT} from './environment.mjs';
+import {home, validateHome, config, seal, unseal, DB_PORT, installation} from './environment.mjs';
 import {poolFor, pg} from './core.mjs';
 import {wrapRecoveryKey,unwrapRecoveryKey} from './key-envelope.mjs';
 
@@ -36,12 +36,12 @@ async function runPG(bin,name,args,c,input){
  if(c.host!=='127.0.0.1'||c.port!==DB_PORT||!/^ruy_d1_(?:disposable|restore_[a-f0-9]{16})$/.test(c.database))throw Error('Destino de backup fora do laboratório.');
  return new Promise((resolve,reject)=>{
   const child=spawn(path.join(bin,name+'.exe'),args,{windowsHide:true,env:{...process.env,PGHOST:c.host,PGPORT:String(c.port),PGDATABASE:c.database,PGUSER:c.user,PGPASSWORD:c.password,PGCONNECT_TIMEOUT:'5'},stdio:['pipe','pipe','pipe']});
-  const chunks=[];let size=0;
-  const timeout=setTimeout(()=>child.kill(),30000);
-  child.stdout.on('data',b=>{size+=b.length;if(size>limit)child.kill();else chunks.push(b);});
+  const chunks=[];let size=0,timedOut=false;
+  const timeout=setTimeout(()=>{timedOut=true;if(!installation)child.kill();},30000);
+  child.stdout.on('data',b=>{size+=b.length;if(size>limit){if(!installation)child.kill();}else chunks.push(b);});
   child.stderr.resume();child.stdin.on('error',()=>{});
   child.on('error',()=>{clearTimeout(timeout);reject(Error('Executável PostgreSQL indisponível.'));});
-  child.on('close',code=>{clearTimeout(timeout);if(code!==0||size>limit)reject(Error(`PostgreSQL ${name} falhou (exit ${code}); conteúdo omitido.`));else resolve(Buffer.concat(chunks));});
+  child.on('close',code=>{clearTimeout(timeout);if(code!==0||size>limit||timedOut)reject(Error(`PostgreSQL ${name} falhou (exit ${code}); conteúdo omitido.`));else resolve(Buffer.concat(chunks));});
   child.stdin.end(input);
  });
 }

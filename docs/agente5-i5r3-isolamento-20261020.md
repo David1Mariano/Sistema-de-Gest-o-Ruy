@@ -48,7 +48,7 @@ Versão `0.5.2-rc.3`, revisão `A5-I5-R3-20261020`.
 
 Instalador: `artifacts/agente5-integracao5r3-20261020/Sistema-Ruy-A5-I5-R3-20261020-Setup.exe`.
 
-SHA-256: `e7b85f8b3df44a1a9d3d26435854e6f94a9d67b681f8b2e6ca493a7e08cb52dd`.
+SHA-256: `98d5c52d526f42a590f48cc0657034212c1a46379d60e83818bbbe4b59906467`.
 
 Sem assinatura digital. Instaladores I5 e R2 preservados. Nenhum instalador, banco, certificado privado, DPAPI ou backup é versionado.
 

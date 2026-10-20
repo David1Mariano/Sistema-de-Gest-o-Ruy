@@ -3,9 +3,9 @@
     "revision": "A5-I5-R3-20261020",
     "version": "0.5.2-rc.3",
     "installer": "artifacts/agente5-integracao5r3-20261020/Sistema-Ruy-A5-I5-R3-20261020-Setup.exe",
-    "sha256": "e7b85f8b3df44a1a9d3d26435854e6f94a9d67b681f8b2e6ca493a7e08cb52dd",
-    "bytes": 112001700,
-    "asarSha256": "d0fac2501ac17fc1c14e00aafd50850962a34bba2ad659bea6dfa65fd8292509",
+    "sha256": "98d5c52d526f42a590f48cc0657034212c1a46379d60e83818bbbe4b59906467",
+    "bytes": 112001920,
+    "asarSha256": "75b06a9fae73fe77169d488e2b4a8972b6b46b68336c8b9712d25a7b84b403b5",
     "dependencies": 13,
     "sourceAndBundleMatch": true,
     "privateFilesAbsent": true,
@@ -104,7 +104,7 @@
   ],
   "forcedTermination": false,
   "logSha256": {
-    "artifact.json": "65887ccb1c8dfffa307d56c8fa759dc3363113b53f67c0fe5b3f1fd8edb88629",
+    "artifact.json": "01bd2303cb0e1af655e33d65992113df6869a78d1d199d760923758d8290510e",
     "build-d1.log": "db6e1561d0dc12a95ebb07aa372b10e777c68a1608b86fa4855a54d7d293d031",
     "build-web.log": "86578f61dc1487fb971f0db1f100523c2d595e1e97f7ca3f3eb04458922059a4",
     "catalog-final.log": "2eceaa4d16d2f9143c3f71986335ccefafd4abcedd3464823947679021e22656",
@@ -118,6 +118,8 @@
     "packaged-login-1792512684798.json": "2540df6c75623913e112362c1fe7ea64f7bf8d7640cd37114749a93d9ca94bc9",
     "packaged-login-1792512807217.json": "d157f1864a8aac8940c2afea619be08ab73173ae7dbd7b18d49768576243652a",
     "packaged-login-1792512818843.json": "73d1b9c324c12e3a20e5076cb1d04fc9315a7f3d85be838a0f477e246b172315",
+    "packaged-login-1792516664359.json": "6ce844f1f47b593ab6d693b20214a4b65891a201cdd4e1109d2e3f0056bb4896",
+    "packaged-login-1792516676874.json": "79bb85f505a6a0feb5bc9f74f091ec60da156eb60b4e731f8601108fd0dfb576",
     "peer-login.json": "79f07758df7cb3a2f80b518385d864ef089ff72283f332b8aba5d8e94911dcaa",
     "preflight.json": "cdc25a806f46025d8a3fa463b1c13d9797a1c5d3a021694a40492f221ced00a1",
     "preservation.json": "f8c77bb6cadf83f9839e6c44f232d6eb07db603f43aa48a57034e3cd3f118070",
@@ -131,5 +133,10 @@
     "two-apps.log": "dba5166ad9db9ba648c1032ebbd34dcd0d085b50023b839ef5c68ca1db93a563",
     "workers.json": "d7883bafa047acf1383ce41d1e84211d9cedd6403942dd42266cec056bd562f9",
     "workers.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+  },
+  "backupTimeoutPolicy": {
+    "r3ForcedTerminationDisabled": true,
+    "normalEncryptedBackupRestoreRegressionPassed": true,
+    "actualThirtySecondBackupTimeoutInjected": false
   }
 }
