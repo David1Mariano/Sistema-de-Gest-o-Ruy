@@ -201,6 +201,7 @@ async function start() {
           const {attachmentSmoke}=await import('./attachment-smoke.mjs');
           evidence.attachments=await attachmentSmoke({window,pool:persisted,actor:smokeAccount.id,signalFile});
         }
+        if(process.argv.includes('--lab-postr3-smoke')){stage='postr3-forms';const {postR3Smoke}=await import('./postr3-smoke.mjs');evidence.postR3=await postR3Smoke({window,pool:persisted,actor:smokeAccount.id,origin:localOrigin,result});}
         if(process.argv.includes('--lab-rc3-smoke')){const {rc3Smoke}=await import('./rc3-smoke.mjs');evidence.rc3=await rc3Smoke({window,pool:persisted,actor:smokeAccount.id,root,deviceId:marker.deviceId,origin:localOrigin});}
         if(process.argv.includes('--lab-rh-smoke')){
           stage='rh-forms';const {rhSmoke}=await import('./rh-smoke.mjs');
@@ -228,7 +229,7 @@ if(!app.requestSingleInstanceLock()) app.quit();
 else {
   app.on('second-instance',()=>{log('second-instance');if(window)revealWindow(window,screen.getAllDisplays());});
   app.on('activate',()=>{if(window)revealWindow(window,screen.getAllDisplays());});
-  startupWatchdog=setTimeout(()=>{log('startup-timeout');app.quit();},120000);
+  startupWatchdog=setTimeout(()=>{log('startup-timeout');process.exitCode=1;app.quit();},120000);
   app.whenReady().then(start).catch(async e=>{
     clearTimeout(startupWatchdog);log('startup-failed',e);
     console.error('DESKTOP_LAB_BLOCKED',stage,e.code||e.name,smoke?e.message:'');
@@ -250,7 +251,7 @@ else {
       if(!await waitForTask(backupFlight)){closing=false;log('shutdown-backup-pending');if(window)revealWindow(window,screen.getAllDisplays());dialog.showErrorBox('I5 — backup em execução','O backup não confirmou conclusão no prazo. A janela foi preservada. Aguarde e tente fechar novamente; nenhum processo foi forçado.');return;}
         const owned=worker;
         if(!await stopOwnedWorker(owned)){closing=false;log('shutdown-pending');if(window)revealWindow(window,screen.getAllDisplays());dialog.showErrorBox('I5 — encerramento pendente','A API própria não confirmou o encerramento. Nenhum processo foi forçado. Consulte startup.jsonl.');return;}
-        if(ownedDatabase){try{const env=await import(pathToFileURL(path.join(root,'server/d1-lab/environment.mjs')));const marker=await env.validateHome();env.pgCommand(marker.bin,'pg_ctl',['-D',env.cluster,'-m','fast','-w','stop']);ownedDatabase=false;}catch(error){closing=false;log('database-shutdown-pending',error);if(window)revealWindow(window,screen.getAllDisplays());return;}}
+        if(ownedDatabase){try{const env=await import(pathToFileURL(path.join(root,'server/d1-lab/environment.mjs')));await env.validateHome();const {stopStartedDatabase}=await import(pathToFileURL(path.join(root,'server/d1-lab/database-stop.mjs')));await stopStartedDatabase();ownedDatabase=false;}catch(error){closing=false;log('database-shutdown-pending',error);if(window)revealWindow(window,screen.getAllDisplays());return;}}
         exitReady=true;log('shutdown-complete');if(process.exitCode)app.exit(process.exitCode);else app.quit();
     })();
   });

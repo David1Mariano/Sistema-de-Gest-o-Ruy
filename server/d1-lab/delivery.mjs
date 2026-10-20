@@ -1,9 +1,17 @@
+import {installation,validateHome,database} from './environment.mjs';
+import {deliveryCapability} from './capabilities.mjs';
 import {fail} from './core.mjs';
 import {deliveryFields,isDelivery,validateDeliveryPayload,deliveryTotals,validateDeliveryEvolution} from './delivery-contract.mjs';
-export const deliveryEnabled=()=>process.env.RUY_D1_ALLOW_TESTS==='1'&&process.env.RUY_D1_DELIVERY_LAB==='1'&&process.env.RUY_D1_RESTART_FIXTURE==='e5aaec701010f607';
+export const deliveryEnabled=deliveryCapability;
 export function assertDeliveryLab(){if(!deliveryEnabled())throw fail(403,'Delivery restrito ao laboratório isolado autorizado.');}
 export async function assertDeliveryDatabase(c){
  assertDeliveryLab();const target=(await c.query("SELECT current_setting('port') AS port,current_database() AS database")).rows[0];
+ if(installation?.delivery){
+  const marker=await validateHome();
+  if(target.port!==String(installation.dbPort)||!(target.database===database||/^ruy_d1_rc_[a-f0-9]{16}$/.test(target.database)))throw fail(403,'Delivery installation target mismatch.');
+  if(target.database===database&&(await c.query('SELECT id FROM lab_device WHERE singleton')).rows[0]?.id!==marker.deviceId)throw fail(403,'Delivery device identity mismatch.');
+  return;
+ }
  if(target.port!=='55437'||!/^ruy_d1_rc_[a-f0-9]{16}$/.test(target.database))throw fail(403,'Delivery exige banco novo no clone descartável 55437.');
 }
 const conflict=message=>{throw fail(409,message);};

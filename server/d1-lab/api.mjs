@@ -1,5 +1,6 @@
 import {reconciliationPlan,reconcile} from './reconciliation.mjs';
-import {deliveryEnabled} from './delivery.mjs';
+import {deliveryEnabled,assertDeliveryDatabase} from './delivery.mjs';
+import {attachmentsEnabled} from './capabilities.mjs';
 import {enqueueAttachment,transferAttachment,fetchAttachment,listLocalAttachments,localAttachment,authorizeAttachmentRecord} from './attachment-transfer.mjs';
 import {provisionedRequest} from './tls-provision.mjs';
 import http from 'node:http';
@@ -36,7 +37,7 @@ export function createServer(pool,deviceId) {
         if(req.headers.origin!==origin)throw fail(403,'Origem obrigatória.');
         if(!/^application\/json(?:;|$)/i.test(req.headers['content-type']||''))throw fail(415,'JSON obrigatório.');
         const chunks=[];let size=0;
-        for await(const chunk of req){size+=chunk.length;if(size>(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'?1024*1024:16384))throw fail(413,'Limite de conteúdo.');chunks.push(chunk);}
+        for await(const chunk of req){size+=chunk.length;if(size>(url.pathname.startsWith('/api/d1/attachments')&&attachmentsEnabled()?1024*1024:16384))throw fail(413,'Limite de conteúdo.');chunks.push(chunk);}
         try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw fail(400,'JSON inválido.');}
         if(!body||typeof body!=='object'||Array.isArray(body))throw fail(400,'Objeto JSON obrigatório.');
       }
@@ -67,7 +68,7 @@ export function createServer(pool,deviceId) {
       const user=(await pool.query('SELECT u.id,u.role,s.csrf FROM lab_sessions s JOIN lab_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active',[digest(token)])).rows[0];
       if(!user)throw fail(401,'Sessão expirada/revogada.');
       if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatório.');
-      if(url.pathname.startsWith('/api/d1/attachments')&&process.env.RUY_D1_ATTACHMENTS_LAB==='1'&&process.env.RUY_D1_ALLOW_TESTS==='1'){
+      if(url.pathname.startsWith('/api/d1/attachments')&&attachmentsEnabled()){
         if(url.pathname==='/api/d1/attachments'&&req.method==='GET')return reply(200,await listLocalAttachments(pool,user.id));
         if(url.pathname==='/api/d1/attachments/remote'&&req.method==='GET'){
           const id=url.searchParams.get('record');await authorizeAttachmentRecord(pool,user.id,id);
@@ -98,7 +99,7 @@ export function createServer(pool,deviceId) {
       }
       if(url.pathname==='/api/d1/delivery/status'&&req.method==='GET'){
         if(user.role!=='admin')throw fail(403,'Delivery exige administrador de laboratório.');
-        const ready=deliveryEnabled()&&(await pool.query("SELECT current_setting('port')='55437' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$' AND EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;
+        let ready=false;if(deliveryEnabled()){await assertDeliveryDatabase(pool);ready=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;}
         return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
       }
       if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:{id:user.id,role:user.role},csrf:user.csrf,deviceId});

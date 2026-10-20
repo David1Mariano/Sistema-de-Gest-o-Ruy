@@ -1,10 +1,11 @@
 import https from 'node:https';
 import {X509Certificate,createPrivateKey} from 'node:crypto';
 import {isIP} from 'node:net';
-import {seal,unseal,validateHome} from './environment.mjs';
+import {seal,unseal,validateHome,installation} from './environment.mjs';
 import {uuid,fail} from './core.mjs';
 export function validateTLS(value){
  const endpoint=new URL(value.endpoint);
+ if(installation?.tlsPort&&endpoint.href!=='https://127.0.0.1:'+installation.tlsPort+'/')throw fail(403,'TLS endpoint outside installation namespace.');
  const privateIP=isIP(endpoint.hostname)===4&&(/^(10\.|192\.168\.)/.test(endpoint.hostname)||/^172\.(1[6-9]|2\d|3[01])\./.test(endpoint.hostname));
  if(endpoint.protocol!=='https:'||endpoint.username||endpoint.password||endpoint.pathname!=='/'||endpoint.search||endpoint.hash||endpoint.hostname!=='127.0.0.1'&&!(value.authorizedPrivateLab===true&&privateIP)||!endpoint.port||!uuid(value.actorId)||!uuid(value.deviceId)||!uuid(value.workspaceId)||!/^[a-f0-9]{64}$/.test(value.token||''))throw fail(400,'Invalid laboratory TLS provision.');
  const cert=new X509Certificate(value.cert),now=Date.now();

@@ -30,8 +30,8 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
   try{await owner.query(`CREATE ROLE ruy_d1_app LOGIN NOSUPERUSER NOCREATEDB NOCREATEROLE NOREPLICATION PASSWORD '${appPassword}'`);await owner.query(`CREATE DATABASE ${database} OWNER ruy_d1_owner`);}finally{await owner.end();}
   const db=new pg.Client(c);await db.connect();
   try{
-    await db.query('BEGIN');await db.query(await fs.readFile(new URL('./schema.sql',import.meta.url),'utf8'));
-    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql',...(installation?['attachments.sql','business.sql']:[])])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
+    await db.query('BEGIN');if(installation?.delivery)await db.query("SELECT set_config('ruy.initializing_installation',$1,true)",[installation.id]);await db.query(await fs.readFile(new URL('./schema.sql',import.meta.url),'utf8'));
+    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql',...(installation?['attachments.sql','business.sql']:[]),...(installation?.delivery?['delivery.sql']:[])])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
     await db.query('INSERT INTO lab_device(id) VALUES($1)',[marker.deviceId]);
     await db.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
     await db.query(`GRANT CONNECT ON DATABASE ${database} TO ruy_d1_app`);
@@ -58,6 +58,7 @@ export async function ensureLocalDatabase(){
  const marker=await validateHome();
  if((await fs.realpath(cluster)).toLowerCase()!==path.resolve(cluster).toLowerCase())throw Error('Cluster redirecionado recusado.');
  const credentials=await config();
+ if(installation){try{const lines=(await fs.readFile(path.join(cluster,'postmaster.pid'),'utf8')).trim().split(/\r?\n/);if(lines.at(-1)==='stopping')throw Object.assign(Error('Laboratory PostgreSQL is stopping; wait for its normal shutdown'),{code:'LAB_DATABASE_STOPPING'});}catch(error){if(error.code!=='ENOENT')throw error;}}
  let started=false;
  try{pgCommand(marker.bin,'pg_ctl',['-D',cluster,'status']);}catch{
   await new Promise((resolve,reject)=>{

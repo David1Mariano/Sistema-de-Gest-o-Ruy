@@ -1,9 +1,11 @@
+import {installationFor} from '../d1-lab/installation.mjs';
 import https from 'node:https';
 import {isIP} from 'node:net';
 
 const fingerprint=value=>String(value).replaceAll(':','').toUpperCase();
 export function createLabTransport({key,cert,ca,devices,upstream='http://127.0.0.1:18092',host='127.0.0.1',allowPrivateNetwork=false}){
- if(!['http://127.0.0.1:18092'].includes(upstream))throw Error('Only isolated D1 gateway is allowed.');
+ const installation=installationFor();const allowedUpstream=installation?.gatewayPort?'http://127.0.0.1:'+installation.gatewayPort:'http://127.0.0.1:18092';
+ if(upstream!==allowedUpstream)throw Error('Only isolated D1 gateway is allowed.');
  const privateIP=isIP(host)===4&&(/^(10\.|192\.168\.)/.test(host)||/^172\.(1[6-9]|2\d|3[01])\./.test(host));
  if(host!=='127.0.0.1'&&!(allowPrivateNetwork&&privateIP))throw Error('Loopback is the default; private network requires explicit opt-in.');
  if(!Array.isArray(devices)||!devices.length||devices.some(x=>!/^[A-F0-9]{64}$/.test(fingerprint(x.fingerprint))||!/^[a-f0-9]{64}$/.test(x.token)))throw Error('Certificate and device token bindings required.');

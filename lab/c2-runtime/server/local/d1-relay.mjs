@@ -4,7 +4,9 @@ export async function relayD1(req,res,origin){
   if(!url.pathname.startsWith('/api/local/d1/'))return false;
   const reply=(status,value)=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store'});res.end(JSON.stringify(value));};
   if(!origin){reply(403,{error:'Bridge disabled.'});return true;}
-  if(!['http://127.0.0.1:18086','http://127.0.0.1:18090','http://127.0.0.1:18094'].includes(origin)||origin.endsWith(':18094')&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Invalid synthetic central origin');
+  const isolated=process.env.RUY_D1_ALLOW_TESTS==='1'&&process.env.RUY_D1_INSTALLATION==='i5r4-dev-20261020'&&process.env.RUY_D1_TEST_API_PORT==='18113';
+  const legacyAllowed=['http://127.0.0.1:18086','http://127.0.0.1:18090','http://127.0.0.1:18094'].includes(origin)&&(!origin.endsWith(':18094')||process.env.RUY_D1_ALLOW_TESTS==='1');
+  if(!(isolated?origin==='http://127.0.0.1:18555':legacyAllowed))throw Error('Invalid synthetic central origin');
   const push=url.pathname==='/api/local/d1/push'&&req.method==='POST';
   const pull=url.pathname==='/api/local/d1/changes'&&req.method==='GET';
   const attachment=url.pathname.match(/^\/api\/local\/d1\/attachments\/([a-f0-9-]{36})$/);
