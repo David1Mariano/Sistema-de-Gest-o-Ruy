@@ -3,8 +3,9 @@ import {app,BrowserWindow} from 'electron';
 import fs from 'node:fs/promises';
 import syncFs from 'node:fs';
 import path from 'node:path';
-import {webPreferences,allowedNavigation} from './policy.mjs';
-if(process.env.RUY_D1_ALLOW_TESTS!=='1'||process.env.RUY_D1_RESTART_FIXTURE!=='e5aaec701010f607'||process.env.RUY_D1_DELIVERY_LAB!=='1'||process.env.RUY_D1_TEST_API_PORT!=='18091')throw Error('Owned synthetic UI fixture required.');
+import {webPreferences,allowedNavigation,localOrigin} from './policy.mjs';
+const isolated=process.env.RUY_D1_INSTALLATION==='i5r4-dev-20261020'&&process.env.RUY_D1_TEST_API_PORT==='18113';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!isolated&&(process.env.RUY_D1_RESTART_FIXTURE!=='e5aaec701010f607'||process.env.RUY_D1_DELIVERY_LAB!=='1'||process.env.RUY_D1_TEST_API_PORT!=='18091'))throw Error('Owned synthetic UI fixture required.');
 process.on('uncaughtException',()=>{process.exitCode=1;app.quit();});
 const config=JSON.parse(syncFs.readFileSync(process.env.RUY_D1_DELIVERY_UI_CONFIG,'utf8'));
 if(config.purpose!=='RUY_DELIVERY_UI_SYNTHETIC'||!path.isAbsolute(config.home)||!path.basename(config.home).startsWith('ruy-rc-'))throw Error('Private synthetic profile required.');
@@ -23,7 +24,7 @@ try{
  const click=async text=>{await wait(()=>js(`!![...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled)`));await js(`[...document.querySelectorAll('button')].find(b=>b.textContent.trim()===${JSON.stringify(text)}&&!b.disabled).click()`);};
  const set=async(selector,value,event='input')=>js(`(()=>{const e=document.querySelector(${JSON.stringify(selector)});if(!e)throw Error('Control absent');Object.getOwnPropertyDescriptor(${event==='change'?'HTMLSelectElement':'HTMLInputElement'}.prototype,'value').set.call(e,${JSON.stringify(value)});e.dispatchEvent(new Event(${JSON.stringify(event)},{bubbles:true}));})()`);
  const selectLabel=async(label,text,index=0)=>{await wait(()=>js(`!![...document.querySelectorAll('label')].filter(l=>l.textContent.startsWith(${JSON.stringify(label)}))[${index}]?.querySelector('select')`));await js(`(()=>{const e=[...document.querySelectorAll('label')].filter(l=>l.textContent.startsWith(${JSON.stringify(label)}))[${index}].querySelector('select');const option=[...e.options].find(o=>o.textContent.startsWith(${JSON.stringify(text)}));if(!option)throw Error('Option absent');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(e,option.value);e.dispatchEvent(new Event('change',{bubbles:true}));})()`);};
- await window.loadURL('http://127.0.0.1:18091/delivery-lab');
+ await window.loadURL(localOrigin+'/delivery-lab');
  await wait(()=>js("!!document.querySelector('input[name=login]')"));await set('input[name=login]',config.login);await set('input[name=password]',config.password);await js("document.querySelector('input[name=login]').form.requestSubmit()");
  await wait(()=>js("!![...document.querySelectorAll('h1')].find(e=>e.textContent==='Delivery — homologação')"));
  for(const [tab,name,price] of [['Clientes','FICTICIO Windows cliente',null],['Cardápio','FICTICIO Windows item','8.75'],['Entregadores','FICTICIO Windows entregador',null]]){

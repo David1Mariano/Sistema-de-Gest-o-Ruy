@@ -1,0 +1,12 @@
+import fs from 'node:fs/promises';
+import assert from 'node:assert/strict';
+import {installation} from '../../server/d1-lab/environment.mjs';
+import {createInstallationFixture} from './installation-fixture.mjs';
+import {runStage3} from './test-integration-stage3.mjs';
+import {runStage4} from './test-integration-stage4.mjs';
+assert.equal(installation?.id,'i5r4-dev-20261020');
+const attachments=await runStage3({fixture:await createInstallationFixture()});
+await fs.writeFile('logs/i5r4-dev/attachments.json',JSON.stringify(attachments,null,2));
+const delivery=await runStage4({fixtureFactory:createInstallationFixture});
+await fs.writeFile('logs/i5r4-dev/delivery.json',JSON.stringify(delivery,null,2));
+console.log('POSTR3_INTEGRATIONS_PASSED');

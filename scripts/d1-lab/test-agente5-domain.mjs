@@ -1,19 +1,19 @@
 import assert from 'node:assert/strict';
 import {randomUUID,randomBytes} from 'node:crypto';
-import {config,validateHome} from '../../server/d1-lab/environment.mjs';
+import {config,validateHome,API_PORT,installation} from '../../server/d1-lab/environment.mjs';
 import {poolFor,hashPassword} from '../../server/d1-lab/core.mjs';
 import {domainCommand} from '../../server/d1-lab/domain.mjs';
-if(process.env.RUY_D1_ALLOW_TESTS!=='1'||process.env.RUY_D1_TEST_API_PORT!=='18091')throw Error('Explicit synthetic test on auxiliary port 18091 required.');
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!(installation?.id==='i5r4-dev-20261020'||!installation&&process.env.RUY_D1_TEST_API_PORT==='18091'))throw Error('Explicit synthetic test on auxiliary port 18091 required.');
 let pool=poolFor(await config());const marker=await validateHome(),actor=randomUUID(),password=randomBytes(24).toString('hex');
 let checks=0;const results=[];
 const check=async(name,fn)=>{await fn();checks++;results.push(name);console.log('PASS '+name);};
-const origin='http://127.0.0.1:18091';let session;
+const origin='http://127.0.0.1:'+API_PORT;let session;
 const api=async(route,body)=>{const r=await fetch(origin+'/api/d1'+route,{method:body?'POST':'GET',headers:{Origin:origin,'Content-Type':'application/json',Cookie:session?.cookie||'','X-CSRF-Token':session?.csrf||''},body:body?JSON.stringify(body):undefined});return {status:r.status,body:await r.json()};};
 const command=(entity,data,id=randomUUID(),baseVersion=null)=>({operationId:randomUUID(),entity,id,baseVersion,action:'save',data});
 const send=async body=>{const r=await api('/domain/command',body);assert.equal(r.status,200,JSON.stringify(r.body));return r.body;};
 const snapshot=async()=>{const s={};for(const table of ['d2_catalog','d1_stock_balances','d1_stock_movements','d1_operation_events'])s[table]=(await pool.query(`SELECT to_jsonb(t) r FROM ${table} t WHERE owner_id=$1 ORDER BY id`,[actor]).catch(async e=>{if(e.code!=='42703')throw e;return pool.query(`SELECT to_jsonb(t) r FROM ${table} t WHERE owner_id=$1 ORDER BY item_id`,[actor]);})).rows;s.outbox=(await pool.query('SELECT * FROM lab_outbox WHERE actor=$1 ORDER BY operation_id',[actor])).rows;return s;};
 const {createServer}=await import('../../server/d1-lab/api.mjs');
-const server=createServer(pool,marker.deviceId);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(18091,'127.0.0.1',resolve);});
+const server=createServer(pool,marker.deviceId);await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(API_PORT,'127.0.0.1',resolve);});
 try{
  await pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[actor,actor+'@example.invalid',await hashPassword(password)]);
  const login=await fetch(origin+'/api/d1/login',{method:'POST',headers:{Origin:origin,'Content-Type':'application/json'},body:JSON.stringify({login:actor+'@example.invalid',password})});assert.equal(login.status,200);session={...await login.json(),cookie:login.headers.get('set-cookie').split(';')[0]};
@@ -30,11 +30,11 @@ try{
   product=(await send(command('ProductionProduct',{...product,instructions:'FICTICIO preparo'},product.id,1))).domainRecord;
   assert.equal(product._version,2);assert.equal((await api('/domain/command',command('ProductionProduct',{...product},product.id,1))).status,409);
  });
- await check('diário registra perdas e conclui ordem no mesmo commit',async()=>{
+ await check('diário registra perdas sem concluir antes da confirmação',async()=>{
   order=(await send(command('ProductionOrder',{date:'2026-10-15',product_id:product.id,planned_quantity:10,produced_quantity:0,priority:'normal',status:'planejada',responsible:'FICTICIO operador'}))).domainRecord;
   daily=(await send(command('DailyProduction',{date:'2026-10-15',product_id:product.id,production_order_id:order.id,produced_quantity:10,loss_quantity:1,leftover_quantity:1,losses:[{quantity:1,reason:'FICTICIO queimado',responsible:'FICTICIO operador',date:'2026-10-15',unit:'un'}]}))).domainRecord;
   assert.equal(daily.local_status,'rascunho');assert.equal(daily.recipe_snapshot[0].quantity,2);
-  const saved=(await api('/domain/ProductionOrder')).body.records[0];assert.equal(saved.status,'concluida');assert.equal(saved.produced_quantity,10);
+  const saved=(await api('/domain/ProductionOrder')).body.records[0];assert.equal(saved.status,'em_producao');assert.equal(saved.produced_quantity,0);
  });
  await check('perdas inválidas e duplicação de ordem não gravam parcialmente',async()=>{
   const before=await snapshot();
@@ -52,6 +52,7 @@ try{
   const preview=(await api('/domain/preview/'+daily.id)).body;
   confirmedCommand={operationId:randomUUID(),entity:'DailyProduction',id:daily.id,baseVersion:1,action:'confirm',token:preview.token};
   daily=(await send(confirmedCommand)).domainRecord;assert.equal((await send(confirmedCommand)).replay,true);
+  const saved=(await api('/domain/ProductionOrder')).body.records.find(row=>row.id===order.id);assert.equal(saved.status,'concluida');assert.equal(saved.produced_quantity,10);
   assert.equal((await api('/operations/state')).body.balances[0].quantity_milli,'9000');
   assert.equal((await api('/domain/command',{...confirmedCommand,operationId:randomUUID(),baseVersion:2})).status,409);
  });

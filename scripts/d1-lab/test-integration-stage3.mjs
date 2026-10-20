@@ -2,6 +2,7 @@ import assert from 'node:assert/strict';
 import {randomUUID,randomBytes,X509Certificate} from 'node:crypto';
 import {fork} from 'node:child_process';
 import {createFixture} from './rc-fixture.mjs';
+import {installation} from '../../server/d1-lab/environment.mjs';
 import {digest,hashPassword} from '../../server/d1-lab/core.mjs';
 import {catalogSave} from '../../server/d1-lab/catalog.mjs';
 import {synchronizeD1} from '../../server/d1-lab/sync.mjs';
@@ -12,13 +13,14 @@ import {createLabTransport,sendLabTLS} from '../../server/sync-lab/mtls-transpor
 import {createLocalServer} from '../../lab/c2-runtime/server/local/api.mjs';
 import {attachmentSamples,attachmentBody} from './stage3-attachment-samples.mjs';
 
-export async function runStage3(){
- assert.equal(process.env.RUY_D1_ALLOW_TESTS,'1');assert.equal(process.env.RUY_D1_RESTART_FIXTURE,'e5aaec701010f607');
- const fixture=await createFixture(),results=[];
+export async function runStage3({fixture:providedFixture}={}){
+ assert.equal(process.env.RUY_D1_ALLOW_TESTS,'1');if(!providedFixture)assert.equal(process.env.RUY_D1_RESTART_FIXTURE,'e5aaec701010f607');else assert.equal(installation?.id,'i5r4-dev-20261020');
+ const fixture=providedFixture||await createFixture(),results=[];
+ const ports=providedFixture?{api:18113,gateway:18554,bridge:18555,tls:18553,db:55453}:{api:18091,gateway:18092,bridge:18094,tls:0,db:55437};
  const check=async(name,fn)=>{await fn();results.push(name);console.log('PASS '+name);};
  const schemas=['schema','entities','catalog','sync','operations','domain','attachments','business'].map(n=>'d1-lab/'+n+'.sql');
  const A=await fixture.database('local',schemas),B=await fixture.database('local',schemas),C=await fixture.database('local',['sync-lab/d1-central.sql','sync-lab/attachments.sql','sync-lab/business.sql']);
- assert.ok(fixture.databases.every(d=>d.port===55437));
+ assert.ok(fixture.databases.every(d=>d.port===ports.db));
  const actorA=randomUUID(),actorB=randomUUID(),deviceA=randomUUID(),deviceB=randomUUID(),workspace=randomUUID(),other=randomUUID();
  const tokenA=randomBytes(32).toString('hex'),tokenB=randomBytes(32).toString('hex'),password=randomBytes(32).toString('hex'),recordId=randomUUID();
  const serverCert=await fixture.certificate('stage3-server'),clientA=await fixture.certificate('stage3-a'),clientB=await fixture.certificate('stage3-b');
@@ -26,11 +28,11 @@ export async function runStage3(){
  const listen=(s,p)=>new Promise((r,j)=>{s.once('error',j);s.listen(p,'127.0.0.1',r);});
  const close=s=>s?.listening?new Promise(r=>s.close(r)):Promise.resolve();
  const startWorker=async()=>{
-  worker=fork(new URL('./stage3-api-worker.mjs',import.meta.url),[],{windowsHide:true,stdio:['ignore','inherit','inherit','ipc'],env:{...process.env,RUY_D1_TEST_API_PORT:'18091',RUY_D1_ATTACHMENTS_LAB:'1'}});
+  worker=fork(new URL('./stage3-api-worker.mjs',import.meta.url),[],{windowsHide:true,stdio:['ignore','inherit','inherit','ipc'],env:{...process.env,RUY_D1_TEST_API_PORT:String(ports.api),RUY_D1_ATTACHMENTS_LAB:'1'}});
   await new Promise((r,j)=>{const onExit=()=>j(Error('Auxiliary API exited before readiness'));worker.once('exit',onExit);worker.once('error',j);worker.once('message',m=>{worker.removeListener('exit',onExit);m.ready?r():j(Error('Auxiliary API refused synthetic fixture'));});worker.send({action:'start',config:A.config,deviceId:deviceA});});
  };
  const stopWorker=async()=>{if(worker&&worker.exitCode===null){const p=worker;await new Promise((r,j)=>{p.once('exit',code=>code===0?r():j(Error('Auxiliary API normal shutdown failed')));if(p.connected)p.send({action:'stop'});});}worker=null;};
- const origin='http://127.0.0.1:18091';
+ const origin='http://127.0.0.1:'+ports.api;
  const api=async(route,body,options={})=>{
   const r=await fetch(origin+'/api/d1'+route,{method:body?'POST':'GET',signal:AbortSignal.timeout(15000),headers:{Origin:options.origin||origin,'Content-Type':'application/json',Cookie:options.cookie??session?.cookie??'','X-CSRF-Token':options.csrf??session?.csrf??''},body:body?JSON.stringify(body):undefined});
   const binary=route.endsWith('/download')&&r.ok;return {status:r.status,headers:r.headers,value:binary?Buffer.from(await r.arrayBuffer()):await r.json()};
@@ -47,9 +49,9 @@ export async function runStage3(){
    await C.pool.query("INSERT INTO d1_principals(token_hash,device_id,actor_id,workspace_id,role) VALUES($1,$2,$3,$4,'admin')",[digest(token),device,actor,workspace]);
   }
   await A.pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[other,other+'@example.invalid',passwordHash]);
-  central=createD1Central(C.pool,{attachments:true,business:true});await listen(central,18094);
-  gateway=createLocalServer(C.pool,{origin:'http://127.0.0.1:18092',d1BridgeOrigin:'http://127.0.0.1:18094'});await listen(gateway,18092);
-  tls=createLabTransport({...serverCert,ca:clientA.cert+'\n'+clientB.cert,devices:[{fingerprint:new X509Certificate(clientA.cert).fingerprint256,token:tokenA},{fingerprint:new X509Certificate(clientB.cert).fingerprint256,token:tokenB}]}).server;await listen(tls,0);
+  central=createD1Central(C.pool,{attachments:true,business:true});await listen(central,ports.bridge);
+  gateway=createLocalServer(C.pool,{origin:'http://127.0.0.1:'+ports.gateway,d1BridgeOrigin:'http://127.0.0.1:'+ports.bridge});await listen(gateway,ports.gateway);
+  tls=createLabTransport({...serverCert,upstream:'http://127.0.0.1:'+ports.gateway,ca:clientA.cert+'\n'+clientB.cert,devices:[{fingerprint:new X509Certificate(clientA.cert).fingerprint256,token:tokenA},{fingerprint:new X509Certificate(clientB.cert).fingerprint256,token:tokenB}]}).server;await listen(tls,ports.tls);
   const endpoint='https://127.0.0.1:'+tls.address().port;
   for(const [local,actor,device,token,cert] of [[A,actorA,deviceA,tokenA,clientA],[B,actorB,deviceB,tokenB,clientB]])await provisionTLS(local.pool,{...cert,ca:serverCert.cert,endpoint,actorId:actor,deviceId:device,workspaceId:workspace,token});
   const transportA=await provisionedRequest({actor:actorA,device_id:deviceA,workspace_id:workspace}),transportB=await provisionedRequest({actor:actorB,device_id:deviceB,workspace_id:workspace});
