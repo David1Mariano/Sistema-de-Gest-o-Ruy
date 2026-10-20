@@ -1,4 +1,5 @@
 import {test} from 'node:test';
+import http from 'node:http';
 import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {config,validateHome} from '../../server/d1-lab/environment.mjs';
@@ -6,9 +7,13 @@ import {poolFor,seedSynthetic} from '../../server/d1-lab/core.mjs';
 import {catalogSave} from '../../server/d1-lab/catalog.mjs';
 import {save} from '../../server/d1-lab/entities.mjs';
 import {base44,setSession} from '../../lab/d1/client.mjs';
-const origin='http://127.0.0.1:18087';
+import {createServer,origin} from '../../server/d1-lab/api.mjs';
 test('Cadastros offline: permissões, contratos oficiais, fila, dados pessoais, versões e rollback',async()=>{
- const pool=poolFor(await config()),marker=await validateHome(),nativeFetch=globalThis.fetch;
+ const pool=poolFor(await config()),marker=await validateHome(),originalFetch=globalThis.fetch;
+ const server=createServer(pool,marker.deviceId);
+ await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(0,'127.0.0.1',resolve);});
+ // Use this test's pool instead of an unrelated historical API on port 18087.
+ const nativeFetch=(url,options={})=>new Promise((resolve,reject)=>{const target=new URL(url);const req=http.request({host:'127.0.0.1',port:server.address().port,path:target.pathname+target.search,method:options.method||'GET',headers:{...options.headers,Host:new URL(origin).host}},res=>{const chunks=[];res.on('data',c=>chunks.push(c));res.on('error',reject);res.on('end',()=>resolve(new Response(Buffer.concat(chunks),{status:res.statusCode,headers:res.headers})));});req.on('error',reject);req.end(options.body);});
  const store=new Map();globalThis.localStorage={getItem:k=>store.get(k)||null,setItem:(k,v)=>store.set(k,v),removeItem:k=>store.delete(k)};
  globalThis.dispatchEvent=()=>true;
  try{
@@ -59,5 +64,5 @@ test('Cadastros offline: permissões, contratos oficiais, fila, dados pessoais, 
   assert.equal(cascaded.cascata.length,2);assert.ok(cascaded.cascata.every(r=>r.record.salary===undefined&&r.record.cpf===undefined));
   const replay=await save(pool,admin.user,marker.deviceId,'Sector',sectorId,rename);
   assert.ok(replay.cascata.every(r=>r.record.salary===undefined));
- }finally{setSession(null);globalThis.fetch=nativeFetch;await pool.end();}
+ }finally{setSession(null);globalThis.fetch=originalFetch;await new Promise(resolve=>server.close(resolve));await pool.end();}
 });

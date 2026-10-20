@@ -50,8 +50,9 @@ async function key(){
  try{return Buffer.from((await unseal('backup-key.dpapi')).key,'hex');}
  catch(e){if(e.code!=='ENOENT')throw e;await seal('backup-key.dpapi',{key:randomBytes(32).toString('hex')});return Buffer.from((await unseal('backup-key.dpapi')).key,'hex');}
 }
-export async function backup({retain=24}={}){
+export async function backup({retain=24,preserveExisting=false}={}){
  if(!Number.isInteger(retain)||retain<2||retain>365)throw Error('Retenção deve ficar entre 2 e 365 cópias.');
+ if(typeof preserveExisting!=='boolean')throw Error('Política de preservação inválida.');
  const marker=await validateHome(),c=await config(),dir=path.join(home,'backups');
  await fs.mkdir(dir,{recursive:true});
  if((await fs.realpath(dir)).toLowerCase()!==path.resolve(dir).toLowerCase())throw Error('Diretório de backup redirecionado.');
@@ -99,13 +100,14 @@ export async function backup({retain=24}={}){
     if(hash(await fs.readFile(partial))!==result.sha256)throw Error('Cópia externa divergente.');
     await fs.rename(partial,externalFile);
     result.externalState='verified-copy';result.externalFile=externalFile;
-    result.externalRetention=await rotateExternal(destination,settings.externalRetain??retain,archiveKey,marker.deviceId);
+    result.externalRetention=preserveExisting?{deleted:0,preservationEnabled:true}:await rotateExternal(destination,settings.externalRetain??retain,archiveKey,marker.deviceId);
    }catch{result.externalState='error';result.externalError='Cópia no destino configurado falhou; backup local preservado.';}
   }
   await fs.writeFile(path.join(home,'backup-status.json'),JSON.stringify(result));
   // Retenção somente de arquivos regulares do diretório privado validado.
   const files=(await fs.readdir(dir,{withFileTypes:true})).filter(e=>e.isFile()&&e.name.endsWith('.ruybak')).map(e=>e.name).sort().reverse();
-  for(const name of files.slice(retain))await fs.unlink(path.join(dir,name));
+  if(!preserveExisting)for(const name of files.slice(retain))await fs.unlink(path.join(dir,name));
+  result.existingBackupsPreserved=preserveExisting;
   return result;
  }catch(e){
   await fs.writeFile(path.join(home,'backup-status.json'),JSON.stringify({state:'error',lastError:'Backup local falhou. Verifique espaço, dependências e estado do laboratório.',externalProtected:false}));

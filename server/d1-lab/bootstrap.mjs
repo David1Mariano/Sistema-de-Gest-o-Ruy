@@ -3,7 +3,7 @@ import path from 'node:path';
 import {randomBytes,randomUUID} from 'node:crypto';
 import {spawn} from 'node:child_process';
 import {pg,hashPassword} from './core.mjs';
-import {home,cluster,database,DB_PORT,createHome,seal,config,pgCommand,powershell,validateHome} from './environment.mjs';
+import {home,cluster,database,DB_PORT,API_PORT,installation,createHome,seal,config,pgCommand,powershell,validateHome} from './environment.mjs';
 export function validateAccount(account){
  if(!account||typeof account.login!=='string'||!/^[-a-z0-9._+]+@example\.invalid$/.test(account.login)||account.login.length>254)throw Error('Use um e-mail fictício terminado em @example.invalid.');
  if(typeof account.password!=='string'||account.password.length<12||Buffer.byteLength(account.password)>256)throw Error('Senha local deve ter pelo menos 12 caracteres.');
@@ -15,7 +15,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
  for(const executable of ['postgres','pg_ctl','initdb','pg_dump','pg_restore'])await fs.access(path.join(bin,executable+'.exe'));
 
   if(!pgCommand(bin,'postgres',['--version']).match(/PostgreSQL\) 17\./))throw Error('Requer PostgreSQL 17 instalado de origem confiável.');
-  powershell("if(Get-NetTCPConnection -State Listen -LocalPort 55436,18087 -ErrorAction SilentlyContinue){throw 'Porta D1 ocupada'}");
+  powershell(`if(Get-NetTCPConnection -State Listen -LocalPort ${DB_PORT},${API_PORT} -ErrorAction SilentlyContinue){throw 'Porta D1 ocupada'}`);
   const marker=await createHome(bin);
   const password=randomBytes(32).toString('hex');
   const c={host:'127.0.0.1',port:DB_PORT,database,user:'ruy_d1_owner',password};
@@ -31,7 +31,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
   const db=new pg.Client(c);await db.connect();
   try{
     await db.query('BEGIN');await db.query(await fs.readFile(new URL('./schema.sql',import.meta.url),'utf8'));
-    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql'])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
+    for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql',...(installation?['attachments.sql','business.sql']:[])])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
     await db.query('INSERT INTO lab_device(id) VALUES($1)',[marker.deviceId]);
     await db.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
     await db.query(`GRANT CONNECT ON DATABASE ${database} TO ruy_d1_app`);
@@ -51,6 +51,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
    try{await app.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[randomUUID(),account.login,accountHash]);}
    finally{await app.end();}
   }
+  if(installation){const {installationCertificates}=await import('./installation-certificates.mjs');await installationCertificates();}
   return {deviceId:marker.deviceId,database,created:true};
 }
 export async function ensureLocalDatabase(){
@@ -74,6 +75,7 @@ export async function ensureLocalDatabase(){
  }
  if(!db)throw Error('PostgreSQL ainda não disponível após espera limitada; dados preservados.');
  try{
+  if(installation){const identity=new pg.Client(await config(true));await identity.connect();try{const actual=(await identity.query('SHOW data_directory')).rows[0].data_directory;if(path.resolve(actual).toLowerCase()!==path.resolve(cluster).toLowerCase())throw Error('INSTALLATION_PGDATA_MISMATCH');}finally{await identity.end();}}
   if((await db.query('SELECT id FROM lab_device WHERE singleton')).rows[0]?.id!==marker.deviceId||(await db.query('SHOW listen_addresses')).rows[0].listen_addresses!=='127.0.0.1')throw Error('Identidade/origem do PostgreSQL divergente.');
   if(!(await db.query("SELECT to_regclass('public.d1_rh_history') AS name")).rows[0].name){
    // Apenas o banco marcado D1: ampliar contrato da etapa F sem apagar registros.

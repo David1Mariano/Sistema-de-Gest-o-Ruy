@@ -1,0 +1,16 @@
+import {test} from 'node:test';
+import assert from 'node:assert/strict';
+import {EventEmitter} from 'node:events';
+import fs from 'node:fs/promises';
+import os from 'node:os';
+import path from 'node:path';
+import configuration from '../../desktop/i5-environment.cjs';
+import logger from '../../desktop/startup-log.cjs';
+import {stopOwnedWorker,waitForTask} from '../../desktop/controlled-exit.mjs';
+const marker={purpose:'RUY_D1_SYNTHETIC_ONLY',restartFixture:'e5aaec701010f607',port:55437};
+test('Shortcut process gets only the marked clone defaults; no global environment mutation',()=>{const env={UNRELATED:'keep',RUY_D1_DELIVERY_LAB:'1'};configuration.configureI5Environment(env,marker);assert.equal(env.RUY_D1_TEST_API_PORT,'18091');assert.equal(env.UNRELATED,'keep');assert.equal(env.RUY_D1_DELIVERY_LAB,undefined);});
+test('Wrong marker and conflicting shared ports cannot be silently redirected',()=>{for(const change of [{port:55436},{purpose:'operational'},{restartFixture:'other'}])assert.throws(()=>configuration.configureI5Environment({},{...marker,...change}));assert.throws(()=>configuration.configureI5Environment({RUY_D1_TEST_API_PORT:'18087'},marker));});
+test('Logs exclude messages, credentials, stack and user paths',async()=>{const dir=await fs.mkdtemp(path.join(os.tmpdir(),'ruy-log-test-'));logger.startupLog(dir,'R2','failed','entry',{name:'Error',code:'SAFE',message:'SECRET-password',stack:'SECRET-stack',token:'SECRET-token'});const content=await fs.readFile(path.join(dir,'startup.jsonl'),'utf8');assert.equal(content.includes('SECRET'),false);assert.deepEqual(Object.keys(JSON.parse(content)),['time','pid','revision','event','stage','errorName','errorCode']);});
+test('Normal worker shutdown is acknowledged without kill',async()=>{const worker=new EventEmitter();worker.postMessage=value=>{assert.deepEqual(value,{type:'shutdown'});queueMicrotask(()=>worker.emit('exit',0));};assert.equal(await stopOwnedWorker(worker),true);});
+test('Unresponsive worker reports pending rather than force-ending it',async()=>{const worker=new EventEmitter();worker.postMessage=()=>{};worker.kill=()=>assert.fail('No forced shutdown');assert.equal(await stopOwnedWorker(worker,{timeoutMs:10}),false);assert.equal(worker.listenerCount('exit'),0);assert.equal(await stopOwnedWorker(null),true);});
+test('A slow backup cannot hang shutdown silently or be cancelled',async()=>{let complete;const flight=new Promise(resolve=>{complete=resolve;});assert.equal(await waitForTask(flight,{timeoutMs:10}),false);complete();assert.equal(await waitForTask(flight),true);assert.equal(await waitForTask(null),true);});

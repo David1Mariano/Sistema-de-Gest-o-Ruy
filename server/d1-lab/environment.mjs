@@ -3,12 +3,14 @@ import path from 'node:path';
 import { execFileSync, spawnSync } from 'node:child_process';
 import { createHash, randomUUID } from 'node:crypto';
 
+import {installationFor} from './installation.mjs';
+export const installation=installationFor();
 const restartFixture=process.env.RUY_D1_RESTART_FIXTURE;
 if(restartFixture&&(!/^[a-f0-9]{16}$/.test(restartFixture)||process.env.RUY_D1_ALLOW_TESTS!=='1'))throw Error('Fixture de restart inválida.');
-export const DB_PORT = restartFixture?55437:55436;
+export const DB_PORT = installation?.dbPort||(restartFixture?55437:55436);
 export const API_PORT = Number(process.env.RUY_D1_TEST_API_PORT||18087);
-if(![18087,18091].includes(API_PORT)||API_PORT!==18087&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Porta auxiliar exige laboratório explícito.');
-export const home = path.join(process.env.LOCALAPPDATA || '', 'GestaoRuy', restartFixture?'agente5-restart-'+restartFixture:'etapa-d1-lab');
+if(![18087,18091, ...(installation?[installation.apiPort]:[])].includes(API_PORT)||API_PORT!==18087&&process.env.RUY_D1_ALLOW_TESTS!=='1')throw Error('Porta auxiliar exige laboratório explícito.');
+export const home = path.join(process.env.LOCALAPPDATA || '', 'GestaoRuy', installation?'installation-'+installation.id:restartFixture?'agente5-restart-'+restartFixture:'etapa-d1-lab');
 export const cluster = path.join(home, 'cluster');
 export const database = 'ruy_d1_disposable';
 export function windows() {
@@ -38,6 +40,7 @@ export async function validateHome() {
   const marker=JSON.parse(await fs.readFile(path.join(home,'lab.json'),'utf8'));
   if(marker.purpose!=='RUY_D1_SYNTHETIC_ONLY' || marker.machine!==binding()) throw Error('Laboratório ausente, clonado ou de outro computador.');
   if(restartFixture&&(marker.restartFixture!==restartFixture||marker.port!==55437))throw Error('Cluster de restart não identificado.');
+  if(installation&&(marker.installationId!==installation.id||marker.port!==DB_PORT||marker.apiPort!==API_PORT))throw Error('INSTALLATION_MARKER_INVALID');
   const real=await fs.realpath(home);
   if(real.toLowerCase()!==path.resolve(home).toLowerCase()) throw Error('Redirecionamento de diretório recusado.');
   return marker;
@@ -61,7 +64,7 @@ export async function createHome(bin) {
   await fs.mkdir(home);
   const sid=powershell('[Security.Principal.WindowsIdentity]::GetCurrent().User.Value');
   execFileSync('icacls.exe',[home,'/inheritance:r','/grant:r',`*${sid}:(OI)(CI)F`],{windowsHide:true,stdio:'ignore'});
-  const marker={purpose:'RUY_D1_SYNTHETIC_ONLY',deviceId:randomUUID(),machine:binding(),bin,createdAt:new Date().toISOString()};
+  const marker={purpose:'RUY_D1_SYNTHETIC_ONLY',deviceId:randomUUID(),machine:binding(),bin,...(installation?{installationId:installation.id,port:DB_PORT,apiPort:API_PORT}:{}),createdAt:new Date().toISOString()};
   await fs.writeFile(path.join(home,'lab.json'),JSON.stringify(marker,null,2),{flag:'wx'});
   return marker;
 }

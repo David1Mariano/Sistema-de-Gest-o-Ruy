@@ -1,0 +1,195 @@
+{
+  "date": "2026-10-20",
+  "branch": "agente-5-auditoria-integracao-20261019",
+  "base": "edf2f53f4279d9fda55f0c12f1e3876ec73f982c",
+  "uncommittedPreparation": true,
+  "artifact": {
+    "revision": "A5-I5-R2-20261020",
+    "version": "0.5.2-rc.2",
+    "installer": "artifacts/agente5-integracao5r2-20261020/Sistema-Ruy-A5-I5-R2-20261020-Setup.exe",
+    "sha256": "50a38c8f1bc11b9798cb335ffcb884bfa8119584e0969fc450926070e28c0235",
+    "bytes": 111999657,
+    "asarSha256": "aecd6b1632ec9cdd0bd9d3971b3194efacef095d7c9207d4d5f2e658b523fe7a",
+    "dependencies": 13,
+    "sourceAndBundleMatch": true,
+    "privateFilesAbsent": true,
+    "fusesPreserved": true,
+    "previousInstallerPreserved": true,
+    "signed": false,
+    "restrictedToHomologation": true
+  },
+  "runtime": {
+    "actualPackagedElectron": true,
+    "installed": false,
+    "launcherRuyVariablesRemoved": true,
+    "window": {
+      "packaged": true,
+      "initialWindowVisible": true,
+      "minimizedRestored": true,
+      "offscreenRecovered": true,
+      "hiddenWindowRecoveredBySecondInstance": true,
+      "peerHadNoRuyEnvironment": true,
+      "initialBounds": {
+        "x": 37,
+        "y": 0,
+        "width": 1366,
+        "height": 852
+      },
+      "finalBounds": {
+        "x": 37,
+        "y": 0,
+        "width": 1366,
+        "height": 852
+      },
+      "ownWindowOnly": true
+    },
+    "syntheticStartupFailureExitCode": 1,
+    "invalidEnvironmentExitCode": 1,
+    "shutdownCompleteLogged": true,
+    "realOwnedApiShutdownTested": false,
+    "noProcessForced": true,
+    "existingLabApi18091Reused": true
+  },
+  "actualWindowsShortcut": {
+    "temporaryShortcutUnderLogs": true,
+    "installedShortcutChanged": false,
+    "launcherRuyVariablesRemoved": true,
+    "noArguments": true,
+    "visibleLoginConfirmed": true,
+    "secondLaunchSingleWindow": true,
+    "closedByNativeAltF4": true
+  },
+  "workerIPC": {
+    "passed": true,
+    "actualElectronUtilityProcess": true,
+    "actualIpcShutdown": true,
+    "earlyShutdownBeforeModuleReady": true,
+    "syntheticHttpFixture": true,
+    "operationalApiOrPostgresqlUsed": false,
+    "exitCode": 0,
+    "forced": false
+  },
+  "data": {
+    "syntheticOnly": true,
+    "databasePorts": [
+      55437,
+      55437
+    ],
+    "newConnectionPersistence": true,
+    "encryptedBackupRestore": true,
+    "restoredIntoNewDatabase": true,
+    "existingDatabasesDropped": false,
+    "postgresRestarted": false,
+    "physicalRecoveryTested": false
+  },
+  "backupPreservation": {
+    "existingFilesHashVerified": 23,
+    "retainRequested": 2,
+    "allExistingFilesPreserved": true,
+    "newEncryptedArchive": true,
+    "isolatedRestore": true,
+    "recoveryTablesVerified": 17,
+    "syncEnabled": false
+  },
+  "safetyCopy": {
+    "directory": "artifacts\\i5r2-preservacao-20261020-b65ffcc7228040d98cc0ebfcd217ac94",
+    "files": 25,
+    "sha256Verified": true,
+    "independentPhysicalBackup": false
+  },
+  "regressions": {
+    "historicalRun": {
+      "passed": 844,
+      "failed": 0
+    },
+    "cloneRunBeforeFixtureFix": {
+      "passed": 842,
+      "failed": 2
+    },
+    "correctedFixtureFiles": {
+      "passed": 4,
+      "failed": 0
+    },
+    "finalTargetedStartup": {
+      "passed": 12,
+      "failed": 0
+    },
+    "singleFinalFullRunClaimed": false,
+    "lint": true,
+    "webBuild": true,
+    "d1Build": true
+  },
+  "currentProcessRisk": {
+    "port": 55437,
+    "unconfirmedOutbox": 2024,
+    "queue": [
+      {
+        "state": "acknowledged",
+        "n": 422
+      },
+      {
+        "state": "conflict",
+        "n": 5
+      },
+      {
+        "state": "pending",
+        "n": 1
+      },
+      {
+        "state": "resolved",
+        "n": 4
+      }
+    ],
+    "otherOpenTransactions": 0,
+    "unsavedRendererState": "unknown",
+    "processStopped": false
+  },
+  "preservation": {
+    "oldI5ProcessStopped": false,
+    "installedI5Changed": false,
+    "previousInstallerPreserved": true,
+    "oldApi18080Changed": false,
+    "postgresOperationalChanged": false,
+    "supabaseChanged": false,
+    "certificatesChanged": false,
+    "forcedProcessTermination": false,
+    "originalWipFilesVerified": 10,
+    "originalHead": "db990245a985ed7cc9573a5f603f2d403b3e4859",
+    "recordedDpapiAndBackupsVerified": true,
+    "all25SafetySourceHashesVerified": true
+  },
+  "pending": [
+    "NSIS installation and final installed desktop shortcut",
+    "full D1 own-API shutdown after authorized release of 18091",
+    "second physical Windows and real network reconnect",
+    "independent restore and local permission acceptance",
+    "operational acceptance"
+  ],
+  "sourceSha256": {
+    "desktop/main.mjs": "2d2c7a4b68b9c466c9ffc343d0a2e17455c01be91974cbffd3672e4fd38524aa",
+    "desktop/service.mjs": "790504f86a0956dd5ec5add66305f1d89d5b8f478f28d908dec3d412a5e294f6",
+    "desktop/i5-entry.cjs": "134ba0aa173a6f00d8e90d1e71eb7fa9f2cdf7566506dfeab6329bc432385fc2",
+    "desktop/i5-environment.cjs": "a4752621a13a5b920984b049bb4601387c56b5c88c55455cca9caa35c5caca46",
+    "desktop/window-visibility.mjs": "0227963e4d8cf220e79e19f15b2cd86535a06757dec803ebdd14c11957b77e1c",
+    "desktop/controlled-exit.mjs": "6d082b168e54cc37b4d5c071e813b93c12a52c5ff5ad1a09c19022b8ec37e856",
+    "desktop/startup-log.cjs": "109806bc695d9f7aca56fb116d7cff49e52071e5b3ce059071cc5b53842668c4",
+    "desktop/window-lifecycle-test.mjs": "e80deb3bbde582482200a8bce8df6180dff132d498f3e32e1d54a4de06762c2c",
+    "desktop/electron-builder-agente5-i5r2.cjs": "6cb07307c09fd05cee15fd233679fa3b6cf80cee7f721249dd57059fde122c88",
+    "server/d1-lab/backup.mjs": "73492f7d9d02a4bd383c852a08caeacc44729f517b0d535116dae1b435838888",
+    "scripts/d1-lab/test-catalog.mjs": "aa93ec5df8a7e2cb210ed088efd0eca472392f50785cc18951d8d41fd769a69a",
+    "scripts/d1-lab/test-sync-status.mjs": "04d374449105b07299243daff06cf5249d349d34592711c58a1a8ce7be19fc62"
+  },
+  "logSha256": {
+    "startup-unit-final.log": "6e989b17639e4022f929cbf767a09a1b62919c49367e44ce03c8f36e7f8d51e5",
+    "regressions.log": "7432aa86a5be269f08e8418a74c0c8b76db7f73d7675751ebc910b339f91c4c8",
+    "regressions-clone.log": "c566f315346ceda4008bd0e5a38d432038fcba9662dd7764486508708d328a49",
+    "regressions-clone-focused-final.log": "2a53681a81822f7bf971d4f449f1d86f2ad01c940f147dd11090255931f9852b",
+    "data-retry.log": "824ddfab44221f42fc22bd81523081ca01aa483691af227d84e47fe17b77fee1",
+    "backup-preservation.log": "7680cf1cb4ec1abd18fc3a3f01dc3dd4136900d9607ed28cad766a0753507a7a",
+    "runtime-final.log": "a54a27c2f9f9873b24d37e85d951ff30a6691e6ddff4f9f89fa0867ad0df2a34",
+    "lint-final.log": "a6941718893765ea10b77b59b50a45e763935a24beec99c03bddf8b4378e87fc",
+    "build-web.log": "a8e0e707de4408fd1f9c2faaf910da8d0c1c366ecea075363850da3d36c70f71",
+    "build-d1.log": "4877017ba5e33ed269e689fabe6d7fd2d26f291159c1fd16f3f92993c0ea71f2",
+    "package-published-candidate.log": "728c699961af2ec5b2abc020ad7fc22250cca399b482d08aad383a6c6ccea8d1"
+  }
+}

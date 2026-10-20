@@ -1,0 +1,23 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs';
+import path from 'node:path';
+import {createRequire} from 'node:module';
+import {createHash} from 'node:crypto';
+const require=createRequire(path.join(process.env.RUY_ELECTRON_TOOL_HOME,'package.json')),asar=require('@electron/asar');
+const config=createRequire(import.meta.url)('../../desktop/electron-builder-agente5-i5r3.cjs');
+const dir='artifacts/agente5-integracao5r3-20261020',archive=dir+'/win-unpacked/resources/app.asar';
+const files=asar.listPackage(archive).map(n=>n.replaceAll('\\','/'));
+const exact=(source,target)=>assert.deepEqual(asar.extractFile(archive,target.replaceAll('/',path.sep)),fs.readFileSync(source),target);
+for(const file of fs.readdirSync('desktop'))if(/\.(mjs|cjs)$/.test(file)&&!file.startsWith('electron-builder-'))exact('desktop/'+file,file);
+for(const file of fs.readdirSync('server/d1-lab'))if(/\.(mjs|sql)$/.test(file))exact('server/d1-lab/'+file,'server/d1-lab/'+file);
+for(const entry of fs.readdirSync('dist-d1',{recursive:true,withFileTypes:true}))if(entry.isFile()){const file=path.join(entry.parentPath||entry.path,entry.name).replaceAll('\\','/');exact(file,file);}
+const deps=config.files.filter(f=>typeof f==='object'&&f.to.startsWith('node_modules/'));for(const dep of deps)assert.ok(files.includes('/'+dep.to+'/package.json'));
+assert.equal(files.some(n=>/(?:^|\/)\.env(?:\.|$)|\.(?:dpapi|ruybak|ruykey|pem|pfx|key|crt|dump|sqlite3?|db)$|(?:owner|db)-config\.json$|\/cluster\//i.test(n)),false);
+const metadata=JSON.parse(asar.extractFile(archive,'package.json'));assert.equal(metadata.main,'i5r3-entry.cjs');assert.equal(metadata.version,'0.5.2-rc.3');assert.equal(metadata.ruyRevision,'A5-I5-R3-20261020');
+const fuses=await require('@electron/fuses').getCurrentFuseWire(dir+'/win-unpacked/'+config.productName+'.exe');for(const index of [0,2,3])assert.equal(fuses[index],48);assert.equal(fuses[1],49);
+const hash=file=>createHash('sha256').update(fs.readFileSync(file)).digest('hex');
+assert.equal(hash('artifacts/agente5-integracao5r2-20261020/Sistema-Ruy-A5-I5-R2-20261020-Setup.exe'),'50a38c8f1bc11b9798cb335ffcb884bfa8119584e0969fc450926070e28c0235');
+assert.equal(hash('artifacts/agente5-integracao5-20261019/Sistema-Ruy-A5-I5-20261019-Setup.exe'),'70ac60a6676b2ad084523fd6822b1dde33f6a13579395f0f7456c4d8ef898cc1');
+const installer=dir+'/Sistema-Ruy-A5-I5-R3-20261020-Setup.exe';
+const report={revision:metadata.ruyRevision,version:metadata.version,installer,sha256:hash(installer),bytes:fs.statSync(installer).size,asarSha256:hash(archive),dependencies:deps.length,sourceAndBundleMatch:true,privateFilesAbsent:true,fusesPreserved:true,previousInstallerPreserved:true,signed:false,restrictedToHomologation:true};
+fs.writeFileSync('logs/i5r3/artifact.json',JSON.stringify(report,null,2));console.log(JSON.stringify(report));

@@ -1,0 +1,16 @@
+import assert from 'node:assert/strict';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import {createHash} from 'node:crypto';
+import {backup,restoreIsolated} from '../../server/d1-lab/backup.mjs';
+import {home,DB_PORT,validateHome} from '../../server/d1-lab/environment.mjs';
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||DB_PORT!==55437)throw Error('Disposable clone only');
+await validateHome();const directory=path.join(home,'backups');
+const hash=async file=>createHash('sha256').update(await fs.readFile(file)).digest('hex');
+const before={};for(const file of await fs.readdir(directory))if(file.endsWith('.ruybak'))before[file]=await hash(path.join(directory,file));
+assert.ok(Object.keys(before).length>2,'Preservation test must exercise a retention overflow');
+const result=await backup({retain:2,preserveExisting:true});
+for(const [file,expected] of Object.entries(before))assert.equal(await hash(path.join(directory,file)),expected);
+assert.equal(result.existingBackupsPreserved,true);
+const restored=await restoreIsolated(path.join(directory,result.file));assert.equal(restored.syncEnabled,false);assert.ok(restored.recoveryTablesVerified>=12);
+await fs.writeFile('logs/i5r2/backup-preservation.json',JSON.stringify({existingFilesHashVerified:Object.keys(before).length,retainRequested:2,allExistingFilesPreserved:true,newEncryptedArchive:true,isolatedRestore:true,recoveryTablesVerified:restored.recoveryTablesVerified,syncEnabled:false},null,2));console.log('I5R2_BACKUP_PRESERVATION_RESTORE_OK');

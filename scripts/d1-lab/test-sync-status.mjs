@@ -3,8 +3,7 @@ import assert from 'node:assert/strict';
 import {randomUUID} from 'node:crypto';
 import {syncState,attachmentStatus} from '../../lab/d1/sync-state.mjs';
 import {syncStatus} from '../../server/d1-lab/sync.mjs';
-import {config} from '../../server/d1-lab/environment.mjs';
-import {poolFor} from '../../server/d1-lab/core.mjs';
+import {createFixture} from './rc-fixture.mjs';
 
 const complete={mode:'operational',operationalSyncEnabled:true,enabled:true,pending:0,sending:0,conflicts:0,rejected:0,
  lastSyncAt:'2026-10-16T12:00:00Z',receiptsVerified:true,pullComplete:true,cursor:3};
@@ -30,14 +29,16 @@ test('Anexos nunca são declarados confirmados por ausência de contagem',()=>{
  assert.match(attachmentStatus({attachmentsState:'not-implemented',pendingFiles:null}),/pendências desconhecidas/);
 });
 
-test('PostgreSQL sintético: status distingue fila de operações e anexos não implementados',async()=>{
- const pool=poolFor(await config());
+test('PostgreSQL sintético: status distingue schemas sem anexos e transferência de laboratório',async()=>{
+ const fixture=await createFixture();
  try{
-  const status=await syncStatus(pool,randomUUID());
-  assert.equal(status.pendingFiles,null);
-  assert.equal(status.attachmentsState,'not-implemented');
-  assert.equal(status.operationalSyncEnabled,false);
-  assert.equal(syncState(status),'unknown');
- }finally{await pool.end();}
+  const minimal=await fixture.database('local',['d1-lab/schema.sql']);
+  const completeDb=await fixture.database('local',['schema','entities','catalog','sync','operations','domain','attachments','business'].map(n=>'d1-lab/'+n+'.sql'));
+  for(const [db,pendingFiles,state] of [[minimal,null,'not-implemented'],[completeDb,0,'lab-transfer-only']]){
+   const status=await syncStatus(db.pool,randomUUID());
+   assert.equal(status.pendingFiles,pendingFiles);assert.equal(status.attachmentsState,state);
+   assert.equal(status.operationalSyncEnabled,false);assert.equal(syncState(status),'unknown');
+  }
+ }finally{await fixture.close();}
 });
 

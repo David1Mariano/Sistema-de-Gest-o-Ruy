@@ -1,0 +1,135 @@
+{
+  "candidate": {
+    "revision": "A5-I5-R3-20261020",
+    "version": "0.5.2-rc.3",
+    "installer": "artifacts/agente5-integracao5r3-20261020/Sistema-Ruy-A5-I5-R3-20261020-Setup.exe",
+    "sha256": "e7b85f8b3df44a1a9d3d26435854e6f94a9d67b681f8b2e6ca493a7e08cb52dd",
+    "bytes": 112001700,
+    "asarSha256": "d0fac2501ac17fc1c14e00aafd50850962a34bba2ad659bea6dfa65fd8292509",
+    "dependencies": 13,
+    "sourceAndBundleMatch": true,
+    "privateFilesAbsent": true,
+    "fusesPreserved": true,
+    "previousInstallerPreserved": true,
+    "signed": false,
+    "restrictedToHomologation": true
+  },
+  "runtime": {
+    "packagedElectron": true,
+    "installed": false,
+    "window": {
+      "packaged": true,
+      "initialWindowVisible": true,
+      "minimizedRestored": true,
+      "offscreenRecovered": true,
+      "hiddenWindowRecoveredBySecondInstance": true,
+      "peerHadNoRuyEnvironment": true,
+      "initialBounds": {
+        "x": 37,
+        "y": 0,
+        "width": 1366,
+        "height": 852
+      },
+      "finalBounds": {
+        "x": 37,
+        "y": 0,
+        "width": 1366,
+        "height": 852
+      },
+      "ownWindowOnly": true
+    },
+    "syntheticLoginTwice": true,
+    "ownApiShutdownAfterEachRun": true,
+    "ownPostgresShutdownAfterEachRun": true,
+    "startupFailureRefused": true,
+    "occupiedPortRefusedAndPreserved": true,
+    "forcedTermination": false
+  },
+  "workers": {
+    "actualElectronUtilityProcesses": true,
+    "actualD1Apis": true,
+    "twoIndependentClusters": true,
+    "simultaneousDistinctPorts": true,
+    "ownedShutdown": true,
+    "apiRestart": true,
+    "parentLeaseExpiryShutdown": true,
+    "peerUnaffected": true,
+    "forcedTermination": false
+  },
+  "concurrentApplications": {
+    "primaryPackaged": true,
+    "peerDevelopmentElectron": true,
+    "physicalWindowsMachines": 1,
+    "installed": false,
+    "distinctRootProcesses": true,
+    "primaryExit": 0,
+    "peerExit": 0,
+    "forcedTermination": false
+  },
+  "independence": {
+    "separateHomes": true,
+    "separateClusters": true,
+    "distinctCredentials": true,
+    "distinctCertificates": true,
+    "operationalSync": false
+  },
+  "preservation": {
+    "backupsChecked": 25,
+    "backupsPreserved": true,
+    "dpapiPreserved": true,
+    "wipFilesChecked": 10,
+    "wipPreserved": true
+  },
+  "tests": {
+    "pureRegressionPassed": 19,
+    "catalogApiPassed": 1,
+    "syncStatusPurePassed": 2,
+    "twoPostgresRestartAndEncryptedRestorePassed": true,
+    "shortcut": "temporary .lnk to win-unpacked, --lab-window-test; no installed shortcut tested",
+    "installerExecuted": false,
+    "earlierFailures": [
+      "PGDATA identity initially used restricted role; fixed to own lab administrator",
+      "restore assertion initially used restricted pool factory; fixed test to own restore credentials",
+      "historical supervision test refused missing opt-in; not rerun against existing lab",
+      "historical DB regression attempted with stopped R3 cluster; catalog rerun passed after own cluster start",
+      "historical sync-status database fixture refuses new cluster ports; original fixture retained, database case pending adaptation"
+    ]
+  },
+  "pending": [
+    "interactive installation and definitive desktop shortcut",
+    "clean Windows installation and independent restore",
+    "second physical Windows machine and real reconnection",
+    "mTLS provisioning between authorized physical machines",
+    "operational acceptance and Windows signing"
+  ],
+  "forcedTermination": false,
+  "logSha256": {
+    "artifact.json": "65887ccb1c8dfffa307d56c8fa759dc3363113b53f67c0fe5b3f1fd8edb88629",
+    "build-d1.log": "db6e1561d0dc12a95ebb07aa372b10e777c68a1608b86fa4855a54d7d293d031",
+    "build-web.log": "86578f61dc1487fb971f0db1f100523c2d595e1e97f7ca3f3eb04458922059a4",
+    "catalog-final.log": "2eceaa4d16d2f9143c3f71986335ccefafd4abcedd3464823947679021e22656",
+    "database-regression.log": "399d9be571965b98243f8b0b8a730b58232e65f3f270af17daa1adc15a89c20d",
+    "i5r3-20261020.json": "19f4f7df8bcd7e20e1a9c8a99669df3af5f8a453f0ce9060011ceecd6d125c38",
+    "i5r3-peer-20261020.json": "622e06850fb872aaa25d35e1f9d0b73e99d425d9e0f8ae89b6ce9b3084f4e2a0",
+    "lint-final.log": "a6941718893765ea10b77b59b50a45e763935a24beec99c03bddf8b4378e87fc",
+    "package-final.log": "7a7688b600e27c03ef25f5541546be6d46eda4f1b130245a28f8629a6664a825",
+    "package.log": "7a7688b600e27c03ef25f5541546be6d46eda4f1b130245a28f8629a6664a825",
+    "packaged-login-1792512675411.json": "23ed30aebe428191627022908e70f91d66f843e77556a2e89e9c428e2ee3eee3",
+    "packaged-login-1792512684798.json": "2540df6c75623913e112362c1fe7ea64f7bf8d7640cd37114749a93d9ca94bc9",
+    "packaged-login-1792512807217.json": "d157f1864a8aac8940c2afea619be08ab73173ae7dbd7b18d49768576243652a",
+    "packaged-login-1792512818843.json": "73d1b9c324c12e3a20e5076cb1d04fc9315a7f3d85be838a0f477e246b172315",
+    "peer-login.json": "79f07758df7cb3a2f80b518385d864ef089ff72283f332b8aba5d8e94911dcaa",
+    "preflight.json": "cdc25a806f46025d8a3fa463b1c13d9797a1c5d3a021694a40492f221ced00a1",
+    "preservation.json": "f8c77bb6cadf83f9839e6c44f232d6eb07db603f43aa48a57034e3cd3f118070",
+    "regression-final.log": "ebca639c5f75cc2e599115d9836f75c82355e54d0da69c0a9ca6458ca4e2379d",
+    "regression.log": "4e906578aa6970a454196b1e5ecde6626ba742286ae25f89a788b3c0b8c0d4b3",
+    "runtime-final.log": "5e15185f381647637b4ef19dd1f021a4d3dfe4fcd7d57eb4c25b9e8e1b3e33b7",
+    "runtime.json": "d01c4b876dd6147ad77025fb7e4ff54135444d43439dc135e90eeab6561cc063",
+    "runtime.log": "5e15185f381647637b4ef19dd1f021a4d3dfe4fcd7d57eb4c25b9e8e1b3e33b7",
+    "sync-status-pure.log": "f623d27bba4160866667ae66ed8130cc4a768a93099f11ed481a2ccae45f3c55",
+    "two-apps.json": "829a94212e564444a71bbf278ce270f0e648076a2ead55e645d793d8fb91c639",
+    "two-apps.log": "dba5166ad9db9ba648c1032ebbd34dcd0d085b50023b839ef5c68ca1db93a563",
+    "workers.json": "d7883bafa047acf1383ce41d1e84211d9cedd6403942dd42266cec056bd562f9",
+    "workers.log": "7eb70257593da06f682a3ddda54a9d260d4fc514f645237f5ca74b08f8da61a6"
+  }
+}

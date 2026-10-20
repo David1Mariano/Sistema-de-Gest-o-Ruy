@@ -6,7 +6,7 @@ import http from 'node:http';
 import {employeeDeleteCheck} from './employee-delete.mjs';
 import {randomBytes} from 'node:crypto';
 import {digest,fail,hashPassword,verifyPassword,transaction} from './core.mjs';
-import {API_PORT} from './environment.mjs';
+import {API_PORT,installation} from './environment.mjs';
 import {entitiesRoute,staticRoute} from './routes.mjs';
 import {backupStatus} from './backup.mjs';
 import {catalogRoute} from './catalog.mjs';
@@ -19,6 +19,7 @@ export function createServer(pool,deviceId) {
   let dummy;
   const cookie=(token,age=28800)=>`ruy_d1_lab=${token}; HttpOnly; SameSite=Strict; Path=/api/d1; Max-Age=${age}`;
   const server=http.createServer(async(req,res)=>{
+    if(installation&&req.url==='/health'&&/^[a-f0-9]{64}$/.test(process.env.RUY_D1_OWNER_NONCE||''))res.setHeader('X-Ruy-Owner',process.env.RUY_D1_OWNER_NONCE);
     const reply=(status,body,headers={})=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(JSON.stringify(body));};
     try{
       if(req.headers.host!==`127.0.0.1:${API_PORT}`)throw fail(403,'Host recusado.');
@@ -28,7 +29,7 @@ export function createServer(pool,deviceId) {
       const url=new URL(req.url,origin);
       if(await staticRoute(req,res,url))return;
       if(url.pathname==='/health'&&req.method==='GET'){
-        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:'synthetic-only',syncEnabled:false});
+        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:'synthetic-only',syncEnabled:false,...(installation?{installationId:installation.id,pid:process.pid}:{})});
       }
       let body={};
       if(req.method==='POST'){
