@@ -2,6 +2,11 @@
 
 **Estado: desenvolvimento e homologação isolada. Entrega definitiva NÃO aprovada.**
 
+**Atualização do proprietário:** Google Cloud/Gmail OAuth SUSPENSO. Não executar
+as instruções antigas de configuração Gmail abaixo. A investigação do Web3Forms
+existente e o bloqueio de chamadas gratuitas pelo backend estão documentados na
+[auditoria Web3Forms](web3forms-auditoria-20261021.md).
+
 Base: `f151f8a`, branch `agente-5-auditoria-integracao-20261019`.
 As alterações anteriores, incluindo o trabalho do Cline e arquivos não rastreados,
 foram copiadas antes da edição para uma pasta privada em
@@ -37,7 +42,7 @@ Os dez arquivos da Etapa A coincidem com o manifesto da auditoria anterior.
   além de e-mail previamente confirmado. Não existe promoção do primeiro cadastro.
   Não há redefinição administrativa sem verificar a identidade por código.
 
-## Gmail — integração preparada, envio real pendente
+## Gmail — preparação anterior suspensa; não executar
 
 O proprietário autorizou a configuração OAuth. Nenhuma senha do Gmail foi pedida.
 O navegador não está conectado à ferramenta desta sessão:
