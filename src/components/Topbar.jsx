@@ -6,10 +6,10 @@ export default function Topbar({ title, onMenu }) {
   const { logout } = useAuth();
 
   return (
-    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 backdrop-blur px-3 sm:px-4 lg:px-6">
+    <header className="sticky top-0 z-30 flex h-16 items-center gap-3 border-b border-slate-200 bg-white/90 backdrop-blur px-3 sm:px-4 md:px-6">
       <button
         onClick={onMenu}
-        className="lg:hidden inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-95"
+        className="md:hidden inline-flex h-10 w-10 shrink-0 items-center justify-center rounded-xl border border-slate-200 bg-white text-slate-700 shadow-sm active:scale-95"
         aria-label="Abrir menu"
       >
         <Menu className="h-5 w-5" />

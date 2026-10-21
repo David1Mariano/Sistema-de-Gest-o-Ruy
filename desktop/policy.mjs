@@ -14,7 +14,7 @@ export function allowedNavigation(value) {
   catch { return false; }
 }
 export function allowedDownload(value){
- try{const url=new URL(value);return url.origin===localOrigin&&!url.username&&!url.password&&!url.search&&!url.hash&&(/^\/api\/d1\/(?:history\/)?attachments\/[a-f0-9-]{36}\/download$/.test(url.pathname)||url.pathname==='/api/d1/delivery/report.csv');}catch{return false;}
+ try{const url=new URL(value);return url.origin===localOrigin&&!url.username&&!url.password&&!url.search&&!url.hash&&(url.protocol==='blob:'||/^\/api\/d1\/(?:(?:history|migrated)\/)?attachments\/[a-f0-9-]{36}\/download$/.test(url.pathname)||url.pathname==='/api/d1/delivery/report.csv');}catch{return false;}
 }
 export const webPreferences = Object.freeze({
   nodeIntegration: false, contextIsolation: true, sandbox: true,

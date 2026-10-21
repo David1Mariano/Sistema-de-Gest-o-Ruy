@@ -10,7 +10,7 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
   if(readOnlyDomains.includes(entity))return signal(Error('Esta escrita ainda aguarda integração atômica e homologação.'));
   const key='ruy-d1-domain:'+user.id+':'+entity+':'+(id||'new')+':'+action;
   const input={entity,id:id||null,action,data:clean(entity,data||{}),...extra};
-  const personal=['Vale','Consumption','EmployeePayment'].includes(entity);
+  const personal=['Vale','Consumption','EmployeePayment','Schedule','StandardSchedule','TimeRecord','Absence','Warning','PayrollPolicy','PayrollRun'].includes(entity);
   const fingerprint=personal?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(input))))).map(b=>b.toString(16).padStart(2,'0')).join(''):JSON.stringify(input),prior=JSON.parse(localStorage.getItem(key)||'null');
   if(prior&&prior.fingerprint!==fingerprint)return signal(Error('Há tentativa sem confirmação. Reenvie os mesmos campos antes de editar.'));
   const body=prior?{...prior.body,data:input.data}:{...input,id:id||crypto.randomUUID(),operationId:crypto.randomUUID(),baseVersion:id?(data?._version??cache.get(entity+':'+id)?._version):null};
@@ -37,8 +37,8 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
  };}
  const entityClient=entity;
  return {entity,clear:()=>cache.clear(),command,
-  canWrite:()=>getSession()?.user.role==='admin',
-  canEditRh:record=>getSession()?.user.role==='admin'&&(!record?.source_device_id||record.source_device_id===getSession()?.deviceId),
+  canWrite:()=>!getSession()?.operationalHistoryPreview&&getSession()?.user.role==='admin',
+  canEditRh:record=>!getSession()?.operationalHistoryPreview&&getSession()?.user.role==='admin'&&(!record?.source_device_id||record.source_device_id===getSession()?.deviceId),
   rhHistory:(entity,id)=>request('/domain/history/'+entity+'/'+id),
   recipe:(product,ingredients)=>command('ProductionProduct',product.id||null,{...product,ingredients:ingredients.map(line=>({...line,quantity:Number(line.quantity)}))}),
   preview:id=>request('/domain/preview/'+id),

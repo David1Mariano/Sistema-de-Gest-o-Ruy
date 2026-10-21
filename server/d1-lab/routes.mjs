@@ -10,7 +10,7 @@ export async function staticRoute(req,res,url){
  if(!/^((assets|fonts)\/[A-Za-z0-9_.-]+|lab\/d1\/index.html)$/.test(name))throw fail(404,'Asset inválido.');
  const bytes=await fs.readFile(path.join(root,name));
  const type=name.endsWith('.js')?'text/javascript':name.endsWith('.css')?'text/css':name.endsWith('.ttf')?'font/ttf':name.endsWith('.woff2')?'font/woff2':name.endsWith('.txt')?'text/plain':'text/html; charset=utf-8';
- res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data:; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"});res.end(bytes);return true;
+ res.writeHead(200,{'Content-Type':type,'Cache-Control':'no-store','X-Content-Type-Options':'nosniff','X-Frame-Options':'DENY','Content-Security-Policy':"default-src 'none'; script-src 'self'; style-src 'self' 'unsafe-inline'; connect-src 'self'; img-src 'self' data: blob:; frame-src blob:; font-src 'self'; base-uri 'none'; form-action 'self'; frame-ancestors 'none'"});res.end(bytes);return true;
 }
 export async function entitiesRoute(pool,user,deviceId,req,url,body){
  const match=url.pathname.match(/^\/api\/d1\/entities\/(Sector|JobRole|Employee)(?:\/([0-9a-f-]+))?$/i);

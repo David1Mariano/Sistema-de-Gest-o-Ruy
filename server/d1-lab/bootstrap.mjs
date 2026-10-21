@@ -9,6 +9,7 @@ export function validateAccount(account){
  if(typeof account.password!=='string'||account.password.length<12||Buffer.byteLength(account.password)>256)throw Error('Senha local deve ter pelo menos 12 caracteres.');
 }
 export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',account}={}){
+ if(installation?.individualIdentity&&account)throw Error('AUTOMATIC_ADMINISTRATOR_PROVISIONING_REFUSED');
  if(account)validateAccount(account);
  const accountHash=account?await hashPassword(account.password):null;
  if(!path.isAbsolute(bin))throw Error('Selecione a pasta bin do PostgreSQL 17.');
@@ -32,6 +33,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
   try{
     await db.query('BEGIN');if(installation?.delivery)await db.query("SELECT set_config('ruy.initializing_installation',$1,true)",[installation.id]);await db.query(await fs.readFile(new URL('./schema.sql',import.meta.url),'utf8'));
     for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql',...(installation?['attachments.sql','business.sql']:[]),...(installation?.delivery?['delivery.sql']:[])])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
+    if(installation?.individualIdentity)await db.query(await fs.readFile(new URL('./identity.sql',import.meta.url),'utf8'));
     await db.query('INSERT INTO lab_device(id) VALUES($1)',[marker.deviceId]);
     await db.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
     await db.query(`GRANT CONNECT ON DATABASE ${database} TO ruy_d1_app`);
@@ -40,6 +42,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
     await db.query('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ruy_d1_app');
     await db.query('REVOKE INSERT,UPDATE,DELETE ON lab_device FROM ruy_d1_app');
     await db.query('REVOKE UPDATE,DELETE ON lab_audit,lab_outbox,d1_rh_history FROM ruy_d1_app');
+    if(installation?.individualIdentity)await db.query('REVOKE INSERT,DELETE ON identity_bootstrap FROM ruy_d1_app');
     await db.query('REVOKE UPDATE,DELETE ON d1_stock_movements,d1_financial_entries,d1_operation_events FROM ruy_d1_app');
     await db.query('REVOKE DELETE ON d1_records FROM ruy_d1_app');
     await db.query('GRANT USAGE,SELECT ON ALL SEQUENCES IN SCHEMA public TO ruy_d1_app');

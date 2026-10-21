@@ -6,7 +6,7 @@ import { buildDayRows, summarizeRows, usePontoData } from '@/lib/pontoData';
 import StatCard from '@/components/shared/StatCard';
 import { Users, UserCheck, UserX, Clock4, Coffee, CalendarDays, ArrowRight, Receipt } from 'lucide-react';
 
-export default function Home() {
+export default function Home({ attendanceAvailable = true, title = 'Painel operacional', summary = null }) {
   const date = todayISO();
   const { schedules, records, loading, error, reload } = usePontoData(date);
   const [tolerance, setTolerance] = useState(5);
@@ -25,8 +25,9 @@ export default function Home() {
     <div className="space-y-6">
       <div>
         <p className="text-sm text-slate-500">{WEEKDAY_FULL[new Date(date + 'T00:00:00').getDay()]}, {formatBR(date)}</p>
-        <h1 className="text-2xl font-semibold tracking-tight mt-0.5">Painel operacional</h1>
+        <h1 className="text-2xl font-semibold tracking-tight mt-0.5">{title}</h1>
       </div>
+      {summary}
 
       {/* Equipe de hoje */}
       <div className="rounded-2xl border border-slate-200 bg-white p-5">
@@ -42,7 +43,7 @@ export default function Home() {
           </Link>
         </div>
 
-        {error ? (
+        {!attendanceAvailable ? <p className="py-4 text-sm text-muted-foreground">Indicadores de jornada indisponíveis nesta fonte. O histórico recuperado não contém ponto nem escalas; nenhum valor foi estimado.</p> : error ? (
           <div role="alert" className="py-8 text-center">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>
         ) : loading ? (
           <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>

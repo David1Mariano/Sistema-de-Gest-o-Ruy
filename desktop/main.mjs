@@ -34,12 +34,13 @@ async function health() {
   const r = await fetch(localOrigin+'/health', {signal:AbortSignal.timeout(1500), redirect:'error'});
   const value = await r.json().catch(()=>null);
   if(!r.ok)throw Object.assign(Error('API local indisponível.'),{recoverable:r.status>=500});
-  if (value?.service!=='ruy-d1-lab' || value.mode!=='synthetic-only' || value.syncEnabled!==false) throw Object.assign(Error('A porta do laboratório está ocupada por outro serviço.'),{recoverable:false});
+  if (value?.service!=='ruy-d1-lab' || value.mode!==(metadata.ruyRecoveredPreview?'isolated-import-preview':'synthetic-only') || value.syncEnabled!==false) throw Object.assign(Error('A porta do laboratório está ocupada por outro serviço.'),{recoverable:false});
   if(isolated&&(!worker||r.headers.get('x-ruy-owner')!==ownership||value.installationId!==process.env.RUY_D1_INSTALLATION||value.pid!==worker.pid))throw Object.assign(Error('API ownership refused'),{recoverable:false});
   return value;
 }
 async function start() {
   log('startup-start');
+  if(metadata.ruyIndividualIdentity&&smoke)throw Error('AUTOMATIC_SYNTHETIC_ADMIN_REFUSED');
   if((isolated||metadata.ruyRevision==='A5-I5-R2-20261020')&&process.argv.includes('--lab-startup-failure-test'))throw Object.assign(Error('Synthetic startup failure'),{code:'LAB_STARTUP_TEST'});
   stage='environment';
   if(metadata.ruyRevision==='A5-I5-20261019'&&(process.env.RUY_D1_ALLOW_TESTS!=='1'||process.env.RUY_D1_RESTART_FIXTURE!=='e5aaec701010f607'||process.env.RUY_D1_TEST_API_PORT!=='18091'))throw Error('I5 candidate requires the explicitly provisioned disposable laboratory; operational use is blocked.');
@@ -63,6 +64,12 @@ async function start() {
   try {
     const result = await pool.query('SELECT id FROM lab_device WHERE singleton');
     if (result.rows[0]?.id !== marker.deviceId) throw Error('Identidade local divergente.');
+    if(metadata.ruyIndividualIdentity){
+      const {prepareIndividualAdmin}=await import('./individual-admin.mjs');
+      preparing=true;clearTimeout(startupWatchdog);
+      await prepareIndividualAdmin(pool,here,root);
+      preparing=false;
+    }
     if(smoke){
       const id=randomUUID(),password=randomBytes(24).toString('hex'),login='desktop-'+id+'@example.invalid';
       await pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,$2,$3,'admin')",[id,login,await core.hashPassword(password)]);
@@ -126,7 +133,7 @@ async function start() {
   stage='load-window';
   log('window-created');
   window.on('close',event=>{if(!exitReady){event.preventDefault();app.quit();}});
-  await window.loadURL(localOrigin+'/setores');
+  await window.loadURL(localOrigin+(metadata.ruyIndividualIdentity?'/':'/setores'));
   if(!smoke)revealWindow(window,screen.getAllDisplays());
   clearTimeout(startupWatchdog);log('window-loaded');
   if(!smoke&&backupSettings.enabled){void createBackup();backupTimer=setInterval(createBackup,backupSettings.intervalMinutes*60*1000);}
@@ -238,7 +245,9 @@ else {
     if(!smoke&&!process.argv.includes('--lab-startup-failure-test')) dialog.showErrorBox('Sistema de Gestão Ruy — laboratório indisponível', 'Não foi possível validar PostgreSQL e API do laboratório. Prepare o ambiente D1 do usuário Windows atual e tente novamente. Nenhum dado foi removido e a produção 8080 não foi alterada.');
     process.exitCode=1;app.quit();
   });
-  app.on('window-all-closed',()=>{if(!preparing)app.quit();});
+  // Closing the temporary administrator dialog can deliver this event after
+  // its promise resumes. Only the main application window owns normal exit.
+  app.on('window-all-closed',()=>{if(!preparing&&window)app.quit();});
   app.on('before-quit',event=>{
     if(exitReady)return;
     event.preventDefault();

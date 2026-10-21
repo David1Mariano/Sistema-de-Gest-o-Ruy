@@ -1,8 +1,12 @@
 import {deliveryFields,isDelivery,validateDeliveryPayload} from './delivery-contract.mjs';
+import {attendanceFields} from './attendance-contract.mjs';
+import {payrollFields} from './payroll-contract.mjs';
 // Versioned document snapshots. Monetary documents do not execute bank payments.
 const fields = text => text.split(' ');
 const common = 'date status observation responsible_user';
 export const domainFields = {
+ ...attendanceFields,
+ ...payrollFields,
  ...deliveryFields,
  Vale: fields('employee_id employee_name sector date amount type motive payment_method authorized_by status observation proof_url deduction_payment_id deduction_payment_version'),
  Consumption: fields('employee_id employee_name sector date time product quantity amount registered_by status deduction_payment_id deduction_payment_version'),

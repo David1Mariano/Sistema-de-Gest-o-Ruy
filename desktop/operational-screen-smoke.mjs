@@ -1,0 +1,35 @@
+import {app,BrowserWindow} from 'electron';
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {powershell,installation} from '../server/d1-lab/environment.mjs';
+import {webPreferences,allowedNavigation} from './policy.mjs';
+async function run(){
+ assert.equal(app.isPackaged,false);assert.equal(installation?.id,'final-dev-20261021');assert.equal(process.env.RUY_OPERATIONAL_SCREEN_ACCEPTANCE,'1');
+ const file=process.env.RUY_OPERATIONAL_UI_CONTEXT;if(!file||!path.isAbsolute(file)||!/^screen-ui-[a-f0-9]+\.dpapi$/.test(path.basename(file)))throw Error('PROTECTED_UI_CONTEXT_REQUIRED');
+ const c=JSON.parse(powershell('$s=ConvertTo-SecureString ([Console]::In.ReadToEnd());$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s);try{[Console]::Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($p))}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}',await fs.readFile(file,'utf8')));
+ assert.equal(c.purpose,'ISOLATED_OPERATIONAL_SCREEN_TEST');const root=path.dirname(file);app.setPath('userData',path.join(root,'screen-profile-'+c.suffix));let w,stage='startup';
+ const result=path.join(root,'screen-ui-'+c.suffix+'.json'),write=value=>fs.writeFile(result,JSON.stringify(value),{flag:'wx'});
+ const deadline=setTimeout(()=>write({passed:false,stage,reason:'UI_DEADLINE'}).finally(()=>{w?.close();app.quit();}),120000);
+ try{
+  await app.whenReady();w=new BrowserWindow({width:1280,height:900,show:true,webPreferences});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));w.webContents.on('will-navigate',(event,url)=>{if(!allowedNavigation(url))event.preventDefault();});
+  const js=code=>w.webContents.executeJavaScript(code),wait=async code=>{for(let n=0;n<200;n++){if(await js(code))return;await new Promise(r=>setTimeout(r,100));}throw Error('UI_TIMEOUT');};
+  const navigate=async route=>{await js(`history.pushState({},'',${JSON.stringify(route)});dispatchEvent(new PopStateEvent('popstate'));`);};
+  await w.loadURL('http://127.0.0.1:18133/');await wait('!!document.querySelector("input[name=password]")');stage='login';
+  await js(`(()=>{document.querySelector('input[name=email]').value=${JSON.stringify(c.email)};document.querySelector('input[name=password]').value=${JSON.stringify(c.password)};document.querySelector('form').requestSubmit();})()`);
+  await wait("document.querySelector('main h1')?.textContent==='Dashboard'");
+  stage='restored-sidebar';assert.equal(await js("(()=>{const a=document.querySelector('aside');const r=a.getBoundingClientRect();return r.x>=0&&r.width>=240&&getComputedStyle(a).display!=='none'&&!!a.querySelector('a[href=\"/funcionarios\"]');})()"),true);await wait("document.querySelector('main')?.textContent.includes('Documentos financeiros preservados')");
+  w.setSize(900,900);await new Promise(r=>setTimeout(r,400));assert.equal(await js("document.querySelector('aside').getBoundingClientRect().x>=0"),true);w.setSize(1280,900);
+  stage='complete-menu';assert.equal(await js("['/caixa','/delivery-lab','/anexos','/acessos'].every(p=>!!document.querySelector('aside a[href=\"'+p+'\"]'))"),true);assert.equal(await js("document.querySelectorAll('header a[href=\"/delivery-lab\"]').length"),0);
+  stage='employees';await navigate('/funcionarios');await wait("document.querySelector('main h1')?.textContent==='Colaboradores'");await wait(`document.querySelector('main')?.textContent.includes(${JSON.stringify(c.employeeName)})`);
+  assert.equal(await js("document.body.textContent.includes('DADOS RECUPERADOS')"),true);
+  stage='employee-detail';await navigate('/funcionarios/'+c.employeeId);await wait(`document.querySelector('main')?.textContent.includes(${JSON.stringify(c.employeeName)})&&!document.querySelector('main')?.textContent.includes('Carregando ficha')`);assert.equal(await js("document.querySelector('main')?.textContent.includes('Indicadores indisponíveis')"),false);
+  stage='payment-tab';await js("(()=>{const tab=Array.from(document.querySelectorAll('[role=tab]')).find(b=>b.textContent==='Pagamentos');tab.focus();tab.dispatchEvent(new MouseEvent('mousedown',{button:0,bubbles:true}));})()");await wait("Array.from(document.querySelectorAll('main button')).some(b=>b.textContent==='Abrir')");stage='payment-blob';await js("Array.from(document.querySelectorAll('main button')).find(b=>b.textContent==='Abrir').click()");await wait("!!document.querySelector('[role=dialog] img[src^=\"blob:\"], [role=dialog] iframe[src^=\"blob:\"]')");await js("document.dispatchEvent(new KeyboardEvent('keydown',{key:'Escape',bubbles:true}))");
+  stage='sectors';await navigate('/setores');await wait("document.querySelector('main h1')?.textContent==='Setores'");await wait(`document.querySelector('main')?.textContent.includes(${JSON.stringify(c.sectorName)})`);
+  stage='stock';await navigate('/estoque');await wait("document.querySelector('main h1')?.textContent==='Estoque'");await wait(`document.querySelector('main')?.textContent.includes(${JSON.stringify(c.itemName)})`);
+  stage='finance';await navigate('/financeiro');await wait("document.querySelector('main h1')?.textContent.includes('Gastos & Pagamentos')");await wait("!document.querySelector('main')?.textContent.includes('Carregando...')");
+  stage='reload';w.reload();await wait("document.querySelector('main h1')?.textContent.includes('Gastos & Pagamentos')");
+  clearTimeout(deadline);await write({passed:true,packaged:false,installed:false,individualLogin:true,restoredSidebar:true,dashboardGraph:true,sidebarVisibleAt900:true,normalEmployeeList:true,normalEmployeeDetail:true,authorizedPaymentProofViewer:true,normalSectorList:true,normalStockList:true,financeNavigation:true,reload:true,realRecoveredData:true,businessWrites:false});w.close();app.quit();
+ }catch{clearTimeout(deadline);let diagnostic={};try{diagnostic=await w.webContents.executeJavaScript(`({viewerError:document.querySelector('[role=dialog] [role=alert]')?.textContent?.replace(/[0-9a-f]{8}[-0-9a-f]{27}/gi,'[ID]').slice(0,200),dialogCount:document.querySelectorAll('[role=dialog]').length,proofButtonCount:Array.from(document.querySelectorAll('main button')).filter(b=>b.textContent==='Abrir').length,invalidUrl:document.body.textContent.includes('URL do comprovante'),integrityError:document.body.textContent.includes('Integridade do comprovante'),unavailable:document.body.textContent.includes('Comprovante indispon'),localUnavailable:document.body.textContent.includes('Comprovante local indispon'),genericError:document.body.textContent.includes('fora do servidor autorizado')})`);}catch{/* Closed renderer: retain aggregate stage only. */}await write({passed:false,stage,reason:'OPERATIONAL_UI_FAILED',diagnostic});w?.close();app.quit();}
+}
+run().catch(()=>app.quit());

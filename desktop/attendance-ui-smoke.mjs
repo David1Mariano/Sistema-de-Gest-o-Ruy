@@ -1,0 +1,28 @@
+import {app,BrowserWindow} from 'electron';
+import fs from 'node:fs/promises';import path from 'node:path';import assert from 'node:assert/strict';
+import {powershell,home,installation} from '../server/d1-lab/environment.mjs';
+import {webPreferences,allowedNavigation} from './policy.mjs';
+async function run(){
+ assert.equal(app.isPackaged,false);assert.equal(installation?.id,'final-dev-20261021');assert.equal(process.env.RUY_ATTENDANCE_ACCEPTANCE,'1');
+ const root=process.env.RUY_ATTENDANCE_UI_ROOT;if(!root||path.dirname(root)!==home||!/^attendance-ui-[a-f0-9]{16}$/.test(path.basename(root)))throw Error('SYNTHETIC_UI_ROOT_REQUIRED');
+ const c=JSON.parse(powershell('$s=ConvertTo-SecureString ([Console]::In.ReadToEnd());$p=[Runtime.InteropServices.Marshal]::SecureStringToBSTR($s);try{[Console]::Write([Runtime.InteropServices.Marshal]::PtrToStringBSTR($p))}finally{[Runtime.InteropServices.Marshal]::ZeroFreeBSTR($p)}',await fs.readFile(path.join(root,'context.dpapi'),'utf8')));
+ assert.equal(c.purpose,'SYNTHETIC_ATTENDANCE_UI_TEST');app.setPath('userData',path.join(root,'profile'));let w,stage='startup';const write=data=>fs.writeFile(path.join(root,'result.json'),JSON.stringify(data),{flag:'wx'});
+ const deadline=setTimeout(()=>write({passed:false,stage,reason:'UI_DEADLINE'}).finally(()=>{w?.close();app.quit();}),120000);
+ try{
+  await app.whenReady();w=new BrowserWindow({width:1280,height:900,show:true,webPreferences});w.webContents.setWindowOpenHandler(()=>({action:'deny'}));w.webContents.on('will-navigate',(e,url)=>{if(!allowedNavigation(url))e.preventDefault();});
+  const js=code=>w.webContents.executeJavaScript(code),wait=async code=>{for(let n=0;n<200;n++){if(await js(code))return;await new Promise(r=>setTimeout(r,100));}throw Error('UI_TIMEOUT');};
+  const navigate=async route=>js(`history.pushState({},'',${JSON.stringify(route)});dispatchEvent(new PopStateEvent('popstate'));`);
+  await w.loadURL('http://127.0.0.1:18133/');await wait('!!document.querySelector("input[name=password]")');await js(`document.querySelector('input[name=email]').value='attendance@example.invalid';document.querySelector('input[name=password]').value=${JSON.stringify(c.password)};document.querySelector('form').requestSubmit();`);await wait("document.querySelector('main h1')?.textContent==='Dashboard'");
+  stage='attendance';await navigate('/ponto');await wait("document.querySelector('main h1')?.textContent==='Central de Ponto'");await wait("!document.querySelector('main')?.textContent.includes('Carregando')");
+  stage='schedules';await navigate('/escalas');await wait("document.querySelector('main h1')?.textContent.includes('Escalas')");
+  stage='payroll';await navigate('/folha');await wait("document.querySelector('main h1')?.textContent.includes('cálculo por período')");await wait("document.querySelector('select[aria-label=\"Colaborador da folha\"]')?.options.length>1");
+  await js(`(()=>{const s=document.querySelector('select[aria-label="Colaborador da folha"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,${JSON.stringify(c.employee)});s.dispatchEvent(new Event('change',{bubbles:true}));})()`);
+  await wait("document.querySelector('select[name=policy]')?.options.length>1");stage='calculate';
+  await js(`(()=>{const form=document.querySelector('main form:nth-of-type(2)');for(const [key,value] of Object.entries(${JSON.stringify({policy:c.policyId,start:'2026-10-16',end:'2026-10-31',units:'15',absences:'0',overtime:'0',bonus:'0'})}))form.elements.namedItem(key).value=value;form.requestSubmit();})()`);
+  await wait("document.querySelector('main [role=status]')?.textContent.includes('Cálculo produzido')");stage='close';
+  await js("Array.from(document.querySelectorAll('main article')).find(a=>a.textContent.includes('2026-10-16')).querySelector('button').click()");await wait("document.querySelector('main [role=status]')?.textContent.includes('Cálculo fechado')");
+  stage='reload';w.reload();await wait("document.querySelector('select[aria-label=\"Colaborador da folha\"]')?.options.length>1");await js(`(()=>{const s=document.querySelector('select[aria-label="Colaborador da folha"]');Object.getOwnPropertyDescriptor(HTMLSelectElement.prototype,'value').set.call(s,${JSON.stringify(c.employee)});s.dispatchEvent(new Event('change',{bubbles:true}));})()`);await wait("Array.from(document.querySelectorAll('main article')).some(a=>a.textContent.includes('2026-10-16')&&a.textContent.includes('fechado'))");
+  clearTimeout(deadline);await write({passed:true,packaged:false,installed:false,attendanceNavigation:true,scheduleNavigation:true,payrollCalculatedInUi:true,payrollClosedInUi:true,reloadPreserved:true,syntheticOnly:true,externalPayment:false});w.close();app.quit();
+ }catch{clearTimeout(deadline);await write({passed:false,stage,reason:'ATTENDANCE_UI_FAILED'});w?.close();app.quit();}
+}
+run().catch(()=>app.quit());

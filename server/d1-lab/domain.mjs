@@ -1,4 +1,6 @@
 import {assertActiveIntent} from './core.mjs';
+import {isAttendance,prepareAttendance} from './attendance.mjs';
+import {isPayroll,preparePayroll} from './payroll.mjs';
 import {isDelivery} from './delivery-contract.mjs';
 import {assertDeliveryLab,assertDeliveryDatabase,prepareDelivery} from './delivery.mjs';
 import {randomUUID} from 'node:crypto';
@@ -17,7 +19,7 @@ function date(value){return typeof value==='string' && /^\d{4}-\d{2}-\d{2}$/.tes
 function validate(entity,data){
  if(!domainFields[entity]||!data||typeof data!=='object'||Array.isArray(data)||Object.keys(data).some(k=>!domainFields[entity].includes(k)))throw fail(400,'Campos fora do contrato de domínio.');
   for(const [key,value] of Object.entries(data)){
-   if(['ingredients','losses','payments'].includes(key))continue;
+   if(['ingredients','losses','payments','vale_ids','consumption_ids','calculation'].includes(key))continue;
   if(money(key)&&value!==null&&typeof value!=='number')throw fail(400,'Campo monetário deve ser numérico.');
   if(!['string','number','boolean'].includes(typeof value)&&value!==null)throw fail(400,'Tipo de campo inválido.');
   if(typeof value==='string'&&(value.length>1000||(/(?:url)$/.test(key)&&value)))throw fail(400,'Anexos ainda exigem transporte privado homologado.');
@@ -118,6 +120,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    // Derived fields sent back by the original forms are never accepted as authority.
    for(const key of ['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'])delete supplied[key];
    if(body.entity==='ProductionProduct'){delete supplied.total_cost;delete supplied.unit_cost;}
+   if(isPayroll(body.entity))delete supplied.calculation;
    if(body.entity==='ProductionOrder'&&supplied.status==='concluida')throw fail(409,'Conclua a ordem pela confirmacao agregada da producao.');
    data={...(old?Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))):{}),...supplied};
    if(['ProductionOrder','DailyProduction'].includes(body.entity)){
@@ -127,6 +130,8 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    validate(body.entity,Object.fromEntries(Object.entries(data).filter(([k])=>domainFields[body.entity].includes(k))));
    if(Object.keys(supplied).some(k=>!domainFields[body.entity].includes(k)))throw fail(400,'Campo não permitido.');
    if(isRh(body.entity))data=await prepareRh({c,actor,deviceId,body,old,data,get,save});
+   if(isAttendance(body.entity))data=await prepareAttendance({c,actor,body,old,data,save});
+   if(isPayroll(body.entity))data=await preparePayroll({c,actor,body,old,data});
    for(const [field,entity,nameField] of [['financial_account_id','FinancialAccount','financial_account_name'],['cost_center_id','CostCenter','cost_center_name'],['category_id','ExpenseCategory','category_name']])if(data[field]){
     const ref=await get(c,actor.id,entity,data[field]);const value=entity==='ExpenseCategory'?ref.data:unwrapDomain(ref);
     if(value.status!=='ativo')throw fail(409,'Referência financeira inativa.');data[nameField]=value.name;
@@ -261,6 +266,12 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
   }else if(isRh(body.entity)&&body.action==='cancel'){
    if(!old)throw fail(409,'Lançamento RH inexistente.');
    data=await prepareRh({c,actor,deviceId,body,old,data:{...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'cancelado'},get,save});
+  }else if(body.entity==='PayrollRun'&&body.action==='confirm'){
+   if(!old)throw fail(409,'Cálculo de folha inexistente.');
+   data=await preparePayroll({c,actor,body,old,data:Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k)))});
+  }else if(isAttendance(body.entity)&&body.action==='cancel'){
+   if(!old||body.entity==='TimeRecord')throw fail(409,'Registro exige ajuste auditado.');
+   data=await prepareAttendance({c,actor,body,old,data:{...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:body.entity==='Warning'?'cancelada':'cancelado'},save});
   }else if(body.action==='reverse'){
    if(!old||!['FinancialExpense','Revenue','AccountsReceivable'].includes(body.entity)||!['pago','recebido'].includes(old.status))throw fail(409,'Settled financial document required.');
    if(old.rh_deductions?.length)throw fail(409,'Linked obligation reversal requires complete linked aggregate; preserve original.');
@@ -292,6 +303,8 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    }
   }
   const publicRecord=await save(body.entity,body.id,data,current);
+  if(isAttendance(body.entity))await c.query('INSERT INTO d1_attendance_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
+  if(isPayroll(body.entity))await c.query('INSERT INTO d1_payroll_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
   await rhHistoryInsert(c,{owner:actor.id,id:body.id,entity:body.entity,operation:body.operationId,actor:actor.id,device:deviceId,version:publicRecord._version,action:body.action,snapshot:publicRecord});
   const main=changes.pop(),result={operationId:body.operationId,record:main.record,cascata:changes,domainRecord:publicRecord,replay:false,businessConfirmed:false,externalConfirmed:false};
   await c.query('INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[body.operationId,deviceId,actor.id,body.entity,body.id,current?'update':'create',current?Number(current.version):null,main.record._version,hash,main.record,result]);

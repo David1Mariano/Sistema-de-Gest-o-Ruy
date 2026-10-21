@@ -3,7 +3,7 @@ import {createIdentity} from './identity.mjs';
 import {web3formsSender} from './web3forms-mail.mjs';
 import {brevoSender} from './brevo-mail.mjs';
 export async function loadIdentity(pool){
- if(installation?.id!=='final-dev-20261021')return null;
+ if(!['final-dev-20261021','windows-candidate-20261021','windows-layout-20261021'].includes(installation?.id))return null;
  let c;try{c=await unseal('identity-service.dpapi');}catch{throw Error('IDENTITY_PROVISIONING_REQUIRED');}
  if(c.purpose!=='RUY_INDIVIDUAL_IDENTITY_DEV'||c.installationId!==installation.id)throw Error('IDENTITY_PROFILE_REFUSED');
  const pepper=Buffer.from(c.pepper||'','base64');

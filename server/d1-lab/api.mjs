@@ -16,7 +16,7 @@ import {operationalCommand,operationalState,createStockItem} from './operations.
 import {domainRoute,domainList} from './domain.mjs';
 import {deliveryCSV} from './delivery-report.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
-export function createServer(pool,deviceId,{history=null,historyOnly=false,identity=null,port=API_PORT}={}) {
+export function createServer(pool,deviceId,{history=null,historyOnly=false,identity=null,operationalHistory=null,port=API_PORT}={}) {
   if(port!==API_PORT&&!(process.env.RUY_HISTORY_ACCEPTANCE==='1'&&installation?.id==='history-view-dev-20261020'&&port===18124))throw Error('API_PORT_OVERRIDE_REFUSED');
   const origin=`http://127.0.0.1:${port}`;
   let dummy;
@@ -32,7 +32,7 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
       const url=new URL(req.url,origin);
       if(await staticRoute(req,res,url))return;
       if(url.pathname==='/health'&&req.method==='GET'){
-        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:'synthetic-only',syncEnabled:false,...(historyOnly?{historyReadOnly:true}:{}),...(installation?{installationId:installation.id,pid:process.pid}:{})});
+        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:operationalHistory?'isolated-import-preview':'synthetic-only',syncEnabled:false,...(historyOnly?{historyReadOnly:true}:{}),...(installation?{installationId:installation.id,pid:process.pid}:{})});
       }
       let body={};
       if(req.method==='POST'){
@@ -70,7 +70,7 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
           await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'login')",[user.id]);
           await c.query('DELETE FROM lab_attempts WHERE address=$1',[attemptKey]);
         });
-        return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf,deviceId,...(historyOnly?{historyOnly:true}:{})},{'Set-Cookie':cookie(token)});
+        return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?{operationalHistoryPreview:true}:{})},{'Set-Cookie':cookie(token)});
       }
       const token=(req.headers.cookie||'').match(/(?:^|;\s*)ruy_d1_lab=([a-f0-9]{64})(?:;|$)/)?.[1];
       if(!token)throw fail(401,'Sessão obrigatória.');
@@ -88,6 +88,13 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
         await history.route(req,res,url,user,reply);return;
       }
       if(historyOnly&&!['/api/d1/me','/api/d1/logout'].includes(url.pathname))throw fail(403,'Perfil histórico não permite operações locais.');
+      if(operationalHistory&&await operationalHistory.route(req,res,url,user,reply))return;
+      if(url.pathname==='/api/d1/attendance/status'&&req.method==='GET'){
+        if(user.role!=='admin')throw fail(403,'Jornada exige administrador.');
+        const enabled=(await pool.query("SELECT to_regclass('public.d1_attendance_history') IS NOT NULL enabled")).rows[0].enabled;
+        const payroll=(await pool.query("SELECT to_regclass('public.d1_payroll_history') IS NOT NULL enabled")).rows[0].enabled;
+        return reply(200,{enabled,payrollCalculationEnabled:payroll,nightShiftSupported:false,payrollPaymentsEnabled:false});
+      }
       if(url.pathname.startsWith('/api/d1/attachments')&&attachmentsEnabled()){
         if(url.pathname==='/api/d1/attachments'&&req.method==='GET')return reply(200,await listLocalAttachments(pool,user.id));
         if(url.pathname==='/api/d1/attachments/remote'&&req.method==='GET'){
@@ -122,7 +129,7 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
         let ready=false;if(deliveryEnabled()){await assertDeliveryDatabase(pool);ready=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;}
         return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
       }
-      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf:user.csrf,deviceId,...(historyOnly?{historyOnly:true}:{})});
+      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf:user.csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?{operationalHistoryPreview:true}:{})});
       if(url.pathname==='/api/d1/logout'&&req.method==='POST'){
         await pool.query('DELETE FROM lab_sessions WHERE token_hash=$1',[digest(token)]);return reply(200,{ok:true},{'Set-Cookie':cookie('',0)});
       }
