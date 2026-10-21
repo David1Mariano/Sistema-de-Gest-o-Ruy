@@ -78,7 +78,7 @@ export function createIdentity({pool,sender,pepper}){
   if(!user)throw fail(401,'Sessão obrigatória.');
   if(path==='/api/d1/account/change-password'){
    await throttle('change|'+user.id);const row=(await pool.query('SELECT password_hash FROM lab_users WHERE id=$1',[user.id])).rows[0];if(!await identityVerify(body.currentPassword,row.password_hash))throw fail(401,'Credenciais inválidas.');const hash=await identityPassword(body.password);
-   return transaction(pool,async c=>{await c.query('UPDATE lab_users SET password_hash=$2 WHERE id=$1',[user.id,hash]);await c.query('DELETE FROM lab_sessions WHERE user_id=$1',[user.id]);await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'password_changed_sessions_revoked')",[user.id]);return {ok:true};});
+   return transaction(pool,async c=>{const changed=await c.query('UPDATE lab_users SET password_hash=$2 WHERE id=$1 AND password_hash=$3 RETURNING id',[user.id,hash,row.password_hash]);if(!changed.rowCount)throw fail(409,'Senha alterada por outra solicitação; entre novamente.');await c.query('DELETE FROM lab_sessions WHERE user_id=$1',[user.id]);await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'password_changed_sessions_revoked')",[user.id]);return {ok:true};});
   }
   if(user.role!=='admin')throw fail(403,'Administração restrita.');
   if(path==='/api/d1/account/users')return {users:(await pool.query('SELECT u.id,u.login,u.role,u.active,a.full_name,a.verified_at,a.approved_at,a.revoked_at FROM lab_users u JOIN identity_accounts a ON a.user_id=u.id ORDER BY a.created_at LIMIT 200')).rows};
