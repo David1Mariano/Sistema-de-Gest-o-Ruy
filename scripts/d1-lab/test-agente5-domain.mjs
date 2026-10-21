@@ -3,7 +3,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {config,validateHome,API_PORT,installation} from '../../server/d1-lab/environment.mjs';
 import {poolFor,hashPassword} from '../../server/d1-lab/core.mjs';
 import {domainCommand} from '../../server/d1-lab/domain.mjs';
-if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!(installation?.id==='i5r4-dev-20261020'||!installation&&process.env.RUY_D1_TEST_API_PORT==='18091'))throw Error('Explicit synthetic test on auxiliary port 18091 required.');
+if(process.env.RUY_D1_ALLOW_TESTS!=='1'||!(['i5r4-dev-20261020','final-dev-20261021'].includes(installation?.id)||!installation&&process.env.RUY_D1_TEST_API_PORT==='18091'))throw Error('Explicit synthetic test on auxiliary port 18091 required.');
 let pool=poolFor(await config());const marker=await validateHome(),actor=randomUUID(),password=randomBytes(24).toString('hex');
 let checks=0;const results=[];
 const check=async(name,fn)=>{await fn();checks++;results.push(name);console.log('PASS '+name);};

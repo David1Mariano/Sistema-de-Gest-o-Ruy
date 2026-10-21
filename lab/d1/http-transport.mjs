@@ -12,7 +12,8 @@ export function createD1Transport({fetchImpl=(...args)=>globalThis.fetch(...args
    if(write&&(!body||typeof body!=='object'||Array.isArray(body)))throw Error();
    serialized=write?JSON.stringify(body):undefined;
   }catch{throw failure('Requisição local inválida.','INVALID_REQUEST',400);}
-  if(write&&route!=='/login'&&!csrf)throw failure('Sessão local sem CSRF; entre novamente.','CSRF_REQUIRED',403);
+  const publicAccount=/^\/account\/(register|resend|verify|reset-request|reset|bootstrap)$/.test(route);
+  if(write&&route!=='/login'&&!publicAccount&&!csrf)throw failure('Sessão local sem CSRF; entre novamente.','CSRF_REQUIRED',403);
   if(!Number.isFinite(timeoutMs)||timeoutMs<=0)throw failure('Prazo esgotado antes do envio.','TIMEOUT');
   const controller=new AbortController();let timer;
   const deadline=new Promise((_,reject)=>{timer=setTimeout(()=>{reject(failure('Servidor local não respondeu no prazo. Confira a fila antes de reenviar.','TIMEOUT',response?.status>=400?response.status:503));controller.abort();},timeoutMs);});

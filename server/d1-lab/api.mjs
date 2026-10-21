@@ -16,21 +16,23 @@ import {operationalCommand,operationalState,createStockItem} from './operations.
 import {domainRoute,domainList} from './domain.mjs';
 import {deliveryCSV} from './delivery-report.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
-export function createServer(pool,deviceId) {
+export function createServer(pool,deviceId,{history=null,historyOnly=false,identity=null,port=API_PORT}={}) {
+  if(port!==API_PORT&&!(process.env.RUY_HISTORY_ACCEPTANCE==='1'&&installation?.id==='history-view-dev-20261020'&&port===18124))throw Error('API_PORT_OVERRIDE_REFUSED');
+  const origin=`http://127.0.0.1:${port}`;
   let dummy;
   const cookie=(token,age=28800)=>`ruy_d1_lab=${token}; HttpOnly; SameSite=Strict; Path=/api/d1; Max-Age=${age}`;
   const server=http.createServer(async(req,res)=>{
     if(installation&&req.url==='/health'&&/^[a-f0-9]{64}$/.test(process.env.RUY_D1_OWNER_NONCE||''))res.setHeader('X-Ruy-Owner',process.env.RUY_D1_OWNER_NONCE);
     const reply=(status,body,headers={})=>{res.writeHead(status,{'Content-Type':'application/json','Cache-Control':'no-store','X-Content-Type-Options':'nosniff',...headers});res.end(JSON.stringify(body));};
     try{
-      if(req.headers.host!==`127.0.0.1:${API_PORT}`)throw fail(403,'Host recusado.');
+      if(req.headers.host!==`127.0.0.1:${port}`)throw fail(403,'Host recusado.');
       if(req.headers.origin&&req.headers.origin!==origin)throw fail(403,'Origem recusada.');
       if(req.headers['sec-fetch-site']&&!['same-origin','none'].includes(req.headers['sec-fetch-site']))throw fail(403,'Cross-site recusado.');
       if(!['GET','POST'].includes(req.method))throw fail(405,'Método recusado.');
       const url=new URL(req.url,origin);
       if(await staticRoute(req,res,url))return;
       if(url.pathname==='/health'&&req.method==='GET'){
-        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:'synthetic-only',syncEnabled:false,...(installation?{installationId:installation.id,pid:process.pid}:{})});
+        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:'synthetic-only',syncEnabled:false,...(historyOnly?{historyReadOnly:true}:{}),...(installation?{installationId:installation.id,pid:process.pid}:{})});
       }
       let body={};
       if(req.method==='POST'){
@@ -41,18 +43,25 @@ export function createServer(pool,deviceId) {
         try{body=JSON.parse(Buffer.concat(chunks).toString('utf8'));}catch{throw fail(400,'JSON inválido.');}
         if(!body||typeof body!=='object'||Array.isArray(body))throw fail(400,'Objeto JSON obrigatório.');
       }
+      if(url.pathname==='/api/d1/account/config'&&req.method==='GET')return reply(200,{enabled:Boolean(identity)});
+      if(identity&&req.method==='POST'&&['register','resend','verify','reset-request','reset','bootstrap'].some(action=>url.pathname==='/api/d1/account/'+action)){
+        if(url.pathname.endsWith('/bootstrap')){await identity.throttle('bootstrap|'+req.socket.remoteAddress);return reply(200,await identity.bootstrap(body));}
+        return reply(200,await identity.route(url,body,req.socket.remoteAddress));
+      }
       if(url.pathname==='/api/d1/login'&&req.method==='POST'){
         const login=typeof body.login==='string'?body.login.trim().toLowerCase():'';
         if(login.length>254)throw fail(400,'Identificador inválido.');
+        if(identity)await identity.throttle('login-ip|'+req.socket.remoteAddress,30);
         const attemptKey=digest(req.socket.remoteAddress+'|'+login);
-        const limit=(await pool.query(`INSERT INTO lab_attempts(address,attempts,expires_at) VALUES($1,1,now()+interval '15 minutes')
+        const limit=(await pool.query(`INSERT INTO lab_attempts(address,attempts,expires_at) VALUES($1,1,now()+$2::interval)
           ON CONFLICT(address) DO UPDATE SET attempts=CASE WHEN lab_attempts.expires_at<now() THEN 1 ELSE lab_attempts.attempts+1 END,
-          expires_at=CASE WHEN lab_attempts.expires_at<now() THEN now()+interval '15 minutes' ELSE lab_attempts.expires_at END RETURNING attempts`,[attemptKey])).rows[0];
-        if(limit.attempts>10)throw fail(429,'Aguarde antes de tentar novamente.');
+          expires_at=CASE WHEN lab_attempts.expires_at<now() THEN now()+$2::interval ELSE lab_attempts.expires_at END RETURNING attempts`,[attemptKey,identity?'30 minutes':'15 minutes'])).rows[0];
+        if(limit.attempts>(identity?5:10))throw fail(429,'Aguarde antes de tentar novamente.');
         const user=(await pool.query('SELECT * FROM lab_users WHERE login=$1',[login])).rows[0];
-        dummy ||= hashPassword(randomBytes(24).toString('hex'));
-        const valid=await verifyPassword(body.password,user?.password_hash||await dummy);
-        if(!valid||!user?.active){await pool.query("INSERT INTO lab_audit(action) VALUES('login_denied')");throw fail(401,'Credenciais inválidas.');}
+        let passwordHash=user?.password_hash;
+        if(!passwordHash){dummy ||= (identity?identity.hashPassword:hashPassword)(randomBytes(24).toString('hex')).catch(error=>{dummy=null;throw error;});passwordHash=await dummy;}
+        const valid=await (identity?identity.verifyPassword:verifyPassword)(body.password,passwordHash);
+        if(!valid||!user?.active||(identity&&!await identity.allowed(user.id))){await pool.query("INSERT INTO lab_audit(action) VALUES('login_denied')");throw fail(401,'Credenciais inválidas.');}
         const token=randomBytes(32).toString('hex'),csrf=randomBytes(32).toString('hex');
         await transaction(pool,async c=>{
           const active=(await c.query('SELECT id FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rowCount;
@@ -61,13 +70,24 @@ export function createServer(pool,deviceId) {
           await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'login')",[user.id]);
           await c.query('DELETE FROM lab_attempts WHERE address=$1',[attemptKey]);
         });
-        return reply(200,{user:{id:user.id,role:user.role},csrf,deviceId},{'Set-Cookie':cookie(token)});
+        return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf,deviceId,...(historyOnly?{historyOnly:true}:{})},{'Set-Cookie':cookie(token)});
       }
       const token=(req.headers.cookie||'').match(/(?:^|;\s*)ruy_d1_lab=([a-f0-9]{64})(?:;|$)/)?.[1];
       if(!token)throw fail(401,'Sessão obrigatória.');
       const user=(await pool.query('SELECT u.id,u.role,s.csrf FROM lab_sessions s JOIN lab_users u ON u.id=s.user_id WHERE s.token_hash=$1 AND s.expires_at>now() AND u.active',[digest(token)])).rows[0];
       if(!user)throw fail(401,'Sessão expirada/revogada.');
+      if(identity&&!await identity.allowed(user.id))throw fail(401,'Conta pendente ou revogada.');
       if(req.method==='POST'&&req.headers['x-csrf-token']!==user.csrf)throw fail(403,'CSRF obrigatório.');
+      if(url.pathname.startsWith('/api/d1/account/')){
+        if(!identity)throw fail(503,'Contas individuais não habilitadas neste perfil.');
+        if(req.method!=='POST'&&url.pathname!=='/api/d1/account/users')throw fail(405,'Método recusado.');
+        return reply(200,await identity.route(url,body,req.socket.remoteAddress,user));
+      }
+      if(url.pathname==='/api/d1/history'||url.pathname.startsWith('/api/d1/history/')){
+        if(!history)throw fail(503,'Perfil histórico não habilitado.');
+        await history.route(req,res,url,user,reply);return;
+      }
+      if(historyOnly&&!['/api/d1/me','/api/d1/logout'].includes(url.pathname))throw fail(403,'Perfil histórico não permite operações locais.');
       if(url.pathname.startsWith('/api/d1/attachments')&&attachmentsEnabled()){
         if(url.pathname==='/api/d1/attachments'&&req.method==='GET')return reply(200,await listLocalAttachments(pool,user.id));
         if(url.pathname==='/api/d1/attachments/remote'&&req.method==='GET'){
@@ -102,7 +122,7 @@ export function createServer(pool,deviceId) {
         let ready=false;if(deliveryEnabled()){await assertDeliveryDatabase(pool);ready=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;}
         return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
       }
-      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:{id:user.id,role:user.role},csrf:user.csrf,deviceId});
+      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf:user.csrf,deviceId,...(historyOnly?{historyOnly:true}:{})});
       if(url.pathname==='/api/d1/logout'&&req.method==='POST'){
         await pool.query('DELETE FROM lab_sessions WHERE token_hash=$1',[digest(token)]);return reply(200,{ok:true},{'Set-Cookie':cookie('',0)});
       }
