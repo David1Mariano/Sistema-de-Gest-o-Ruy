@@ -83,6 +83,19 @@ export function createIdentity({pool,sender,pepper}){
   }
   if(user.role!=='admin')throw fail(403,'Administração restrita.');
   if(path==='/api/d1/account/users')return {users:(await pool.query('SELECT u.id,u.login,u.role,u.active,a.full_name,a.verified_at,a.approved_at,a.revoked_at FROM lab_users u JOIN identity_accounts a ON a.user_id=u.id ORDER BY a.created_at LIMIT 200')).rows};
+  if(path==='/api/d1/account/reject'){
+   if(!/^[a-f0-9-]{36}$/.test(body.userId||'')||body.userId===user.id)throw fail(400,'Conta inválida.');
+   return transaction(pool,async c=>{
+    const target=(await c.query('SELECT approved_at FROM identity_accounts WHERE user_id=$1 FOR UPDATE',[body.userId])).rows[0];
+    if(!target||target.approved_at)throw fail(409,'Use revogação para uma conta já aprovada.');
+    await c.query('UPDATE lab_users SET active=false WHERE id=$1',[body.userId]);
+    await c.query('UPDATE identity_accounts SET revoked_at=now() WHERE user_id=$1',[body.userId]);
+    await c.query('UPDATE identity_codes SET consumed_at=COALESCE(consumed_at,now()) WHERE user_id=$1',[body.userId]);
+    await c.query('DELETE FROM lab_sessions WHERE user_id=$1',[body.userId]);
+    await c.query('INSERT INTO lab_audit(actor,action) VALUES($1,$2)',[user.id,'account_rejected:'+body.userId]);
+    return {ok:true};
+   });
+  }
   if(path==='/api/d1/account/authorize'){
    if(!['admin','writer','viewer'].includes(body.role)||typeof body.active!=='boolean'||body.userId===user.id)throw fail(400,'Concessão inválida.');
    return transaction(pool,async c=>{

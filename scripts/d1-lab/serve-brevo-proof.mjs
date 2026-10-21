@@ -20,7 +20,12 @@ const owner=new pg.Client({...ownerConfig,database});await owner.connect();try{
 }finally{await owner.end();}
 const pool=new pg.Pool({...await config(),database}),pepper=randomBytes(32),password=randomBytes(32).toString('hex');
 await fs.writeFile(path.join(root,'context.dpapi'),powershell('$v=[Console]::In.ReadToEnd();ConvertFrom-SecureString (ConvertTo-SecureString $v -AsPlainText -Force)',JSON.stringify({purpose:'RUY_BREVO_REAL_PROOF',database,pepper:pepper.toString('base64'),password,recipient:settings.recipient})),{flag:'wx'});
-let accepted=false,providerStatus=null,transportCode=null,timer,closed=false;const provider=brevoSender(settings);const send=async message=>{if(message.to!==settings.recipient)throw Error('BREVO_PROOF_RECIPIENT_REFUSED');return provider(message);};
+let accepted=false,providerStatus=null,transportCode=null,timer,closed=false,sendAttempts=0,proofCode=null,checking=false;const provider=brevoSender(settings);const send=async message=>{
+ if(message.to!==settings.recipient||message.purpose!=='verify')throw Error('BREVO_PROOF_RECIPIENT_REFUSED');
+ if(sendAttempts!==0)throw Error('BREVO_SINGLE_SEND_LIMIT');
+ sendAttempts++;proofCode=message.code;
+ const result=await provider(message);providerStatus=201;return result;
+};
 const proofSender=async message=>{try{const result=await send(message);accepted=result.accepted===true;return result;}catch(e){providerStatus=e.providerStatus||null;throw e;}};proofSender.accepts=email=>email===settings.recipient;
 const identity=createIdentity({pool,pepper,sender:proofSender});
 const server=createServer(pool,'email-proof-'+randomUUID(),{identity});
@@ -30,12 +35,16 @@ const response=await fetch(origin+'/api/d1/account/register',{method:'POST',head
 if(response.status!==200||!accepted){await finish({passed:false,submissionStatus:response.status,realDeliveryConfirmed:false,reason:'PROVIDER_ACCEPTANCE_NOT_CONFIRMED'});}
 else{
  console.log(JSON.stringify({providerAccepted:true,realDeliveryConfirmed:false,confirmationUrl:origin+'/',action:'Use Confirmar e-mail in the local page. Do not send the code in chat.'}));const started=Date.now();
- timer=setInterval(async()=>{if(closed)return;try{
+ timer=setInterval(async()=>{if(closed||checking)return;checking=true;try{
   const row=(await pool.query('SELECT verified_at,approved_at FROM identity_accounts a JOIN lab_users u ON u.id=a.user_id WHERE u.login=$1',[settings.recipient])).rows[0];
   if(row?.verified_at){
+   let replayStatus=null;
+   try{await identity.route(new URL(origin+'/api/d1/account/verify'),{email:settings.recipient,code:proofCode},'proof-replay');}catch(e){replayStatus=e.status;}
+   proofCode=null;
+   if(replayStatus!==400)throw Error('CODE_REUSE_NOT_REFUSED');
    try{await seal('brevo-confirmed.dpapi',{...settings,deliveryConfirmed:true,confirmedAt:new Date().toISOString()});}catch(e){if(e.code!=='EEXIST')throw e;}
-   await finish({passed:true,realDeliveryConfirmed:true,codeConfirmedOnServer:true,accountApproved:Boolean(row.approved_at),proofRestrictedToAuthorizedRecipient:true});
+   await finish({passed:true,realDeliveryConfirmed:true,codeConfirmedOnServer:true,codeReuseRefused:true,replayStatus,sendAttempts,accountApproved:Boolean(row.approved_at),proofRestrictedToAuthorizedRecipient:true});
   }else if(Date.now()-started>10*60*1000)await finish({passed:false,realDeliveryConfirmed:false,reason:'CODE_CONFIRMATION_WINDOW_EXPIRED'});
- }catch{await finish({passed:false,realDeliveryConfirmed:false,reason:'LOCAL_PROOF_CHECK_FAILED'});}},1000);
+ }catch{await finish({passed:false,realDeliveryConfirmed:false,reason:'LOCAL_PROOF_CHECK_FAILED'});}finally{checking=false;}},1000);
 }
 for(const signal of ['SIGINT','SIGTERM'])process.on(signal,()=>finish({passed:false,realDeliveryConfirmed:false,reason:'NORMAL_OPERATOR_SHUTDOWN'}));
