@@ -58,6 +58,7 @@ export function createIdentity({pool,sender,pepper}){
   const path=url.pathname;
   if(path==='/api/d1/account/register'){
    const login=email(body.email),name=String(body.name||'').trim();if(name.length<2||name.length>120)throw fail(400,'Informe seu nome.');
+   if(sender.accepts&&!sender.accepts(login))throw fail(503,'O serviço de e-mail atual não permite confirmar este destinatário.');
    await throttle('register-ip|'+address,10);
    const hash=await identityPassword(body.password);
    await transaction(pool,async c=>{

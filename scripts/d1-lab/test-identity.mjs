@@ -42,6 +42,16 @@ try{
  await owner.query("INSERT INTO identity_bootstrap(token_hash,expires_at) VALUES($1,now()+interval '10 minutes') ON CONFLICT(singleton) DO UPDATE SET token_hash=EXCLUDED.token_hash,expires_at=EXCLUDED.expires_at,consumed_at=NULL",[digest(token)]);
  await check('controlled administrator bootstrap consumed once',async()=>{assert.equal((await call('/account/bootstrap',{email:admin,token:'0'.repeat(64)})).status,403);assert.equal((await call('/account/bootstrap',{email:admin,token})).status,200);assert.equal((await call('/account/bootstrap',{email:admin,token})).status,403);});
  await check('individual login HttpOnly session and CSRF',async()=>{a=await call('/login',{login:admin,password});assert.equal(a.status,200);assert.equal(a.data.user.role,'admin');assert.ok(a.cookie);assert.equal((await call('/account/users',undefined,a.cookie)).status,200);assert.equal((await call('/account/authorize',{userId:a.data.user.id,role:'admin',active:true},a.cookie)).status,403);});
+ await check('expired code and five incorrect attempts never verify an account',async()=>{
+  const address='expiry-'+suffix+'@example.invalid';assert.equal((await call('/account/register',{email:address,name:'FICTICIO Expiração',password})).status,200);
+  await owner.query("UPDATE identity_codes SET expires_at=now()-interval '1 minute' WHERE user_id=(SELECT id FROM lab_users WHERE login=$1)",[address]);
+  assert.equal((await call('/account/verify',{email:address,code:mailbox.get(address+'|verify')})).status,400);
+  await owner.query("UPDATE identity_codes SET sent_at=now()-interval '2 minutes' WHERE user_id=(SELECT id FROM lab_users WHERE login=$1)",[address]);
+  assert.equal((await call('/account/resend',{email:address})).status,200);const good=mailbox.get(address+'|verify'),bad=good==='000000'?'111111':'000000';
+  for(let i=0;i<5;i++)assert.equal((await call('/account/verify',{email:address,code:bad})).status,400);
+  assert.equal((await call('/account/verify',{email:address,code:good})).status,400);
+  const state=(await owner.query('SELECT a.verified_at,u.active,k.attempts FROM lab_users u JOIN identity_accounts a ON a.user_id=u.id JOIN identity_codes k ON k.user_id=u.id WHERE u.login=$1',[address])).rows[0];assert.deepEqual(state,{verified_at:null,active:false,attempts:5});
+ });
  await check('resend cooldown enforced by server',async()=>{assert.equal((await call('/account/register',{email:member,name:'Leitor sintético',password})).status,200);assert.equal((await call('/account/resend',{email:member})).status,429);});
  await check('administrator cannot approve unverified account',async()=>{const id=(await owner.query('SELECT id FROM lab_users WHERE login=$1',[member])).rows[0].id;assert.equal((await call('/account/authorize',{userId:id,role:'viewer',active:true},a.cookie,a.data.csrf)).status,409);});
  await check('verified member approved explicitly and stays viewer',async()=>{assert.equal((await call('/account/verify',{email:member,code:mailbox.get(member+'|verify')})).status,200);const id=(await owner.query('SELECT id FROM lab_users WHERE login=$1',[member])).rows[0].id;assert.equal((await call('/account/authorize',{userId:id,role:'viewer',active:true},a.cookie,a.data.csrf)).status,200);m=await call('/login',{login:member,password});assert.equal(m.status,200);assert.equal(m.data.user.role,'viewer');});
