@@ -71,3 +71,36 @@ conta e dados numa atualização autorizada. Não instalar sobre R4 nem outro pr
 
 Não houve migração operacional, alteração da R4, deploy, merge ou publicação de
 credenciais, anexos, bancos ou dados pessoais.
+
+## Atualização instalada autorizada — 22/10/2026
+
+Após autorização específica do responsável, somente a candidata de teste foi
+atualizada para 0.6.0-rc.3. A R4 e demais instalações não foram substituídas.
+
+- Instalador: `artifacts/ruy-windows-modulos-0.6.0-rc.3-20261022/Sistema-Ruy-Windows-Modulos-0.6.0-rc.3-20261022-Setup.exe`.
+- SHA-256: `e4b3361f8dc67fbeae4966c022bd103e1fec06596c09bd251f82f53eb00893a4`.
+- Backup cifrado novo concluído antes da troca, com zero operações pendentes;
+  backups anteriores preservados.
+- Fechamento normal da candidata confirmado: API e PostgreSQL próprios encerrados;
+  nenhum processo foi forçado. Cópia fria de instalação, dados e perfil concluída:
+  2.447 arquivos, 659.432.919 bytes, hashes conferidos em diretório privado.
+- Instalação interativa feita pelo responsável, pois a ferramenta gráfica não está
+  disponível nesta sessão. O pacote instalado foi conferido contra o artefato rc.3.
+- Registro NSIS HKCU `626e4a81-2c25-5a85-90f9-3425fa3a3072` atualizado para rc.3,
+  desinstalador por usuário, mesmo destino exclusivo da candidata.
+- Nova janela criada/carregada pelo executável instalado; API 18144, PostgreSQL
+  próprio 55494 e fonte histórica loopback 55463. Nenhuma porta exposta à internet.
+- Bundle servido pela API idêntico ao instalado e sem o gráfico indesejado.
+- Healthcheck e frontend 200; consultas sem sessão (inclusive capacidades e painel
+  social) 401; comando com origem indevida 403; CSP presente.
+- Identidade administrativa aprovada e sessão válida preservadas. Nenhuma senha
+  redefinida e nenhum novo e-mail enviado.
+- Fingerprints dos registros/anexos e agregados financeiros/estoque idênticos à
+  restauração isolada: 1.186 registros, 63 colaboradores, 59 anexos, 54 vinculados
+  e cinco em quarentena. Nenhum lançamento reexecutado.
+
+Pendente: confirmação visual do responsável no Dashboard e nas consultas novas.
+Não considerar a consulta homologada em laboratório equivalente à homologação
+operacional dos módulos ainda bloqueados. Compras, integrações externas sociais,
+pagamento/reabertura de folha e ativação de jornada no perfil histórico mantêm as
+restrições documentadas acima. Não houve migração definitiva nem ativação operacional.
