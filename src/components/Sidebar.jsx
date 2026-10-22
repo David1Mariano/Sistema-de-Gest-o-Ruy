@@ -40,7 +40,7 @@ export default function Sidebar({ open, onClose }) {
                 {group.items.filter((item) => !item.roles || item.roles.includes(user?.role)).map((item) => {
                   const Icon = item.icon;
                   const active = isActive(item);
-                  if (item.disabled) return <div key={item.key} title={item.reason} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-500" aria-disabled="true"><Icon className="w-[18px] h-[18px] shrink-0"/><span>{item.label}<small className="block text-[10px]">Aguardando homologação</small></span></div>;
+                  if (item.disabled) return <div key={item.key} title={item.reason} className="flex items-center gap-3 rounded-lg px-3 py-2.5 text-sm text-slate-500" aria-disabled="true"><Icon className="w-[18px] h-[18px] shrink-0"/><span>{item.label}<small className="block text-[10px]">{item.disabledLabel || 'Aguardando homologação'}</small></span></div>;
                   return (
                     <NavLink
                       key={item.key}

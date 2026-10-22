@@ -6,14 +6,14 @@ import AbsenceForm from '@/components/rh/AbsenceForm';
 import { formatBR } from '@/lib/timeUtils';
 import { ABSENCE_TYPES, rangeFor, inRange } from '@/lib/rhUtils';
 
-export default function OcorrenciasFrequencia() {
+export default function OcorrenciasFrequencia({ readOnly = false }) {
   const [absences, setAbsences] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [period, setPeriod] = useState('mes');
+  const [period, setPeriod] = useState(readOnly ? 'todos' : 'mes');
   const [sectorFilter, setSectorFilter] = useState('');
   const [typeFilter, setTypeFilter] = useState('');
 
@@ -34,14 +34,14 @@ export default function OcorrenciasFrequencia() {
   const sectors = useMemo(() => [...new Set(employees.map((e) => e.sector).filter(Boolean))], [employees]);
 
   const filtered = useMemo(() => absences.filter((a) => {
-    if (!inRange(a.date, range)) return false;
+    if (period !== 'todos' && !inRange(a.date, range)) return false;
     if (typeFilter && a.type !== typeFilter) return false;
     if (sectorFilter) {
       const e = employees.find((x) => x.id === a.employee_id);
       if (!e || e.sector !== sectorFilter) return false;
     }
     return true;
-  }), [absences, range, typeFilter, sectorFilter, employees]);
+  }), [absences, range, period, typeFilter, sectorFilter, employees]);
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
@@ -53,12 +53,12 @@ export default function OcorrenciasFrequencia() {
           <h1 className="text-2xl font-semibold tracking-tight">Ocorrências de Frequência</h1>
           <p className="text-sm text-slate-500">Faltas, atrasos e ausências da equipe</p>
         </div>
-        <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Registrar ocorrência</Button>
+        {!readOnly && <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Registrar ocorrência</Button>}
       </div>
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-          {[{ k: 'hoje', l: 'Hoje' }, { k: 'semana', l: 'Semana' }, { k: 'mes', l: 'Mês' }].map((p) => (
+          {[{ k: 'todos', l: 'Todo o histórico' }, { k: 'hoje', l: 'Hoje' }, { k: 'semana', l: 'Semana' }, { k: 'mes', l: 'Mês' }].map((p) => (
             <button key={p.k} onClick={() => setPeriod(p.k)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${period === p.k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>{p.l}</button>
           ))}
         </div>
@@ -106,7 +106,7 @@ export default function OcorrenciasFrequencia() {
         )}
       </div>
 
-      <AbsenceForm open={formOpen} onOpenChange={setFormOpen} employees={employees} onSaved={load} editing={editing} />
+      {!readOnly && <AbsenceForm open={formOpen} onOpenChange={setFormOpen} employees={employees} onSaved={load} editing={editing} />}
     </div>
   );
 }

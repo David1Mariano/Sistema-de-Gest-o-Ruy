@@ -15,6 +15,7 @@ import {syncReady,syncStatus,synchronizeD1} from './sync.mjs';
 import {operationalCommand,operationalState,createStockItem} from './operations.mjs';
 import {domainRoute,domainList} from './domain.mjs';
 import {deliveryCSV} from './delivery-report.mjs';
+import {moduleStatus} from './module-status.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
 export function createServer(pool,deviceId,{history=null,historyOnly=false,identity=null,operationalHistory=null,port=API_PORT}={}) {
   if(port!==API_PORT&&!(process.env.RUY_HISTORY_ACCEPTANCE==='1'&&installation?.id==='history-view-dev-20261020'&&port===18124))throw Error('API_PORT_OVERRIDE_REFUSED');
@@ -88,6 +89,13 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
         await history.route(req,res,url,user,reply);return;
       }
       if(historyOnly&&!['/api/d1/me','/api/d1/logout'].includes(url.pathname))throw fail(403,'Perfil histórico não permite operações locais.');
+      if(['/api/d1/modules/status','/api/d1/social/snapshot'].includes(url.pathname)){
+        if(user.role!=='admin')throw fail(403,'Consulta administrativa restrita.');
+        if(req.method!=='GET')throw fail(403,'Operação externa não autorizada.');
+        if(operationalHistory)await operationalHistory.list(user,'Employee');
+        if(url.pathname.endsWith('/status'))return reply(200,await moduleStatus(pool,{historical:Boolean(operationalHistory)}));
+        return reply(200,{accounts:[],comments:[],messages:[],replies:[],drafts:[],metrics:[],posts:[],aiConfigured:false,connected:false,sendingEnabled:false,manychat:{configured:false,reachable:false,authenticated:false,error_code:'NOT_CONFIGURED',channels:[]}});
+      }
       if(operationalHistory&&await operationalHistory.route(req,res,url,user,reply))return;
       if(url.pathname==='/api/d1/attendance/status'&&req.method==='GET'){
         if(user.role!=='admin')throw fail(403,'Jornada exige administrador.');
