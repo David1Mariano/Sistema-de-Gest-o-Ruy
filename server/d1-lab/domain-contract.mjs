@@ -1,12 +1,14 @@
 import {deliveryFields,isDelivery,validateDeliveryPayload} from './delivery-contract.mjs';
 import {attendanceFields} from './attendance-contract.mjs';
 import {payrollFields} from './payroll-contract.mjs';
+import {purchaseFields,validatePurchaseSnapshot} from './purchase-contract.mjs';
 // Versioned document snapshots. Monetary documents do not execute bank payments.
 const fields = text => text.split(' ');
 const common = 'date status observation responsible_user';
 export const domainFields = {
  ...attendanceFields,
  ...payrollFields,
+ ...purchaseFields,
  ...deliveryFields,
  Vale: fields('employee_id employee_name sector date amount type motive payment_method authorized_by status observation proof_url deduction_payment_id deduction_payment_version'),
  Consumption: fields('employee_id employee_name sector date time product quantity amount registered_by status deduction_payment_id deduction_payment_version'),
@@ -16,7 +18,7 @@ export const domainFields = {
  FinancialExpense: fields(common+' paid_date due_date description classification category_id category_name cost_center_id cost_center_name beneficiary_type beneficiary_id beneficiary_name employee_id amount payment_method account financial_account_id financial_account_name document_number proof_url invoice_url origin_type origin_id accounts_payable_id'),
   EmployeePayment: fields(common+' employee_id employee_name sector function payment_type reference_start reference_end work_date days_quantity daily_rate gross_amount discount_amount net_amount payment_date payment_method proof_url vale_id financial_expense_id payments'),
  Revenue: fields(common+' description gross_amount fee_amount net_amount financial_account_id financial_account_name payment_method origin_mode source source_type channel'),
- AccountsPayable: fields(common+' description issue_date due_date amount category_id category_name cost_center_id cost_center_name beneficiary_name beneficiary_type payment_method_planned document_number document_url priority paid_date financial_account_id financial_account_name proof_url financial_expense_id recurring_expense_id'),
+ AccountsPayable: fields(common+' description issue_date due_date amount category_id category_name cost_center_id cost_center_name beneficiary_name beneficiary_type purchase_id supplier_id payment_method_planned document_number document_url priority paid_date financial_account_id financial_account_name proof_url financial_expense_id recurring_expense_id'),
  FinancialAccount: fields('name type institution status initial_balance current_balance'),
  CostCenter: fields('name status'),
  Sangria: fields(common+' time cashier amount operator_name responsible purpose destination registered_by'),
@@ -36,6 +38,7 @@ export const domainSyncFields = Object.fromEntries(Object.keys(domainFields).map
 export function validateDomainSnapshot(entity,data){
  if(!domainSyncFields[entity])return;
  const payload=JSON.parse(data.payload_json);
+ if(entity==='Purchase')validatePurchaseSnapshot(payload);
  if(isDelivery(entity))validateDeliveryPayload(entity,payload);
  const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'];
  if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!domainFields[entity].includes(k)&&!derived.includes(k)))throw Error('Invalid domain snapshot');

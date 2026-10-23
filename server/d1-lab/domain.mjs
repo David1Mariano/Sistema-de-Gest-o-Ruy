@@ -1,6 +1,7 @@
 import {assertActiveIntent} from './core.mjs';
 import {isAttendance,prepareAttendance} from './attendance.mjs';
 import {isPayroll,preparePayroll} from './payroll.mjs';
+import {isPurchase,preparePurchase,purchasePreview} from './purchasing.mjs';
 import {isDelivery} from './delivery-contract.mjs';
 import {assertDeliveryLab,assertDeliveryDatabase,prepareDelivery} from './delivery.mjs';
 import {randomUUID} from 'node:crypto';
@@ -90,10 +91,10 @@ async function preview(c,owner,row){
  return {recordId:row.id,baseVersion:Number(row.version),inputs,token:syncHash({id:row.id,version:Number(row.version),inputs}),alreadyConfirmed:d.local_status==='confirmado',canConfirm:d.local_status!=='confirmado'&&inputs.every(i=>i.availableMilli>=i.quantityMilli),businessConfirmed:false};
 }
 export async function domainPreview(pool,user,id){
- return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
+ return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);const row=(await c.query('SELECT * FROM d2_catalog WHERE owner_id=$1 AND id=$2',[user.id,id])).rows[0];if(row?.entity==='Purchase')return purchasePreview(c,user.id,row);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
 }
 export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
-  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch','transition'].includes(body.action)||body.action==='transition'&&!isDelivery(body.entity)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch','transition','reopen'].includes(body.action)||body.action==='transition'&&!isDelivery(body.entity)||body.action==='reopen'&&body.entity!=='PayrollRun'||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
  if(isDelivery(body.entity))assertDeliveryLab();
  return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
@@ -112,7 +113,8 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    changes.push({entity,record:record(row)});return unwrapDomain(row);
   };
   let data;
-  if(isDelivery(body.entity))data=await prepareDelivery(c,actor,body,old);
+  if(isPurchase(body.entity))data=await preparePurchase({c,actor,deviceId,body,old,save,changes});
+  else if(isDelivery(body.entity))data=await prepareDelivery(c,actor,body,old);
   else if(body.action==='save'){
    if(old?.status==='cancelado')throw fail(409,'Documento cancelado é imutável; reabertura exige fluxo homologado.');
    if(old?.local_status&&old.local_status!=='rascunho')throw fail(409,'Produção confirmada/cancelada é imutável; use cancelamento.');
@@ -132,6 +134,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    if(isRh(body.entity))data=await prepareRh({c,actor,deviceId,body,old,data,get,save});
    if(isAttendance(body.entity))data=await prepareAttendance({c,actor,body,old,data,save});
    if(isPayroll(body.entity))data=await preparePayroll({c,actor,body,old,data});
+   if(body.entity==='AccountsPayable'&&(data.purchase_id||old?.purchase_id)&&(!old||data.purchase_id!==old.purchase_id||data.supplier_id!==old.supplier_id||data.amount!==old.amount||data.status==='cancelado'))throw fail(409,'Vínculo, valor e cancelamento da compra só podem mudar pelo agregado da compra.');
    for(const [field,entity,nameField] of [['financial_account_id','FinancialAccount','financial_account_name'],['cost_center_id','CostCenter','cost_center_name'],['category_id','ExpenseCategory','category_name']])if(data[field]){
     const ref=await get(c,actor.id,entity,data[field]);const value=entity==='ExpenseCategory'?ref.data:unwrapDomain(ref);
     if(value.status!=='ativo')throw fail(409,'Referência financeira inativa.');data[nameField]=value.name;
@@ -266,6 +269,11 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
   }else if(isRh(body.entity)&&body.action==='cancel'){
    if(!old)throw fail(409,'Lançamento RH inexistente.');
    data=await prepareRh({c,actor,deviceId,body,old,data:{...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'cancelado'},get,save});
+  }else if(body.entity==='PayrollRun'&&body.action==='reopen'){
+   if(!old||old.status!=='fechado'||body.token!==old.calculation?.fingerprint||typeof body.reason!=='string'||body.reason.trim().length<8||body.reason.length>300)throw fail(409,'Reabertura exige calculo fechado, conferencia e motivo.');
+   const linked=(await rows(c,actor.id,'EmployeePayment')).map(unwrapDomain).some(p=>p.status!=='cancelado'&&p.employee_id===old.employee_id&&(!p.reference_start||!p.reference_end||p.reference_start<=old.reference_end&&old.reference_start<=p.reference_end));
+   if(linked)throw fail(409,'Existe pagamento no periodo; reconciliacao necessaria antes de reabrir.');
+   data={...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'rascunho',reopen_reason:body.reason.trim(),reopened_by:actor.id};
   }else if(body.entity==='PayrollRun'&&body.action==='confirm'){
    if(!old)throw fail(409,'Cálculo de folha inexistente.');
    data=await preparePayroll({c,actor,body,old,data:Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k)))});
@@ -303,6 +311,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    }
   }
   const publicRecord=await save(body.entity,body.id,data,current);
+  if(isPurchase(body.entity))await c.query('INSERT INTO d1_purchase_history(owner_id,record_id,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$1,$4,$5,$6)',[actor.id,body.id,body.operationId,publicRecord._version,body.action,publicRecord]);
   if(isAttendance(body.entity))await c.query('INSERT INTO d1_attendance_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
   if(isPayroll(body.entity))await c.query('INSERT INTO d1_payroll_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
   await rhHistoryInsert(c,{owner:actor.id,id:body.id,entity:body.entity,operation:body.operationId,actor:actor.id,device:deviceId,version:publicRecord._version,action:body.action,snapshot:publicRecord});

@@ -15,7 +15,7 @@ const send=body=>domainCommand(pool,actor,device,body);
 const check=async(name,fn)=>{await fn();passed++;console.log('PASS '+name);};
 let server;
 try{
- for(const name of ['schema','entities','catalog','sync','operations','domain','attachments','business','delivery','attendance','payroll','identity'])await pool.query(await fs.readFile(new URL('../../server/d1-lab/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['schema','entities','catalog','sync','operations','domain','attachments','business','delivery','attendance','payroll','purchasing','identity'])await pool.query(await fs.readFile(new URL('../../server/d1-lab/'+name+'.sql',import.meta.url),'utf8'));
  const password=randomBytes(24).toString('hex');
  await pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,'attendance@example.invalid',$2,'admin')",[actor.id,await identityPassword(password)]);await pool.query('INSERT INTO lab_device(id) VALUES($1)',[device]);
  await pool.query("INSERT INTO identity_accounts(user_id,full_name,verified_at,approved_at) VALUES($1,'FICTICIO Jornada',now(),now())",[actor.id]);
@@ -44,6 +44,21 @@ try{
   assert.equal((await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE entity IN ('EmployeePayment','FinancialExpense')")).rows[0].n,0);
  });
  await check('payroll calculation history retained; no payment or stock effects',async()=>{assert.ok((await pool.query('SELECT count(*)::int n FROM d1_payroll_history')).rows[0].n>=4);assert.equal((await pool.query('SELECT (SELECT count(*) FROM d1_stock_movements)+(SELECT count(*) FROM d1_financial_entries) n')).rows[0].n,'0');});
+ await check('payroll reopening requires conference and reason, preserves audit and cannot replay effects',async()=>{
+  const reopen={...command('PayrollRun',{},run.id,run._version),action:'reopen',token:run.calculation.fingerprint,reason:'FICTICIO revisao conferida'};
+  await assert.rejects(()=>send({...reopen,reason:'curto'}),e=>e.status===409);
+  await assert.rejects(()=>send({...reopen,token:'stale'}),e=>e.status===409);
+  const changed=(await send(reopen)).domainRecord;assert.equal(changed.status,'rascunho');assert.equal(changed.reopened_by,actor.id);assert.equal((await send(reopen)).replay,true);
+  const saved=(await send(command('PayrollRun',{bonus_cents:1000},changed.id,changed._version))).domainRecord;
+  run=(await send({...command('PayrollRun',{},saved.id,saved._version),action:'confirm',token:saved.calculation.fingerprint})).domainRecord;
+  assert.equal(run.status,'fechado');assert.equal((await pool.query("SELECT count(*)::int n FROM d1_payroll_history WHERE action='reopen'")).rows[0].n,1);
+  assert.equal((await pool.query('SELECT count(*)::int n FROM d1_financial_entries')).rows[0].n,0);
+ });
+ await check('paid period blocks payroll reopening even with a new operation UUID',async()=>{
+  const id=randomUUID();await pool.query("INSERT INTO d2_catalog(id,owner_id,entity,data,name_key) VALUES($1,$2,'EmployeePayment',$3,$4)",[id,actor.id,{name:'FICTICIO Pagamento protegido',status:'pago',payload_json:JSON.stringify({employee_id:employee,status:'pago',reference_start:run.reference_start,reference_end:run.reference_end})},id]);
+  await assert.rejects(()=>send({...command('PayrollRun',{},run.id,run._version),action:'reopen',token:run.calculation.fingerprint,reason:'FICTICIO revisao recusada'}),e=>e.status===409);
+  assert.equal((await domainList(pool,actor,'PayrollRun')).find(r=>r.id===run.id).status,'fechado');
+ });
  await check('individual HTTP login, CSRF, attendance availability and session restart',async()=>{
   const identity=createIdentity({pool,pepper:randomBytes(32),sender:async()=>{throw Error('NO_EMAIL_AUTHORIZED');}});
   server=createServer(pool,device,{identity});await new Promise((resolve,reject)=>{server.once('error',reject);server.listen(18133,'127.0.0.1',resolve);});
@@ -54,11 +69,13 @@ try{
   await new Promise(r=>server.close(r));server=createServer(pool,device,{identity});await new Promise(r=>server.listen(18133,'127.0.0.1',r));const list=await fetch(origin+'/api/d1/domain/Schedule',{headers:{Cookie:cookie,Connection:'close'}});assert.equal((await list.json()).records.length,3);
  });
  if(process.env.RUY_ATTENDANCE_ELECTRON_EXE)await check('development Electron attendance, schedules and payroll calculation closure',async()=>{
+  const supplier=randomUUID(),item=randomUUID();for(const [id,entity,data] of [[supplier,'Supplier',{name:'FICTICIO Fornecedor UI',status:'ativo'}],[item,'InventoryItem',{name:'FICTICIO Insumo UI',unit:'kg',status:'ativo'}]])await pool.query('INSERT INTO d2_catalog(id,owner_id,entity,data,name_key) VALUES($1,$2,$3,$4,$5)',[id,actor.id,entity,data,id]);
   const root=path.join(home,'attendance-ui-'+randomBytes(8).toString('hex'));await fs.mkdir(root);
-  const encrypted=powershell('$v=[Console]::In.ReadToEnd();ConvertFrom-SecureString (ConvertTo-SecureString $v -AsPlainText -Force)',JSON.stringify({purpose:'SYNTHETIC_ATTENDANCE_UI_TEST',password,employee,policyId:policy.id}));await fs.writeFile(path.join(root,'context.dpapi'),encrypted,{flag:'wx'});
+  const encrypted=powershell('$v=[Console]::In.ReadToEnd();ConvertFrom-SecureString (ConvertTo-SecureString $v -AsPlainText -Force)',JSON.stringify({purpose:'SYNTHETIC_ATTENDANCE_UI_TEST',password,employee,policyId:policy.id,supplier,item}));await fs.writeFile(path.join(root,'context.dpapi'),encrypted,{flag:'wx'});
   const env={...process.env,RUY_ATTENDANCE_UI_ROOT:root};delete env.ELECTRON_RUN_AS_NODE;
   await new Promise((resolve,reject)=>{const p=spawn(process.env.RUY_ATTENDANCE_ELECTRON_EXE,['desktop/attendance-ui-smoke.mjs'],{cwd:process.cwd(),windowsHide:true,env,stdio:'ignore'});p.once('error',reject);p.once('exit',resolve);});
   const proof=JSON.parse(await fs.readFile(path.join(root,'result.json'),'utf8'));assert.equal(proof.passed,true,'ATTENDANCE_UI_PROOF_REQUIRED');assert.equal((await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE entity='PayrollRun' AND data->>'status'='fechado'")).rows[0].n,2);
  });
+ if(process.env.RUY_ATTENDANCE_ELECTRON_EXE)assert.equal((await domainList(pool,actor,'Purchase'))[0].status,'recebida');
  console.log(JSON.stringify({passed,failed:0,realPostgreSQL:true,syntheticOnly:true,operationalMigration:false}));
 }catch(e){console.error(JSON.stringify({passed,failed:1,code:e.code||e.status||'ASSERTION_FAILED'}));process.exitCode=1;}finally{if(server?.listening)await new Promise(r=>server.close(r));await pool.end();}

@@ -45,6 +45,7 @@ export function createOperationalHistory({pool,grants}){
   if(req.method==='POST'&&!['/api/d1/logout'].includes(url.pathname))throw fail(403,'Importação em homologação: efeitos históricos e alterações bloqueados.');
   if(req.method!=='GET')return false;
   const match=url.pathname.match(/^\/api\/d1\/(entities|catalog|domain)\/([A-Za-z]+)$/);
+  if(match&&match[2]==='Purchase')throw fail(503,'Compras operacionais não pertencem a esta fonte histórica.');
   if(match&&(historicalEntities.includes(match[2])||catalogFields[match[2]]||isDomain(match[2])||['Evaluation','EmployeeDocument','Schedule','TimeRecord'].includes(match[2]))) {reply(200,{records:await list(user,match[2]),historicalImport:true,readOnly:true,sourceEntityPresent:historicalEntities.includes(match[2])});return true;}
   if(url.pathname==='/api/d1/operations/state'){reply(200,{movements:await list(user,'StockMovement'),balances:[],accounts:[],businessConfirmed:false,operationalSyncEnabled:false,historicalImport:true});return true;}
   const download=url.pathname.match(/^\/api\/d1\/migrated\/attachments\/([a-f0-9-]{36})\/download$/);

@@ -11,7 +11,8 @@ export async function preparePayroll({c,actor,body,old,data}){
   if(!data.name?.trim()||!['ativo','inativo'].includes(data.status))throw fail(400,'Identifique e configure a política da folha.');
   try{calculatePayroll(data,{units:0,absence_units:0,overtime_minutes:0,bonus_cents:0});}catch{throw fail(400,'Política de cálculo inválida; nenhuma regra legal é presumida.');}return data;
  }
- if(old?.status==='fechado')throw fail(409,'Cálculo fechado é imutável.');
+ if(old?.status==='fechado')throw fail(409,'Cálculo fechado exige reabertura explícita e auditada.');
+ data.reopen_reason=old?.reopen_reason||'';data.reopened_by=old?.reopened_by||'';
  if(!uuid(data.policy_id)||!validDate(data.reference_start)||!validDate(data.reference_end)||data.reference_start>data.reference_end)throw fail(400,'Política e período válidos são obrigatórios.');
  const days=(Date.parse(data.reference_end)-Date.parse(data.reference_start))/86400000+1;if(days>366||!Number.isInteger(data.units)||data.units>days)throw fail(400,'Unidades fora do período.');
  const row=(await c.query("SELECT id,version,data FROM d2_catalog WHERE id=$1 AND owner_id=$2 AND entity='PayrollPolicy' FOR SHARE",[data.policy_id,actor.id])).rows[0],policy=row&&JSON.parse(row.data.payload_json);
