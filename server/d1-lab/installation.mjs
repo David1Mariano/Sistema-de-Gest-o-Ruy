@@ -1,5 +1,6 @@
 // Immutable namespaces, never destinations supplied by the renderer or a shortcut.
 export const installations = Object.freeze({
+  'windows-operational':Object.freeze({id:'windows-operational',apiPort:18146,dbPort:55496,database:'ruy_d1_disposable',individualIdentity:true,recoveredPreview:true,operationalCandidate:true,attachments:true,delivery:true,tlsPort:18603,gatewayPort:18604,bridgePort:18605}),
   'windows-layout-20261021':Object.freeze({id:'windows-layout-20261021',apiPort:18144,dbPort:55494,database:'ruy_d1_disposable',individualIdentity:true,recoveredPreview:true,attachments:true,delivery:false,tlsPort:18596,gatewayPort:18597,bridgePort:18598}),
   'windows-candidate-20261021':Object.freeze({id:'windows-candidate-20261021',apiPort:18143,dbPort:55493,database:'ruy_d1_disposable',individualIdentity:true,recoveredPreview:true,attachments:true,delivery:false,tlsPort:18593,gatewayPort:18594,bridgePort:18595}),
   'final-dev-20261021': Object.freeze({id:'final-dev-20261021',apiPort:18133,dbPort:55483,database:'ruy_d1_disposable',attachments:true,delivery:true,tlsPort:18583,gatewayPort:18584,bridgePort:18585}),

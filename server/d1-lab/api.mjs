@@ -16,6 +16,7 @@ import {operationalCommand,operationalState,createStockItem} from './operations.
 import {domainRoute,domainList} from './domain.mjs';
 import {deliveryCSV} from './delivery-report.mjs';
 import {moduleStatus} from './module-status.mjs';
+import {previewSettlement,settlementReconciliation} from './settlements.mjs';
 export const origin=`http://127.0.0.1:${API_PORT}`;
 export function createServer(pool,deviceId,{history=null,historyOnly=false,identity=null,operationalHistory=null,port=API_PORT}={}) {
   if(port!==API_PORT&&!(process.env.RUY_HISTORY_ACCEPTANCE==='1'&&installation?.id==='history-view-dev-20261020'&&port===18124))throw Error('API_PORT_OVERRIDE_REFUSED');
@@ -33,7 +34,7 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
       const url=new URL(req.url,origin);
       if(await staticRoute(req,res,url))return;
       if(url.pathname==='/health'&&req.method==='GET'){
-        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:operationalHistory?'isolated-import-preview':'synthetic-only',syncEnabled:false,...(historyOnly?{historyReadOnly:true}:{}),...(installation?{installationId:installation.id,pid:process.pid}:{})});
+        await pool.query('SELECT 1');return reply(200,{service:'ruy-d1-lab',mode:operationalHistory?.workspace?'isolated-operational-candidate':operationalHistory?'isolated-import-preview':'synthetic-only',syncEnabled:false,...(historyOnly?{historyReadOnly:true}:{}),...(installation?{installationId:installation.id,pid:process.pid}:{})});
       }
       let body={};
       if(req.method==='POST'){
@@ -71,7 +72,7 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
           await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'login')",[user.id]);
           await c.query('DELETE FROM lab_attempts WHERE address=$1',[attemptKey]);
         });
-        return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?{operationalHistoryPreview:true}:{})},{'Set-Cookie':cookie(token)});
+        return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?(operationalHistory.workspace?{operationalWorkspace:true,operationalActivationApproved:operationalHistory.activationApproved===true}:{operationalHistoryPreview:true}):{})},{'Set-Cookie':cookie(token)});
       }
       const token=(req.headers.cookie||'').match(/(?:^|;\s*)ruy_d1_lab=([a-f0-9]{64})(?:;|$)/)?.[1];
       if(!token)throw fail(401,'Sessão obrigatória.');
@@ -93,10 +94,13 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
         if(user.role!=='admin')throw fail(403,'Consulta administrativa restrita.');
         if(req.method!=='GET')throw fail(403,'Operação externa não autorizada.');
         if(operationalHistory)await operationalHistory.list(user,'Employee');
-        if(url.pathname.endsWith('/status'))return reply(200,await moduleStatus(pool,{historical:Boolean(operationalHistory)}));
+        if(url.pathname.endsWith('/status'))return reply(200,await moduleStatus(pool,{historical:Boolean(operationalHistory)&&!operationalHistory.workspace}));
         return reply(200,{accounts:[],comments:[],messages:[],replies:[],drafts:[],metrics:[],posts:[],aiConfigured:false,connected:false,sendingEnabled:false,manychat:{configured:false,reachable:false,authenticated:false,error_code:'NOT_CONFIGURED',channels:[]}});
       }
-      if(operationalHistory&&await operationalHistory.route(req,res,url,user,reply))return;
+      if(operationalHistory&&await operationalHistory.route(req,res,url,user,reply,body))return;
+      if(req.method==='GET'&&url.pathname==='/api/d1/settlements/reconciliation')return reply(200,await settlementReconciliation(pool,user));
+      const settlement=url.pathname.match(/^\/api\/d1\/settlements\/preview\/(PayrollRun|DeliveryOrder)\/([a-f0-9-]{36})$/);
+      if(req.method==='GET'&&settlement)return reply(200,await previewSettlement(pool,user,settlement[1],settlement[2]));
       if(url.pathname==='/api/d1/attendance/status'&&req.method==='GET'){
         if(user.role!=='admin')throw fail(403,'Jornada exige administrador.');
         const enabled=(await pool.query("SELECT to_regclass('public.d1_attendance_history') IS NOT NULL enabled")).rows[0].enabled;
@@ -135,9 +139,10 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
       if(url.pathname==='/api/d1/delivery/status'&&req.method==='GET'){
         if(user.role!=='admin')throw fail(403,'Delivery exige administrador de laboratório.');
         let ready=false;if(deliveryEnabled()){await assertDeliveryDatabase(pool);ready=(await pool.query("SELECT EXISTS(SELECT 1 FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check' AND pg_get_constraintdef(oid) LIKE '%DeliveryOrder%') AS ready")).rows[0].ready;}
-        return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:false});
+        const payments=(await pool.query("SELECT to_regclass('public.d1_local_settlements') IS NOT NULL enabled")).rows[0].enabled;
+        return reply(200,{enabled:!!ready,labOnly:true,operationalSyncEnabled:false,externalProvidersEnabled:false,paymentIntegration:payments});
       }
-      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf:user.csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?{operationalHistoryPreview:true}:{})});
+      if(url.pathname==='/api/d1/me'&&req.method==='GET')return reply(200,{user:identity?await identity.publicUser(user.id):{id:user.id,role:user.role},csrf:user.csrf,deviceId,...(historyOnly?{historyOnly:true}:{}),...(operationalHistory?(operationalHistory.workspace?{operationalWorkspace:true,operationalActivationApproved:operationalHistory.activationApproved===true}:{operationalHistoryPreview:true}):{})});
       if(url.pathname==='/api/d1/logout'&&req.method==='POST'){
         await pool.query('DELETE FROM lab_sessions WHERE token_hash=$1',[digest(token)]);return reply(200,{ok:true},{'Set-Cookie':cookie('',0)});
       }

@@ -1,6 +1,6 @@
 -- New synthetic fixture ONLY; never applied to installed or historical databases.
 DO $$ DECLARE old_definition text; BEGIN
- IF current_setting('port')<>'55483' OR current_database() !~ '^ruy_d1_rc_[a-f0-9]{16}$' THEN RAISE EXCEPTION 'New isolated payroll test database required'; END IF;
+ IF NOT ((current_setting('port')='55483' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$') OR (current_setting('port')='55496' AND current_database()='ruy_d1_disposable' AND coalesce(current_setting('ruy.initializing_installation',true),'')='windows-operational')) THEN RAISE EXCEPTION 'New isolated payroll test database required'; END IF;
  SELECT pg_get_constraintdef(oid) INTO old_definition FROM pg_constraint WHERE conrelid='d2_catalog'::regclass AND conname='d2_catalog_entity_check';
  IF old_definition IS NULL THEN RAISE EXCEPTION 'Existing domain contract required'; END IF;
  ALTER TABLE d2_catalog DROP CONSTRAINT d2_catalog_entity_check;

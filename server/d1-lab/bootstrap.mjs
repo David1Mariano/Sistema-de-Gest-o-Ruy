@@ -33,6 +33,7 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
   try{
     await db.query('BEGIN');if(installation?.delivery)await db.query("SELECT set_config('ruy.initializing_installation',$1,true)",[installation.id]);await db.query(await fs.readFile(new URL('./schema.sql',import.meta.url),'utf8'));
     for(const name of ['entities.sql','catalog.sql','sync.sql','operations.sql','domain.sql',...(installation?['attachments.sql','business.sql']:[]),...(installation?.delivery?['delivery.sql']:[])])await db.query(await fs.readFile(new URL('./'+name,import.meta.url),'utf8'));
+    if(installation?.operationalCandidate)for(const name of ['attendance','payroll','purchasing','settlements','workspace'])await db.query(await fs.readFile(new URL('./'+name+'.sql',import.meta.url),'utf8'));
     if(installation?.individualIdentity)await db.query(await fs.readFile(new URL('./identity.sql',import.meta.url),'utf8'));
     await db.query('INSERT INTO lab_device(id) VALUES($1)',[marker.deviceId]);
     await db.query(`REVOKE ALL ON DATABASE ${database} FROM PUBLIC`);
@@ -42,6 +43,8 @@ export async function initializeLab({bin='C:/Program Files/PostgreSQL/17/bin',ac
     await db.query('GRANT SELECT,INSERT,UPDATE,DELETE ON ALL TABLES IN SCHEMA public TO ruy_d1_app');
     await db.query('REVOKE INSERT,UPDATE,DELETE ON lab_device FROM ruy_d1_app');
     await db.query('REVOKE UPDATE,DELETE ON lab_audit,lab_outbox,d1_rh_history FROM ruy_d1_app');
+    if(installation?.operationalCandidate)await db.query('REVOKE UPDATE,DELETE ON d1_attendance_history,d1_payroll_history,d1_purchase_history,d1_local_settlements,d1_local_settlement_reversals,d1_imported_masters FROM ruy_d1_app');
+    if(installation?.operationalCandidate)await db.query('REVOKE INSERT,UPDATE,DELETE ON d1_workspace,d1_legacy_guard,d1_imported_masters FROM ruy_d1_app');
     if(installation?.individualIdentity)await db.query('REVOKE INSERT,DELETE ON identity_bootstrap FROM ruy_d1_app');
     await db.query('REVOKE UPDATE,DELETE ON d1_stock_movements,d1_financial_entries,d1_operation_events FROM ruy_d1_app');
     await db.query('REVOKE DELETE ON d1_records FROM ruy_d1_app');

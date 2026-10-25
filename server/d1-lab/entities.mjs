@@ -1,3 +1,4 @@
+import {installation} from './environment.mjs';
 import {assertActiveIntent} from './core.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
@@ -17,7 +18,7 @@ export async function save(pool,user,deviceId,entity,id,body,hook=async()=>{}){
  if(operation==='create'?baseVersion!=null:!Number.isSafeInteger(baseVersion)||baseVersion<1)throw fail(400,'Versão obrigatória.');
  const fields=entity==='Sector'?['name','description','role_purpose','responsible_name','status']:['name','sector_id','sector_name','status'];
  if(!data||Array.isArray(data)||Object.keys(data).some(k=>!fields.includes(k))||!Object.values(data).every(v=>typeof v==='string'&&v.length<=2000))throw fail(400,'Campos inválidos.');
- if(data.name!==undefined&&(!data.name.trim().startsWith('FICTICIO ')||data.name.length>120))throw fail(400,'Use nome FICTICIO no laboratório.');
+ if(data.name!==undefined&&(!data.name.trim()||!installation?.operationalCandidate&&!data.name.trim().startsWith('FICTICIO ')||data.name.length>120))throw fail(400,'Use nome FICTICIO no laboratório.');
  if(data.status!==undefined&&!['ativo','inativo'].includes(data.status))throw fail(400,'Status inválido.');
  // ETAPA D1.1: confirmação explícita de renomeação em cascata. O cliente declara o
  // impacto que exibiu ao usuário; o servidor revalida contra o estado real.
@@ -93,7 +94,10 @@ export async function save(pool,user,deviceId,entity,id,body,hook=async()=>{}){
    const cols=(await c.query("SELECT data FROM d1_records WHERE owner_id=$1 AND entity='Employee'",[actor.id])).rows;
    if(cols.some(r=>sectorKey(r.data.function)===sectorKey(current.data.name)))throw fail(409,'Renomeação com vínculos exige regra de atualização aprovada.');
   }
-  const row=operation==='create'?(await c.query('INSERT INTO d1_records(id,owner_id,entity,data,name_key) VALUES($1,$2,$3,$4,$5) RETURNING *',[id,actor.id,entity,merged,sectorKey(merged.name)])).rows[0]:(await c.query('UPDATE d1_records SET data=$2,name_key=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *',[id,merged,sectorKey(merged.name)])).rows[0];
+  const unchanged=current&&sectorKey(current.data.name)===sectorKey(merged.name)&&sectorKey(current.data.sector_name)===sectorKey(merged.sector_name);
+  if(installation?.operationalCandidate&&!unchanged){const others=(await c.query('SELECT data FROM d1_records WHERE owner_id=$1 AND entity=$2 AND id<>$3',[actor.id,entity,id])).rows;if(others.some(r=>sectorKey(r.data.name)===sectorKey(merged.name)&&(entity!=='JobRole'||sectorKey(r.data.sector_name)===sectorKey(merged.sector_name))))throw fail(409,'Cadastro equivalente ja existe neste setor.');}
+  const nameKey=unchanged&&current.name_key.startsWith('legacy:')?current.name_key:sectorKey(merged.name)+(installation?.operationalCandidate&&entity==='JobRole'?':'+sectorKey(merged.sector_name):'');
+  const row=operation==='create'?(await c.query('INSERT INTO d1_records(id,owner_id,entity,data,name_key) VALUES($1,$2,$3,$4,$5) RETURNING *',[id,actor.id,entity,merged,nameKey])).rows[0]:(await c.query('UPDATE d1_records SET data=$2,name_key=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *',[id,merged,nameKey])).rows[0];
   // Cascata da renomeação: mesma transação, mesma conexão. Só o CAMPO textual do
   // vínculo muda (JobRole.sector_name, Employee.sector); id, demais campos e
   // identificadores ficam intactos. Cada registro afetado ganha +1 de versão para

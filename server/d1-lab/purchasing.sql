@@ -1,6 +1,6 @@
 -- Initial creation in a NEW isolated fixture; never apply to an existing bank.
 DO $$ BEGIN
- IF current_setting('port')<>'55483' OR current_database() !~ '^ruy_d1_rc_[a-f0-9]{16}$' THEN
+ IF NOT ((current_setting('port')='55483' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$') OR (current_setting('port')='55496' AND current_database()='ruy_d1_disposable' AND coalesce(current_setting('ruy.initializing_installation',true),'')='windows-operational')) THEN
   RAISE EXCEPTION 'New isolated purchase fixture required';
  END IF;
 END $$;

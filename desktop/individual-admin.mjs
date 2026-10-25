@@ -3,7 +3,7 @@ import {webPreferences} from './policy.mjs';
 export async function prepareIndividualAdmin(pool,here,root){
  const {installation,unseal}=await import(pathToFileURL(path.join(root,'server/d1-lab/environment.mjs')));
  const {createIdentity,identityPassword}=await import(pathToFileURL(path.join(root,'server/d1-lab/identity.mjs')));
- if(!['windows-candidate-20261021','windows-layout-20261021'].includes(installation?.id))throw Error('INDIVIDUAL_ADMIN_INSTALLATION_REFUSED');
+ if(!['windows-candidate-20261021','windows-layout-20261021','windows-operational'].includes(installation?.id))throw Error('INDIVIDUAL_ADMIN_INSTALLATION_REFUSED');
  const hasAdmin=async()=>Boolean((await pool.query("SELECT 1 FROM lab_users u JOIN identity_accounts a ON a.user_id=u.id WHERE u.active AND u.role='admin' AND a.approved_at IS NOT NULL AND a.verified_at IS NOT NULL AND a.revoked_at IS NULL")).rowCount);
  if(await hasAdmin())return;
  const c=await unseal('first-admin.dpapi'),service=await unseal('identity-service.dpapi');

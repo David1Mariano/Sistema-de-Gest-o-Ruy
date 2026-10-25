@@ -1,3 +1,4 @@
+import {installation} from './environment.mjs';
 import {assertActiveIntent} from './core.mjs';
 import {catalogFields,projectEmployee} from './catalog-contract.mjs';
 import {transaction,fail,digest,uuid} from './core.mjs';
@@ -35,7 +36,7 @@ export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()
   if(current&&(current.owner_id!==actor.id||current.entity!==entity))throw fail(403,'Registro fora do escopo.');
   if(operation==='create'?!!current:!current||Number(current.version)!==baseVersion)throw fail(409,'Conflito de versão; recarregue o cadastro.');
   const merged={...(current?.data||{}),...data};
-  if(entity!=='SystemSettings'&&(typeof merged.name!=='string'||!merged.name.startsWith('FICTICIO ')||merged.name.length>120))throw fail(400,'Somente nomes FICTICIO no laboratório.');
+  if(entity!=='SystemSettings'&&(typeof merged.name!=='string'||!merged.name.trim()||!installation?.operationalCandidate&&!merged.name.startsWith('FICTICIO ')||merged.name.length>120))throw fail(400,'Somente nomes FICTICIO no laboratório.');
   if(entity==='SystemSettings'){
    if(!Number.isInteger(merged.tolerance_minutes)||merged.tolerance_minutes<0||merged.tolerance_minutes>120||typeof merged.coverage_config!=='string')throw fail(400,'Configuração inválida.');
    try{const coverage=JSON.parse(merged.coverage_config);if(!coverage||typeof coverage!=='object'||Array.isArray(coverage))throw Error();}catch{throw fail(400,'Cobertura deve conter objeto JSON.');}
@@ -44,7 +45,7 @@ export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()
    const admission=new Date(merged.admission_date+'T00:00:00Z');
    if(!Number.isFinite(admission.getTime())||admission.toISOString().slice(0,10)!==merged.admission_date)throw fail(400,'Data de admissão inválida.');
    // Dados pessoais só sintéticos: documentos/banco não são importados.
-   for(const field of ['cpf','rg','pix_key','bank'])if(merged[field]&&!/^FICTICIO(?: |$)/.test(String(merged[field])))throw fail(400,'Documento de laboratório deve ser FICTICIO.');
+   for(const field of ['cpf','rg','pix_key','bank'])if(!installation?.operationalCandidate&&merged[field]&&!/^FICTICIO(?: |$)/.test(String(merged[field])))throw fail(400,'Documento de laboratório deve ser FICTICIO.');
    if(merged.sector){
     const sectors=(await c.query("SELECT data FROM d1_records WHERE owner_id=$1 AND entity='Sector'",[actor.id])).rows;
     if(!sectors.some(r=>r.data.status==='ativo'&&r.data.name===merged.sector))throw fail(409,'Setor ativo obrigatório.');
@@ -59,7 +60,8 @@ export async function catalogSave(pool,user,deviceId,entity,id,body,hook=async()
    const supplier=(await c.query("SELECT data FROM d2_catalog WHERE id=$1 AND owner_id=$2 AND entity='Supplier'",[merged.preferred_supplier_id,actor.id])).rows[0];
    if(!supplier||supplier.data.name!==merged.preferred_supplier_name||supplier.data.status!=='ativo')throw fail(409,'Fornecedor ativo e nome compatível obrigatórios.');
   }
-  const nameKey=entity==='SystemSettings'?'singleton':sectorKey(merged.name);
+  if(installation?.operationalCandidate&&entity!=='SystemSettings'&&(!current||sectorKey(current.data.name)!==sectorKey(merged.name))){const others=(await c.query(`SELECT data FROM ${table(entity)} WHERE owner_id=$1 AND entity=$2 AND id<>$3`,[actor.id,entity,id])).rows;if(others.some(r=>sectorKey(r.data.name)===sectorKey(merged.name)))throw fail(409,'Nome equivalente ja existe; confira o cadastro e seu identificador.');}
+  const nameKey=entity==='SystemSettings'?'singleton':current?.name_key.startsWith('legacy:')&&sectorKey(current.data.name)===sectorKey(merged.name)?current.name_key:sectorKey(merged.name);
   const row=operation==='create'?(await c.query(`INSERT INTO ${table(entity)}(id,owner_id,entity,data,name_key) VALUES($1,$2,$3,$4,$5) RETURNING *`,[id,actor.id,entity,merged,nameKey])).rows[0]:(await c.query(`UPDATE ${table(entity)} SET data=$2,name_key=$3,version=version+1,updated_at=now() WHERE id=$1 RETURNING *`,[id,merged,nameKey])).rows[0];
   const result={record:record(row),operationId,replay:false};
   await c.query('INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[operationId,deviceId,actor.id,entity,id,operation,baseVersion??null,row.version,payloadHash,merged,result]);

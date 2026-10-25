@@ -38,7 +38,7 @@ export function binding() {
 export async function validateHome() {
   windows();
   const marker=JSON.parse(await fs.readFile(path.join(home,'lab.json'),'utf8'));
-  if(marker.purpose!=='RUY_D1_SYNTHETIC_ONLY' || marker.machine!==binding()) throw Error('Laboratório ausente, clonado ou de outro computador.');
+  if(marker.purpose!==(installation?.operationalCandidate?'RUY_OPERATIONAL_CANDIDATE_ONLY':'RUY_D1_SYNTHETIC_ONLY') || marker.machine!==binding()) throw Error('Laboratório ausente, clonado ou de outro computador.');
   if(restartFixture&&(marker.restartFixture!==restartFixture||marker.port!==55437))throw Error('Cluster de restart não identificado.');
   if(installation&&(marker.installationId!==installation.id||marker.port!==DB_PORT||marker.apiPort!==API_PORT))throw Error('INSTALLATION_MARKER_INVALID');
   const real=await fs.realpath(home);
@@ -64,7 +64,7 @@ export async function createHome(bin) {
   await fs.mkdir(home);
   const sid=powershell('[Security.Principal.WindowsIdentity]::GetCurrent().User.Value');
   execFileSync('icacls.exe',[home,'/inheritance:r','/grant:r',`*${sid}:(OI)(CI)F`],{windowsHide:true,stdio:'ignore'});
-  const marker={purpose:'RUY_D1_SYNTHETIC_ONLY',deviceId:randomUUID(),machine:binding(),bin,...(installation?{installationId:installation.id,port:DB_PORT,apiPort:API_PORT}:{}),createdAt:new Date().toISOString()};
+  const marker={purpose:installation?.operationalCandidate?'RUY_OPERATIONAL_CANDIDATE_ONLY':'RUY_D1_SYNTHETIC_ONLY',deviceId:randomUUID(),machine:binding(),bin,...(installation?{installationId:installation.id,port:DB_PORT,apiPort:API_PORT}:{}),createdAt:new Date().toISOString()};
   await fs.writeFile(path.join(home,'lab.json'),JSON.stringify(marker,null,2),{flag:'wx'});
   return marker;
 }

@@ -6,7 +6,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import {allowedNavigation,allowedDownload, localOrigin, webPreferences} from './policy.mjs';
 import {createSupervisor} from './supervisor.mjs';
 import {revealWindow} from './window-visibility.mjs';
-import {stopOwnedWorker,waitForTask} from './controlled-exit.mjs';
+import {stopOwnedWorker,finishBackupBeforeExit} from './controlled-exit.mjs';
 import logger from './startup-log.cjs';
 
 const here = path.dirname(fileURLToPath(import.meta.url));
@@ -22,7 +22,7 @@ app.setAppUserModelId(metadata.ruyAppId||'br.ruy.gestao.laboratorio.g');
 let worker, window, timer, closing = false,preparing=false;
 let backupTimer,backupFlight,smokeAccount,supervisor;
 let stage='startup';
-let exitReady=false,startupWatchdog,ownedDatabase=false;
+let exitReady=false,startupWatchdog,ownedDatabase=false,candidateWindowTest=false;
 const log=(event,error)=>logger.startupLog(app.getPath('userData'),metadata.ruyRevision||'source',event,stage,error);
 const smoke = process.argv.includes('--lab-smoke')||process.argv.includes('--lab-window-test');
 if(smoke&&process.env.RUY_D1_ALLOW_TESTS==='1'&&process.argv.includes('--lab-attachments-smoke')){
@@ -34,7 +34,7 @@ async function health() {
   const r = await fetch(localOrigin+'/health', {signal:AbortSignal.timeout(1500), redirect:'error'});
   const value = await r.json().catch(()=>null);
   if(!r.ok)throw Object.assign(Error('API local indisponível.'),{recoverable:r.status>=500});
-  if (value?.service!=='ruy-d1-lab' || value.mode!==(metadata.ruyRecoveredPreview?'isolated-import-preview':'synthetic-only') || value.syncEnabled!==false) throw Object.assign(Error('A porta do laboratório está ocupada por outro serviço.'),{recoverable:false});
+  if (value?.service!=='ruy-d1-lab' || value.mode!==(metadata.ruyOperationalWorkspace?'isolated-operational-candidate':metadata.ruyRecoveredPreview?'isolated-import-preview':'synthetic-only') || value.syncEnabled!==false) throw Object.assign(Error('A porta do laboratório está ocupada por outro serviço.'),{recoverable:false});
   if(isolated&&(!worker||r.headers.get('x-ruy-owner')!==ownership||value.installationId!==process.env.RUY_D1_INSTALLATION||value.pid!==worker.pid))throw Object.assign(Error('API ownership refused'),{recoverable:false});
   return value;
 }
@@ -47,6 +47,7 @@ async function start() {
   const env = await import(pathToFileURL(path.join(root, 'server/d1-lab/environment.mjs')));
   try{await fs.lstat(env.home);}catch(error){
     if(error.code!=='ENOENT')throw error;
+    if(metadata.ruyOperationalWorkspace)throw Error('OPERATIONAL_PROVISIONING_REQUIRED');
     if(smoke)throw Error('Smoke exige laboratório já preparado.');
     preparing=true;
     const {prepareFirstRun}=await import('./setup.mjs');await prepareFirstRun(root,here);
@@ -57,7 +58,8 @@ async function start() {
   // Recusa outro Windows, diretório redirecionado ou cluster não marcado.
   const marker = await env.validateHome();
   await env.config();
-  if(isolated&&!smoke){const {claimInstallation}=await import(pathToFileURL(path.join(root,'server/d1-lab/installation-binding.mjs')));await claimInstallation(app.getPath('exe'));}
+  if(process.argv.includes('--candidate-window-test')){const {candidateWindowAcceptance}=await import('./candidate-window-acceptance.mjs');candidateWindowTest=await candidateWindowAcceptance({app,root,metadata});}
+  if(isolated&&!smoke&&!candidateWindowTest){const {claimInstallation}=await import(pathToFileURL(path.join(root,'server/d1-lab/installation-binding.mjs')));await claimInstallation(app.getPath('exe'));}
   const core = await import(pathToFileURL(path.join(root, 'server/d1-lab/core.mjs')));
   const pool = core.poolFor(await env.config());
   stage='identity';
@@ -124,7 +126,7 @@ async function start() {
     if(!window||contents!==window.webContents||!allowedDownload(item.getURL())||!item.getURLChain().every(allowedDownload))event.preventDefault();
   });
   preparing=false;
-  window = new BrowserWindow({title:'Sistema de Gestão Ruy — Laboratório',width:1366,height:900,minWidth:900,minHeight:640,
+  window = new BrowserWindow({title:metadata.ruyOperationalWorkspace?'Sistema Ruy':'Sistema de Gestão Ruy — Laboratório',width:1366,height:900,minWidth:900,minHeight:640,
     show:!smoke,icon:path.join(here,'assets/ruy.ico'),webPreferences:{...webPreferences,session:browserSession,backgroundThrottling:!smoke}});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate', (event,url)=>{if(!allowedNavigation(url))event.preventDefault();});
@@ -137,13 +139,14 @@ async function start() {
   if(!smoke)revealWindow(window,screen.getAllDisplays());
   clearTimeout(startupWatchdog);log('window-loaded');
   if(!smoke&&backupSettings.enabled){void createBackup();backupTimer=setInterval(createBackup,backupSettings.intervalMinutes*60*1000);}
-  if(process.argv.includes('--lab-window-test')){
-    const {windowLifecycleTest}=await import('./window-lifecycle-test.mjs');
+  if(process.argv.includes('--lab-window-test')||candidateWindowTest){
+    if(candidateWindowTest){let login=false;for(let n=0;n<100;n++){login=await window.webContents.executeJavaScript("!!document.querySelector('input[name=password]')&&typeof require==='undefined'");if(login)break;await new Promise(r=>setTimeout(r,100));}if(!login)throw Error('PACKAGED_LOGIN_FORM_REQUIRED');}
+    const {windowLifecycleTest}=await import(candidateWindowTest?'./window-lifecycle-check.mjs':'./window-lifecycle-test.mjs');
     await windowLifecycleTest({app,window,screen,log,origin:localOrigin});
     app.quit();return;
   }
   supervisor=createSupervisor({health,ensureDatabase:ensureLocalDatabase,ensureApi,onState:state=>{
-    if(window&&!window.isDestroyed())window.setTitle(state==='healthy'?'Sistema de Gestão Ruy — Laboratório':state==='recovering'?'Sistema Ruy — recuperando serviços locais':'Sistema Ruy — recuperação indisponível; use o menu Laboratório');
+    if(window&&!window.isDestroyed())window.setTitle(state==='healthy'?(metadata.ruyOperationalWorkspace?'Sistema Ruy':'Sistema de Gestão Ruy — Laboratório'):state==='recovering'?'Sistema Ruy — recuperando serviços locais':'Sistema Ruy — recuperação indisponível; use o menu Laboratório');
   }});
   if(!smoke){const {installLabMenu}=await import('./lab-menu.mjs');installLabMenu(root,window,{recover:()=>supervisor.retry()});}
   if(smoke) {
@@ -242,7 +245,7 @@ else {
     console.error('DESKTOP_LAB_BLOCKED',stage,e.code||e.name,smoke?e.message:'');
     const result=process.argv.find(a=>a.startsWith('--lab-evidence='))?.slice('--lab-evidence='.length);
     if(smoke&&result)await fs.writeFile(result+'.failure.json',JSON.stringify({stage,errorName:e.name,errorCode:e.code||null,revision:evidence.revision})).catch(()=>{});
-    if(!smoke&&!process.argv.includes('--lab-startup-failure-test')) dialog.showErrorBox('Sistema de Gestão Ruy — laboratório indisponível', 'Não foi possível validar PostgreSQL e API do laboratório. Prepare o ambiente D1 do usuário Windows atual e tente novamente. Nenhum dado foi removido e a produção 8080 não foi alterada.');
+    if(!smoke&&!process.argv.includes('--candidate-window-test')&&!process.argv.includes('--lab-startup-failure-test')) dialog.showErrorBox('Sistema de Gestão Ruy — laboratório indisponível', 'Não foi possível validar PostgreSQL e API do laboratório. Prepare o ambiente D1 do usuário Windows atual e tente novamente. Nenhum dado foi removido e a produção 8080 não foi alterada.');
     process.exitCode=1;app.quit();
   });
   // Closing the temporary administrator dialog can deliver this event after
@@ -257,7 +260,9 @@ else {
     supervisor?.close();
     clearInterval(timer);clearInterval(backupTimer);
     void (async()=>{
-      if(!await waitForTask(backupFlight)){closing=false;log('shutdown-backup-pending');if(window)revealWindow(window,screen.getAllDisplays());dialog.showErrorBox('I5 — backup em execução','O backup não confirmou conclusão no prazo. A janela foi preservada. Aguarde e tente fechar novamente; nenhum processo foi forçado.');return;}
+      // Await without a blocking modal: pg_dump/streams need the main event loop
+      // to finish. A ten-second dialog could otherwise stall its own backup.
+      await finishBackupBeforeExit(backupFlight,()=>{log('shutdown-waiting-for-backup');if(window&&!window.isDestroyed())window.setTitle('Sistema Ruy — concluindo backup antes de fechar');});
         const owned=worker;
         if(!await stopOwnedWorker(owned)){closing=false;log('shutdown-pending');if(window)revealWindow(window,screen.getAllDisplays());dialog.showErrorBox('I5 — encerramento pendente','A API própria não confirmou o encerramento. Nenhum processo foi forçado. Consulte startup.jsonl.');return;}
         if(ownedDatabase){try{const env=await import(pathToFileURL(path.join(root,'server/d1-lab/environment.mjs')));await env.validateHome();const {stopStartedDatabase}=await import(pathToFileURL(path.join(root,'server/d1-lab/database-stop.mjs')));await stopStartedDatabase();ownedDatabase=false;}catch(error){closing=false;log('database-shutdown-pending',error);if(window)revealWindow(window,screen.getAllDisplays());return;}}

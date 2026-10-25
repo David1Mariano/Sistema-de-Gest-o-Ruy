@@ -1,6 +1,6 @@
 import {projectBusiness,businessConfirmation} from './business-projection.mjs';
 import {transaction,fail,uuid} from './core.mjs';
-import {unseal} from './environment.mjs';
+import {unseal,installation} from './environment.mjs';
 import {canonical,syncHash,dataOf,syncTable,validateEnvelope} from './sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {rhHistoryInsert} from './rh-domain.mjs';
@@ -124,6 +124,8 @@ async function receive(pool,binding,page){
  });
 }
 export async function synchronizeD1(pool,actor,options={}){
+  if(installation?.operationalCandidate)throw fail(403,'Sincronizacao operacional entre computadores ainda desativada.');
+  if((await pool.query("SELECT to_regclass('public.d1_local_settlements') IS NOT NULL enabled")).rows[0].enabled&&(await pool.query('SELECT 1 FROM d1_local_settlements WHERE owner_id=$1 LIMIT 1',[actor])).rowCount)throw fail(403,'Liquidacoes locais exigem reconciliacao homologada; sincronizacao operacional desativada.');
  if(!uuid(actor)||!await syncReady(pool))throw fail(403,'Ponte D1 não preparada.');
  const user=(await pool.query('SELECT role FROM lab_users WHERE id=$1 AND active',[actor])).rows[0];
  if(user?.role!=='admin')throw fail(403,'Somente administrador sintético na ponte de testes.');

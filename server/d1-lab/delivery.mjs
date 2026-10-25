@@ -20,7 +20,7 @@ export async function prepareDelivery(c,actor,body,old){
  if(body.entity!=='DeliveryOrder'){
   if(body.action!=='save')throw fail(409,'Cadastro Delivery usa edição versionada e inativação.');
   const supplied=body.data;if(!supplied||typeof supplied!=='object'||Array.isArray(supplied)||Object.keys(supplied).some(k=>!deliveryFields[body.entity].includes(k)&&!['id','_version','created_date','updated_date'].includes(k)))throw fail(400,'Campos de cadastro Delivery inválidos.');
-  const payload=Object.fromEntries(Object.entries(supplied).filter(([k])=>deliveryFields[body.entity].includes(k)));validateDeliveryPayload(body.entity,payload);return payload;
+  const payload=Object.fromEntries(Object.entries(supplied).filter(([k])=>deliveryFields[body.entity].includes(k)));validateDeliveryPayload(body.entity,payload,{synthetic:!installation?.operationalCandidate});return payload;
  }
  if(!['save','transition','cancel'].includes(body.action))conflict('Pagamento e reembolso Delivery não integrados ao financeiro central.');
  const supplied=body.data||{};
@@ -43,7 +43,7 @@ export async function prepareDelivery(c,actor,body,old){
   next={...payload,status:body.action==='cancel'?'cancelled':supplied.status,cancelReason:body.action==='cancel'?body.reason||'':''};
   if(next.status==='dispatched')await reference(next.driverId,'DeliveryDriver');
  }
- validateDeliveryPayload(body.entity,next);try{validateDeliveryEvolution(old,next);}catch{conflict('Transição ou edição Delivery inválida.');}return next;
+ validateDeliveryPayload(body.entity,next,{synthetic:!installation?.operationalCandidate});try{validateDeliveryEvolution(old,next);}catch{conflict('Transição ou edição Delivery inválida.');}return next;
 }
 export async function validateDeliveryChanges(c,command,records,known){
  if(!command.changes.some(change=>isDelivery(change.entity)))return;

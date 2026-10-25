@@ -4,6 +4,7 @@ import {randomUUID,randomBytes} from 'node:crypto';
 import path from 'node:path';import {spawn} from 'node:child_process';
 import pg from 'pg';
 import {installation,config,home,powershell} from '../../server/d1-lab/environment.mjs';
+import {operationalCommand} from '../../server/d1-lab/operations.mjs';
 import {domainCommand,domainList} from '../../server/d1-lab/domain.mjs';
 import {createIdentity,identityPassword} from '../../server/d1-lab/identity.mjs';
 import {createServer,origin} from '../../server/d1-lab/api.mjs';
@@ -15,7 +16,7 @@ const send=body=>domainCommand(pool,actor,device,body);
 const check=async(name,fn)=>{await fn();passed++;console.log('PASS '+name);};
 let server;
 try{
- for(const name of ['schema','entities','catalog','sync','operations','domain','attachments','business','delivery','attendance','payroll','purchasing','identity'])await pool.query(await fs.readFile(new URL('../../server/d1-lab/'+name+'.sql',import.meta.url),'utf8'));
+ for(const name of ['schema','entities','catalog','sync','operations','domain','attachments','business','delivery','attendance','payroll','purchasing','settlements','identity'])await pool.query(await fs.readFile(new URL('../../server/d1-lab/'+name+'.sql',import.meta.url),'utf8'));
  const password=randomBytes(24).toString('hex');
  await pool.query("INSERT INTO lab_users(id,login,password_hash,role) VALUES($1,'attendance@example.invalid',$2,'admin')",[actor.id,await identityPassword(password)]);await pool.query('INSERT INTO lab_device(id) VALUES($1)',[device]);
  await pool.query("INSERT INTO identity_accounts(user_id,full_name,verified_at,approved_at) VALUES($1,'FICTICIO Jornada',now(),now())",[actor.id]);
@@ -69,13 +70,16 @@ try{
   await new Promise(r=>server.close(r));server=createServer(pool,device,{identity});await new Promise(r=>server.listen(18133,'127.0.0.1',r));const list=await fetch(origin+'/api/d1/domain/Schedule',{headers:{Cookie:cookie,Connection:'close'}});assert.equal((await list.json()).records.length,3);
  });
  if(process.env.RUY_ATTENDANCE_ELECTRON_EXE)await check('development Electron attendance, schedules and payroll calculation closure',async()=>{
+  await operationalCommand(pool,actor,device,{operationId:randomUUID(),kind:'journal',entries:[{account:'cash',baseVersion:0,cents:500000},{account:'equity',baseVersion:0,cents:-500000}]});
   const supplier=randomUUID(),item=randomUUID();for(const [id,entity,data] of [[supplier,'Supplier',{name:'FICTICIO Fornecedor UI',status:'ativo'}],[item,'InventoryItem',{name:'FICTICIO Insumo UI',unit:'kg',status:'ativo'}]])await pool.query('INSERT INTO d2_catalog(id,owner_id,entity,data,name_key) VALUES($1,$2,$3,$4,$5)',[id,actor.id,entity,data,id]);
+  const customer=(await send(command('DeliveryCustomer',{name:'FICTICIO Cliente UI',status:'ativo'}))).domainRecord,menu=(await send(command('DeliveryMenuItem',{name:'FICTICIO Venda UI',unitCents:1700,status:'ativo'}))).domainRecord;
+  let deliveryOrder=(await send(command('DeliveryOrder',{date:'2026-10-24',provider:'own',fulfillment:'pickup',customerId:customer.id,driverId:'',items:[{id:randomUUID(),menuItemId:menu.id,quantityMilli:1000}],discountCents:0,deliveryCents:0,platformCents:0,paymentFeeCents:0}))).domainRecord;for(const status of ['confirmed','preparing','ready','concluded'])deliveryOrder=(await send({...command('DeliveryOrder',{status},deliveryOrder.id,deliveryOrder._version),action:'transition'})).domainRecord;
   const root=path.join(home,'attendance-ui-'+randomBytes(8).toString('hex'));await fs.mkdir(root);
-  const encrypted=powershell('$v=[Console]::In.ReadToEnd();ConvertFrom-SecureString (ConvertTo-SecureString $v -AsPlainText -Force)',JSON.stringify({purpose:'SYNTHETIC_ATTENDANCE_UI_TEST',password,employee,policyId:policy.id,supplier,item}));await fs.writeFile(path.join(root,'context.dpapi'),encrypted,{flag:'wx'});
+  const encrypted=powershell('$v=[Console]::In.ReadToEnd();ConvertFrom-SecureString (ConvertTo-SecureString $v -AsPlainText -Force)',JSON.stringify({purpose:'SYNTHETIC_ATTENDANCE_UI_TEST',password,employee,policyId:policy.id,supplier,item,deliveryId:deliveryOrder.id}));await fs.writeFile(path.join(root,'context.dpapi'),encrypted,{flag:'wx'});
   const env={...process.env,RUY_ATTENDANCE_UI_ROOT:root};delete env.ELECTRON_RUN_AS_NODE;
   await new Promise((resolve,reject)=>{const p=spawn(process.env.RUY_ATTENDANCE_ELECTRON_EXE,['desktop/attendance-ui-smoke.mjs'],{cwd:process.cwd(),windowsHide:true,env,stdio:'ignore'});p.once('error',reject);p.once('exit',resolve);});
-  const proof=JSON.parse(await fs.readFile(path.join(root,'result.json'),'utf8'));assert.equal(proof.passed,true,'ATTENDANCE_UI_PROOF_REQUIRED');assert.equal((await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE entity='PayrollRun' AND data->>'status'='fechado'")).rows[0].n,2);
+  const proof=JSON.parse(await fs.readFile(path.join(root,'result.json'),'utf8'));assert.equal(proof.passed,true,'ATTENDANCE_UI_PROOF_REQUIRED');assert.equal((await pool.query("SELECT count(*)::int n FROM d2_catalog WHERE entity='PayrollRun' AND data->>'status'='fechado'")).rows[0].n,1);assert.equal((await domainList(pool,actor,'PayrollRun')).filter(r=>r.status==='pago').length,1);
  });
- if(process.env.RUY_ATTENDANCE_ELECTRON_EXE)assert.equal((await domainList(pool,actor,'Purchase'))[0].status,'recebida');
+ if(process.env.RUY_ATTENDANCE_ELECTRON_EXE){assert.equal((await domainList(pool,actor,'Purchase'))[0].status,'recebida');assert.equal((await domainList(pool,actor,'DeliveryOrder'))[0].financialStatus,'refunded');}
  console.log(JSON.stringify({passed,failed:0,realPostgreSQL:true,syntheticOnly:true,operationalMigration:false}));
 }catch(e){console.error(JSON.stringify({passed,failed:1,code:e.code||e.status||'ASSERTION_FAILED'}));process.exitCode=1;}finally{if(server?.listening)await new Promise(r=>server.close(r));await pool.end();}

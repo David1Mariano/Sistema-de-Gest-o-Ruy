@@ -8,7 +8,7 @@ import {wrapRecoveryKey,unwrapRecoveryKey} from './key-envelope.mjs';
 
 const magic=Buffer.from('RUYBAK01'),limit=64*1024*1024;
 const hash=b=>createHash('sha256').update(b).digest('hex');
-const snapshotTables=['d2_catalog','d1_rh_history','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events','d1_attachment_queue','d1_attachment_cache','d1_business_local','d1_local_reversals','d1_reconciliation'];
+const snapshotTables=['lab_users','identity_accounts','d1_records','d2_catalog','d1_rh_history','d1_sync_binding','d1_sync_queue','d1_sync_versions','d1_sync_inbox','d1_sync_shadow','d1_stock_balances','d1_stock_movements','d1_financial_accounts','d1_financial_entries','d1_operation_events','d1_attachment_queue','d1_attachment_cache','d1_business_local','d1_local_reversals','d1_reconciliation','d1_attendance_history','d1_payroll_history','d1_purchase_history','d1_local_settlements','d1_local_settlement_reversals','d1_workspace','d1_imported_masters','d1_legacy_guard'];
 async function recoveryState(client,tables=snapshotTables){
  if(!Array.isArray(tables)||tables.some(table=>!snapshotTables.includes(table)))throw Error('Tabela de recuperação não permitida.');
  const result={};
@@ -28,12 +28,13 @@ export function decryptArchive(bytes,key){
  const decipher=createDecipheriv('aes-256-gcm',key,bytes.subarray(8,20));
  decipher.setAAD(magic);decipher.setAuthTag(bytes.subarray(-16));
  const archive=JSON.parse(Buffer.concat([decipher.update(bytes.subarray(20,-16)),decipher.final()]).toString());
- if(archive.purpose!=='RUY_D1_SYNTHETIC_BACKUP'||archive.version!==1||hash(Buffer.from(archive.dump,'base64'))!==archive.dumpHash)throw Error('Manifesto de backup inválido.');
+ if(!['RUY_D1_SYNTHETIC_BACKUP','RUY_OPERATIONAL_CANDIDATE_BACKUP'].includes(archive.purpose)||archive.version!==1||hash(Buffer.from(archive.dump,'base64'))!==archive.dumpHash)throw Error('Manifesto de backup inválido.');
+ if(archive.purpose==='RUY_OPERATIONAL_CANDIDATE_BACKUP'&&(!archive.historyDump||hash(Buffer.from(archive.historyDump,'base64'))!==archive.historyDumpHash))throw Error('Fonte historica do backup invalida.');
  for(const a of archive.attachments){if(!/^[a-zA-Z0-9_-]+\.(?:pdf|png|jpg|webp|txt)$/.test(a.name)||hash(Buffer.from(a.bytes,'base64'))!==a.sha256)throw Error('Anexo inválido.');}
  return archive;
 }
 async function runPG(bin,name,args,c,input){
- if(c.host!=='127.0.0.1'||c.port!==DB_PORT||!/^ruy_d1_(?:disposable|restore_[a-f0-9]{16})$/.test(c.database))throw Error('Destino de backup fora do laboratório.');
+ if(c.host!=='127.0.0.1'||c.port!==DB_PORT||!(/^ruy_d1_(?:disposable|restore_[a-f0-9]{16})$/.test(c.database)||installation?.operationalCandidate&&/^ruy_operational_trial_[a-f0-9]{12}$/.test(c.database)))throw Error('Destino de backup fora do laboratório.');
  return new Promise((resolve,reject)=>{
   const child=spawn(path.join(bin,name+'.exe'),args,{windowsHide:true,env:{...process.env,PGHOST:c.host,PGPORT:String(c.port),PGDATABASE:c.database,PGUSER:c.user,PGPASSWORD:c.password,PGCONNECT_TIMEOUT:'5'},stdio:['pipe','pipe','pipe']});
   const chunks=[];let size=0,timedOut=false;
@@ -66,6 +67,7 @@ export async function backup({retain=24,preserveExisting=false}={}){
   let archive;
   try{
    await client.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');
+   if(installation?.operationalCandidate)await client.query("SET LOCAL TIME ZONE 'UTC'");
    const snapshot=(await client.query('SELECT pg_export_snapshot() AS id')).rows[0].id;
    const pending=(await client.query('SELECT operation_id FROM lab_outbox ORDER BY operation_id')).rows.map(r=>r.operation_id);
    // O produto D1 usa public; schemas de testes críticos possuem outro owner
@@ -81,6 +83,7 @@ export async function backup({retain=24,preserveExisting=false}={}){
     attachments.push({name:entry.name,bytes:bytes.toString('base64'),sha256:hash(bytes)});
    }
    archive={purpose:'RUY_D1_SYNTHETIC_BACKUP',version:1,createdAt:new Date().toISOString(),deviceId:marker.deviceId,dump:dump.toString('base64'),dumpHash:hash(dump),pending,attachments,recoveryState:await recoveryState(client)};
+   if(installation?.operationalCandidate){const source=await unseal('recovered-source.dpapi');if(source.installationId!==installation.id||source.config?.port!==DB_PORT||source.config.host!=='127.0.0.1'||!/^ruy_operational_trial_[a-f0-9]{12}$/.test(source.config.database))throw Error('Fonte historica de backup recusada.');const historyDump=await runPG(marker.bin,'pg_dump',['--format=custom','--no-owner','--no-acl'],{...await config(true),database:source.config.database});archive={...archive,purpose:'RUY_OPERATIONAL_CANDIDATE_BACKUP',historyDump:historyDump.toString('base64'),historyDumpHash:hash(historyDump)};}
    await client.query('COMMIT');
   }catch(e){await client.query('ROLLBACK');throw e;}finally{client.release();}
   const encrypted=encryptArchive(archive,archiveKey);decryptArchive(encrypted,archiveKey);
@@ -134,13 +137,21 @@ async function restoreArchiveIsolated(archive){
  await runPG(marker.bin,'pg_restore',['--clean','--if-exists','--no-owner','--no-acl','--exit-on-error','--single-transaction','--dbname='+database],dest,Buffer.from(archive.dump,'base64'));
  const db=new pg.Client(dest);await db.connect();
  try{
+  if(archive.purpose==='RUY_OPERATIONAL_CANDIDATE_BACKUP')await db.query("SET TIME ZONE 'UTC'");
   const pending=(await db.query('SELECT operation_id FROM lab_outbox ORDER BY operation_id')).rows.map(r=>r.operation_id);
   if(JSON.stringify(pending)!==JSON.stringify(archive.pending))throw Error('Fila restaurada diverge do snapshot.');
   if(archive.recoveryState&&JSON.stringify(await recoveryState(db,Object.keys(archive.recoveryState)))!==JSON.stringify(archive.recoveryState))throw Error('Recibos, cursores ou lançamentos restaurados divergiram.');
   const attachments=path.join(home,'restore-attachments',database);await fs.mkdir(attachments,{recursive:true});
   for(const a of archive.attachments)await fs.writeFile(path.join(attachments,a.name),Buffer.from(a.bytes,'base64'),{flag:'wx'});
-  // Banco recuperado não é registrado na API nem pode sincronizar automaticamente.
-  return {database,pendingOperations:pending.length,attachments:archive.attachments.length,recoveryTablesVerified:archive.recoveryState?Object.keys(archive.recoveryState).length:0,syncEnabled:false};
+  let historical=null;
+  if(archive.historyDump){
+   if(!installation?.operationalCandidate)throw Error('Restauracao historica exige perfil operacional isolado.');
+   const historyDatabase='ruy_operational_trial_'+randomBytes(6).toString('hex'),creator=new pg.Client(c);await creator.connect();try{await creator.query('CREATE DATABASE '+historyDatabase);await creator.query('REVOKE ALL ON DATABASE '+historyDatabase+' FROM PUBLIC');}finally{await creator.end();}
+   await runPG(marker.bin,'pg_restore',['--clean','--if-exists','--no-owner','--no-acl','--exit-on-error','--single-transaction','--dbname='+historyDatabase],{...c,database:historyDatabase},Buffer.from(archive.historyDump,'base64'));
+   const history=new pg.Client({...c,database:historyDatabase});await history.connect();try{const counts=(await history.query("SELECT (SELECT count(*)::int FROM history.records) records,(SELECT count(*)::int FROM history.attachments) attachments,(SELECT count(*)::int FROM history.attachments WHERE state='linked') linked")).rows[0];if(counts.records!==1186||counts.attachments!==59||counts.linked!==54)throw Error('Contagens historicas restauradas divergentes.');for(const a of (await history.query('SELECT body,sha256,bytes::text FROM history.attachments')).rows)if(a.body.length!==Number(a.bytes)||hash(a.body)!==a.sha256)throw Error('Integridade de anexo restaurado divergente.');historical={database:historyDatabase,...counts,quarantine:5,hashesVerified:true};}finally{await history.end();}
+  }
+  // New databases remain inactive; neither old profiles nor APIs are repointed.
+  return {database,pendingOperations:pending.length,attachments:archive.attachments.length,historical,recoveryTablesVerified:archive.recoveryState?Object.keys(archive.recoveryState).length:0,syncEnabled:false};
  }finally{await db.end();}
 }
 export async function exportRecoveryKey(file,passphrase){

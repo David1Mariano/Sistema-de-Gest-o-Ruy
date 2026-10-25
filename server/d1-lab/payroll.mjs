@@ -11,7 +11,7 @@ export async function preparePayroll({c,actor,body,old,data}){
   if(!data.name?.trim()||!['ativo','inativo'].includes(data.status))throw fail(400,'Identifique e configure a política da folha.');
   try{calculatePayroll(data,{units:0,absence_units:0,overtime_minutes:0,bonus_cents:0});}catch{throw fail(400,'Política de cálculo inválida; nenhuma regra legal é presumida.');}return data;
  }
- if(old?.status==='fechado')throw fail(409,'Cálculo fechado exige reabertura explícita e auditada.');
+ if(['fechado','pago','estornado'].includes(old?.status))throw fail(409,'Cálculo fechado exige reabertura explícita e auditada.');
  data.reopen_reason=old?.reopen_reason||'';data.reopened_by=old?.reopened_by||'';
  if(!uuid(data.policy_id)||!validDate(data.reference_start)||!validDate(data.reference_end)||data.reference_start>data.reference_end)throw fail(400,'Política e período válidos são obrigatórios.');
  const days=(Date.parse(data.reference_end)-Date.parse(data.reference_start))/86400000+1;if(days>366||!Number.isInteger(data.units)||data.units>days)throw fail(400,'Unidades fora do período.');
@@ -30,7 +30,7 @@ export async function preparePayroll({c,actor,body,old,data}){
  if(body.action==='confirm'){
   if(!old||old.status!=='rascunho'||body.token!==old.calculation?.fingerprint||fingerprint!==old.calculation.fingerprint)throw fail(409,'Fontes ou regras alteradas; recalcule antes de fechar.');
   const runs=(await c.query("SELECT id,data FROM d2_catalog WHERE owner_id=$1 AND entity='PayrollRun' AND id<>$2",[actor.id,body.id])).rows.map(r=>JSON.parse(r.data.payload_json));
-  if(runs.some(r=>r.status==='fechado'&&r.employee_id===data.employee_id&&(r.reference_start<=data.reference_end&&data.reference_start<=r.reference_end||[...(r.vale_ids||[]),...(r.consumption_ids||[])].some(id=>selected.includes(id)))))throw fail(409,'Período ou desconto já incluído em folha fechada.');
+  if(runs.some(r=>['fechado','pago'].includes(r.status)&&r.employee_id===data.employee_id&&(r.reference_start<=data.reference_end&&data.reference_start<=r.reference_end||[...(r.vale_ids||[]),...(r.consumption_ids||[])].some(id=>selected.includes(id)))))throw fail(409,'Período ou desconto já incluído em folha fechada.');
   data.status='fechado';
  }else{if(data.status!=='rascunho')throw fail(400,'Crie e confira o rascunho antes do fechamento.');data.status='rascunho';}
  return data;

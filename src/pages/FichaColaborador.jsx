@@ -29,10 +29,10 @@ const canSangria = (name) => SANGRIA_ALLOWED.some(k => norm(name).startsWith(k))
 const PAYMENT_TYPE_LABELS = { salario:'Salário', diaria_motoboy:'Diária de motoboy', diaria_freelancer:'Diária de freelancer', vale:'Vale', adiantamento:'Adiantamento', hora_extra:'Hora extra', comissao:'Comissão', ferias:'Férias', decimo_terceiro:'13º salário', acerto:'Acerto', outros:'Outros' };
 const PAYMENT_STATUS_LABELS = { pendente:'Pendente', pago:'Pago', cancelado:'Cancelado' };
 
-export default function FichaColaborador() {
+export default function FichaColaborador({ readOnly = false, unavailableModules = [] }) {
   const { id } = useParams();
   const navigate = useNavigate();
-  const { canViewSensitive, canRegisterOccurrences } = useUserRole();
+  const permissions = useUserRole(); const canViewSensitive = permissions.canViewSensitive; const canRegisterOccurrences = permissions.canRegisterOccurrences && !readOnly;
   const [employee, setEmployee] = useState(null);
   const [absences, setAbsences] = useState([]);
   const [vales, setVales] = useState([]);
@@ -106,7 +106,7 @@ export default function FichaColaborador() {
   if (!employee) return <div className="p-10 text-center text-slate-400 text-sm">Colaborador não encontrado.</div>;
 
   const st = EMPLOYEE_STATUS[employee.status] || EMPLOYEE_STATUS.inativo;
-  const openForm = (type, editing = null) => setFormState({ type, editing });
+  const openForm = (type, editing = null) => { if (readOnly || editing?._readOnly || unavailableModules.includes(type)) return; setFormState({ type, editing }); };
   const closeForm = () => setFormState({ type: null, editing: null });
 
   const deletePayment = async (pay) => {
@@ -257,7 +257,7 @@ export default function FichaColaborador() {
               { key: 'actual_time', label: 'Realizado' },
               { key: 'reason', label: 'Motivo' },
               { key: 'responsible_user', label: 'Responsável' },
-              { key: 'actions', label: '', render: (r) => canRegisterOccurrences ? (
+              { key: 'actions', label: '', render: (r) => canRegisterOccurrences && !r._readOnly ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('absence', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteAbsence(r)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
@@ -279,7 +279,7 @@ export default function FichaColaborador() {
               { key: 'authorized_by', label: 'Autorizou' },
               { key: 'status', label: 'Status', render: (r) => <Badge style={VALE_STATUS[r.status]?.style} label={VALE_STATUS[r.status]?.label || r.status} /> },
               { key: 'proof_url', label: 'Comprovante', render: (r) => (r.proof_url || r.storage_path) ? <AttachmentPreview record={r} label="Ver comprovante" prefix="Vale" diagLabel="[vale-comprovante]" /> : <span className="text-slate-400">—</span> },
-              { key: 'actions', label: '', render: (r) => canRegisterOccurrences ? (
+              { key: 'actions', label: '', render: (r) => canRegisterOccurrences && !r._readOnly ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('vale', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteVale(r)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
@@ -301,7 +301,7 @@ export default function FichaColaborador() {
               { key: 'amount', label: 'Valor', render: (r) => brl(r.amount) },
               { key: 'registered_by', label: 'Lançado por' },
               { key: 'status', label: 'Status', render: (r) => <Badge style={CONSUMPTION_STATUS[r.status]?.style} label={CONSUMPTION_STATUS[r.status]?.label || r.status} /> },
-              { key: 'actions', label: '', render: (r) => canRegisterOccurrences ? (
+              { key: 'actions', label: '', render: (r) => canRegisterOccurrences && !r._readOnly ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('consumo', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deleteConsumption(r)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
@@ -313,7 +313,7 @@ export default function FichaColaborador() {
         </TabsContent>
 
         <TabsContent value="pagamentos" className="mt-4">
-          <SectionHeader title="Pagamentos do colaborador" onNew={canViewSensitive ? () => openForm('payment') : null} extra={`Total pago: ${brl(payments.filter((p) => p.status === 'pago').reduce((s, p) => s + Number(p.net_amount || 0), 0))}`} />
+          <SectionHeader title="Pagamentos do colaborador" onNew={canViewSensitive && !readOnly ? () => openForm('payment') : null} extra={`Total pago: ${brl(payments.filter((p) => p.status === 'pago').reduce((s, p) => s + Number(p.net_amount || 0), 0))}`} />
           <SimpleTable
             rows={payments}
             columns={[
@@ -325,7 +325,7 @@ export default function FichaColaborador() {
               { key: 'net_amount', label: 'Valor líquido', render: (r) => brl(r.net_amount) },
               { key: 'status', label: 'Status', render: (r) => PAYMENT_STATUS_LABELS[r.status] || r.status },
               { key: 'proof_url', label: 'Comprovante', render: (r) => r.proof_url || r.storage_path ? <PaymentProof payment={r} label="Abrir" /> : '—' },
-              { key: 'actions', label: '', render: (r) => canViewSensitive ? (
+              { key: 'actions', label: '', render: (r) => canViewSensitive && !readOnly && !r._readOnly ? (
                 <div className="flex items-center gap-1">
                   <button onClick={() => openForm('payment', r)} className="p-1 rounded hover:bg-slate-100 text-slate-500 hover:text-slate-800"><Pencil className="w-4 h-4" /></button>
                   <button onClick={() => deletePayment(r)} className="p-1 rounded hover:bg-rose-50 text-slate-400 hover:text-rose-600"><Trash2 className="w-4 h-4" /></button>
@@ -352,7 +352,7 @@ export default function FichaColaborador() {
         </TabsContent>
 
         <TabsContent value="avaliacoes" className="mt-4">
-          <SectionHeader title="Avaliações de desempenho" onNew={canRegisterOccurrences ? () => openForm('evaluation') : null} />
+          <SectionHeader title="Avaliações de desempenho" onNew={canRegisterOccurrences && !unavailableModules.includes('evaluation') ? () => openForm('evaluation') : null} />
           <SimpleTable
             rows={evaluations}
             columns={[
@@ -367,7 +367,7 @@ export default function FichaColaborador() {
         </TabsContent>
 
         <TabsContent value="documentos" className="mt-4">
-          <SectionHeader title="Documentos" onNew={canViewSensitive ? () => openForm('document') : null} />
+          <SectionHeader title="Documentos" onNew={canViewSensitive && !readOnly && !unavailableModules.includes('document') ? () => openForm('document') : null} />
           <SimpleTable
             rows={documents}
             columns={[
@@ -383,7 +383,7 @@ export default function FichaColaborador() {
 
         {canSangria(employee.name) && (
           <TabsContent value="sangrias" className="mt-4">
-            <SectionHeader title="Sangrias do colaborador" onNew={() => setSangriaOpen(true)} extra={`Total: ${brl(employeeSangrias.reduce((s, r) => s + (r.status === 'ativo' ? Number(r.amount || 0) : 0), 0))}`} />
+            <SectionHeader title="Sangrias do colaborador" onNew={readOnly ? null : () => setSangriaOpen(true)} extra={`Total: ${brl(employeeSangrias.reduce((s, r) => s + (r.status === 'ativo' ? Number(r.amount || 0) : 0), 0))}`} />
             <SimpleTable
               rows={employeeSangrias}
               columns={[

@@ -1,3 +1,5 @@
+import {installation} from './environment.mjs';
+import {prepareSettlement} from './settlements.mjs';
 import {assertActiveIntent} from './core.mjs';
 import {isAttendance,prepareAttendance} from './attendance.mjs';
 import {isPayroll,preparePayroll} from './payroll.mjs';
@@ -28,7 +30,7 @@ function validate(entity,data){
   if(typeof value==='number'&&money(key)&&value<0&&!['difference','machine_system_difference','expected_balance','expected_cash'].includes(key))throw fail(400,'Valor monetário negativo não permitido neste campo.');
   if((key==='date'||key.endsWith('_date'))&&value&&!date(value))throw fail(400,'Data inválida.');
  }
- if(entity==='ProductionProduct'&&(!data.name?.startsWith('FICTICIO ')||!positive(data.yield_quantity)||!data.yield_unit||!['ativo','inativo'].includes(data.status)))throw fail(400,'Ficha sintética, rendimento, unidade e status obrigatórios.');
+ if(entity==='ProductionProduct'&&(!data.name?.trim()||!installation?.operationalCandidate&&!data.name?.startsWith('FICTICIO ')||!positive(data.yield_quantity)||!data.yield_unit||!['ativo','inativo'].includes(data.status)))throw fail(400,'Ficha sintética, rendimento, unidade e status obrigatórios.');
  if(['ProductionOrder','DailyProduction'].includes(entity)&&(!date(data.date)||!uuid(data.product_id)))throw fail(400,'Data e produto obrigatórios.');
  if(entity==='ProductionOrder'&&(!positive(data.planned_quantity)||!['planejada','em_producao','concluida','cancelada'].includes(data.status)))throw fail(400,'Ordem inválida.');
  if(isRh(entity)&&(!positive(data.amount)||!date(data.date)))throw fail(400,'Data válida e valor positivo em centavos obrigatórios.');
@@ -42,7 +44,7 @@ function validate(entity,data){
  if(entity==='FinancialExpense'&&(!data.description?.trim()||!date(data.date)||!['pago','pendente','cancelado'].includes(data.status)))throw fail(400,'Descrição, data e situação do gasto obrigatórias.');
  if(entity==='Revenue'&&(!date(data.date)||!positive(data.gross_amount)||typeof data.fee_amount!=='number'||data.fee_amount<0||data.fee_amount>data.gross_amount||Math.round((data.gross_amount-data.fee_amount)*100)!==Math.round(data.net_amount*100)||!['recebido','pendente','cancelado'].includes(data.status)))throw fail(400,'Receita/valor líquido inválido.');
  if(entity==='AccountsPayable'&&(!data.description?.trim()||!date(data.due_date)||!['pendente','pago','cancelado'].includes(data.status)))throw fail(400,'Conta a pagar inválida.');
- if(entity==='FinancialAccount'&&(!data.name?.startsWith('FICTICIO ')||data.initial_balance!==0||data.current_balance!==0))throw fail(400,'Conta sintética com saldos informativos zero obrigatória; use o razão para movimentação.');
+ if(entity==='FinancialAccount'&&(!data.name?.trim()||!installation?.operationalCandidate&&!data.name?.startsWith('FICTICIO ')||data.initial_balance!==0||data.current_balance!==0))throw fail(400,'Conta sintética com saldos informativos zero obrigatória; use o razão para movimentação.');
  if(entity==='Sangria'&&(!date(data.date)||!data.responsible?.trim()||!data.purpose?.trim()||!['ativo','cancelado'].includes(data.status)))throw fail(400,'Sangria inválida.');
  if(['CashMovement','FechamentoCaixa'].includes(entity)&&(!date(data.date)||!data.operator_name?.trim()))throw fail(400,'Data e operador obrigatórios.');
 }
@@ -94,7 +96,7 @@ export async function domainPreview(pool,user,id){
  return transaction(pool,async c=>{if(user.role!=='admin')throw fail(403,'Administrador obrigatório.');await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);const row=(await c.query('SELECT * FROM d2_catalog WHERE owner_id=$1 AND id=$2',[user.id,id])).rows[0];if(row?.entity==='Purchase')return purchasePreview(c,user.id,row);return preview(c,user.id,await get(c,user.id,'DailyProduction',id));});
 }
 export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
-  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch','transition','reopen'].includes(body.action)||body.action==='transition'&&!isDelivery(body.entity)||body.action==='reopen'&&body.entity!=='PayrollRun'||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
+  if(!uuid(body?.operationId)||!uuid(body.id)||!domainFields[body.entity]||!['save','confirm','cancel','reverse','generate','batch','transition','reopen','pay'].includes(body.action)||body.action==='transition'&&!isDelivery(body.entity)||body.action==='reopen'&&body.entity!=='PayrollRun'||body.action==='pay'&&!['PayrollRun','DeliveryOrder'].includes(body.entity)||Object.keys(body).some(k=>!['operationId','entity','id','action','baseVersion','data','token','payments','reason'].includes(k)))throw fail(400,'Comando de domínio inválido.');
  if(isDelivery(body.entity))assertDeliveryLab();
  return transaction(pool,async c=>{
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
@@ -106,6 +108,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
   if(current&&(current.owner_id!==actor.id||current.entity!==body.entity))throw fail(403,'Documento fora do escopo.');
   if(current?Number(current.version)!==body.baseVersion:body.baseVersion!==null)throw fail(409,'Documento alterado; recarregue.');
   const old=current?unwrapDomain(current):null,changes=[];
+  if(old?.settlement_id&&!['PayrollRun','DeliveryOrder'].includes(body.entity))throw fail(409,'Liquidacao vinculada exige operacao pelo agregado de origem.');
   const save=async(entity,id,payload,base)=>{
    const data={name:'FICTICIO '+entity+' '+id,payload_json:JSON.stringify(payload),status:payload.local_status||payload.status||'ativo'};
    if(data.payload_json.length>4000)throw fail(413,'Documento excede limite do laboratório.');
@@ -113,9 +116,11 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    changes.push({entity,record:record(row)});return unwrapDomain(row);
   };
   let data;
-  if(isPurchase(body.entity))data=await preparePurchase({c,actor,deviceId,body,old,save,changes});
+  if(['PayrollRun','DeliveryOrder'].includes(body.entity)&&['pay','reverse'].includes(body.action))data=await prepareSettlement({c,actor,deviceId,body,old,save,changes,get});
+  else if(isPurchase(body.entity))data=await preparePurchase({c,actor,deviceId,body,old,save,changes});
   else if(isDelivery(body.entity))data=await prepareDelivery(c,actor,body,old);
   else if(body.action==='save'){
+   if(old?.settlement_id||old?.payroll_run_id||old?.delivery_order_id||body.data?.settlement_id||body.data?.payroll_run_id||body.data?.delivery_order_id)throw fail(409,'Documento liquidado exige seu agregado de origem.');
    if(old?.status==='cancelado')throw fail(409,'Documento cancelado é imutável; reabertura exige fluxo homologado.');
    if(old?.local_status&&old.local_status!=='rascunho')throw fail(409,'Produção confirmada/cancelada é imutável; use cancelamento.');
    const supplied=Object.fromEntries(Object.entries(body.data||{}).filter(([k])=>!metadata.includes(k)));

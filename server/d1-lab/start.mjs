@@ -15,7 +15,7 @@ try{
  history=await loadHistoryProfile();
  if(installation?.historyOnly&&!history)throw Error('HISTORY_PROFILE_REQUIRED');
  identity=await loadIdentity(pool);
- operationalHistory=await loadOperationalHistory();
+ operationalHistory=await loadOperationalHistory(pool);
 }catch(error){await Promise.all([pool.end(),history?.close(),operationalHistory?.close()]);throw error;}
 const server=createServer(pool,device.id,{history,historyOnly:Boolean(history),identity,operationalHistory});
 server.on('error',()=>{console.error('API do laboratório não iniciou. Porta/estado indisponível.');Promise.all([pool.end(),history?.close(),operationalHistory?.close()]).finally(()=>process.exit(1));});

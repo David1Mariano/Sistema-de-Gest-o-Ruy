@@ -3,7 +3,7 @@ import {fail} from './core.mjs';
 import {historicalEntities} from './history-readonly.mjs';
 import {catalogFields,projectEmployee} from './catalog-contract.mjs';
 import {isDomain} from './domain-contract.mjs';
-import {API_PORT} from './environment.mjs';
+import {API_PORT,installation} from './environment.mjs';
 // Adapter for NORMAL screen contracts, using a new reconciled import only.
 // Imported financial effects are never replayed. No ownership is reassigned.
 export function createOperationalHistory({pool,grants}){
@@ -13,7 +13,7 @@ export function createOperationalHistory({pool,grants}){
  const grant=user=>{const g=access.get(user.id);if(!g||user.role!=='admin')throw fail(403,'Consulta migrada exige administrador autorizado.');return g;};
  async function verify(){
   const r=(await pool.query("SELECT current_database() db,current_setting('port') port,current_user role,current_setting('transaction_read_only') readonly")).rows[0];
-  if(!/^ruy_operational_trial_[a-f0-9]{12}$/.test(r.db)||r.port!=='55463')throw Error('ISOLATED_OPERATIONAL_IMPORT_REQUIRED');
+  if(!/^ruy_operational_trial_[a-f0-9]{12}$/.test(r.db)||r.port!==String(installation?.operationalCandidate?installation.dbPort:55463))throw Error('ISOLATED_OPERATIONAL_IMPORT_REQUIRED');
   if(!/^ruy_import_[a-f0-9]{16}_reader$/.test(r.role)||r.readonly!=='on')throw Error('OPERATIONAL_HISTORY_READER_REQUIRED');
   const privilege=(await pool.query("SELECT count(*)::int n FROM pg_class c JOIN pg_namespace n ON n.oid=c.relnamespace WHERE n.nspname IN ('history','public') AND c.relkind IN ('r','v') AND has_table_privilege(current_user,c.oid,'INSERT,UPDATE,DELETE,TRUNCATE,TRIGGER')")).rows[0];
   if(privilege.n)throw Error('OPERATIONAL_HISTORY_WRITE_PRIVILEGE_REFUSED');

@@ -17,3 +17,9 @@ export function waitForTask(task,{timeoutMs=10000}={}){
   Promise.resolve(task).then(()=>finish(true),()=>finish(false));
  });
 }
+// Backups are not worker leases: never time them out into a synchronous modal.
+// Keep the event loop available to drain pg_dump and finish the archive.
+export async function finishBackupBeforeExit(task,onWait=()=>{}){
+ if(!task)return;
+ onWait();await task;
+}

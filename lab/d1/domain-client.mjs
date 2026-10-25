@@ -9,7 +9,7 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
   if(user?.role!=='admin')return signal(Error('Domínio exige administrador local.'));
   if(readOnlyDomains.includes(entity))return signal(Error('Esta escrita ainda aguarda integração atômica e homologação.'));
   const key='ruy-d1-domain:'+user.id+':'+entity+':'+(id||'new')+':'+action;
-  const input={entity,id:id||null,action,data:clean(entity,data||{}),...extra};
+  const input={entity,id:id||null,action,data:action==='pay'?Object.fromEntries(Object.entries(data||{}).filter(([key])=>['account','payment_date','payment_method'].includes(key))):clean(entity,data||{}),...extra};
   const personal=['Vale','Consumption','EmployeePayment','Schedule','StandardSchedule','TimeRecord','Absence','Warning','PayrollPolicy','PayrollRun'].includes(entity);
   const fingerprint=personal?Array.from(new Uint8Array(await crypto.subtle.digest('SHA-256',new TextEncoder().encode(JSON.stringify(input))))).map(b=>b.toString(16).padStart(2,'0')).join(''):JSON.stringify(input),prior=JSON.parse(localStorage.getItem(key)||'null');
   if(prior&&prior.fingerprint!==fingerprint)return signal(Error('Há tentativa sem confirmação. Reenvie os mesmos campos antes de editar.'));

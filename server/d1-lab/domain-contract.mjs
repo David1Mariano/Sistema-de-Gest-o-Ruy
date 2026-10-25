@@ -40,7 +40,7 @@ export function validateDomainSnapshot(entity,data){
  const payload=JSON.parse(data.payload_json);
  if(entity==='Purchase')validatePurchaseSnapshot(payload);
  if(isDelivery(entity))validateDeliveryPayload(entity,payload);
- const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions'];
+ const derived=['recipe_snapshot','recipe_yield','local_status','source_device_id','consumption_effects','confirmation_id','cancellation_id','linked_payment_id','rh_deductions','payroll_run_id','delivery_order_id','settlement_id'];
  if(!payload||typeof payload!=='object'||Array.isArray(payload)||Object.keys(payload).some(k=>!domainFields[entity].includes(k)&&!derived.includes(k)))throw Error('Invalid domain snapshot');
  if(entity==='ProductionProduct'&&(!payload.name?.startsWith('FICTICIO ')||!Array.isArray(payload.ingredients)))throw Error('Invalid recipe');
  if(entity==='DailyProduction'&&(!Array.isArray(payload.recipe_snapshot)||!['rascunho','confirmado','cancelado'].includes(payload.local_status)))throw Error('Invalid production');

@@ -72,9 +72,9 @@ export function entityClient(entity){return {
  subscribe(fn){globalThis.addEventListener('d1-changed',fn);return()=>globalThis.removeEventListener('d1-changed',fn);},
 };}
 export const base44={localDomain:domain,integrations:{Core:{UploadFile:async()=>signal(Error('Anexos privados ainda não homologados no laboratório.'))}},entities:new Proxy({},{get(_,entity){
- if(session?.operationalHistoryPreview&&['Absence','Warning','Evaluation','EmployeeDocument','Schedule','TimeRecord'].includes(entity))return domain.entity(entity);
+ if((session?.operationalHistoryPreview||session?.operationalWorkspace)&&['Absence','Warning','Evaluation','EmployeeDocument','Schedule','TimeRecord'].includes(entity))return domain.entity(entity);
  if(isDomain(entity)||entity==='RecipeIngredient')return domain.entity(entity);
- if(entity==='AuditLog')return {create:async data=>{const receipt=audits.get(data.entity_id);if(!receipt)throw Error('Auditoria exige gravação transacional confirmada.');return receipt;}};
+ if(entity==='AuditLog')return {...(session?.operationalHistoryPreview||session?.operationalWorkspace?domain.entity(entity):{}),create:async data=>{const receipt=audits.get(data.entity_id);if(!receipt)throw Error('Auditoria exige gravação transacional confirmada.');return receipt;}};
  if(!['Sector','JobRole','StockMovement',...Object.keys(catalogFields)].includes(entity))throw Error('Módulo fora do laboratório D1.');
  return entityClient(entity);
 }})};

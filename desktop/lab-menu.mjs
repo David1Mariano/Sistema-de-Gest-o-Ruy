@@ -6,7 +6,7 @@ export function installLabMenu(root,window,{recover}={}){
  const load=()=>import(pathToFileURL(path.join(root,'server/d1-lab/backup.mjs')));
  const report=async task=>{try{await task();}catch{await dialog.showMessageBox(window,{type:'error',message:'Operação de laboratório não concluída.',detail:'Os dados existentes foram preservados. Verifique o destino, espaço disponível e o estado do PostgreSQL.'});}};
  Menu.setApplicationMenu(Menu.buildFromTemplate([
-  {label:'Laboratório',submenu:[
+  {label:process.env.RUY_D1_INSTALLATION==='windows-operational'?'Sistema Ruy':'Laboratório',submenu:[
    {label:'Tentar recuperar serviços locais',click:()=>report(async()=>{if(!await recover?.())throw Error('Recuperação indisponível.');})},
    {label:'Configurar destino de cópia do backup...',click:()=>report(async()=>{
     const selected=await dialog.showOpenDialog(window,{title:'Destino configurável de backup criptografado',properties:['openDirectory','createDirectory']});
@@ -15,7 +15,7 @@ export function installLabMenu(root,window,{recover}={}){
     await dialog.showMessageBox(window,{message:'Destino configurado.',detail:'A próxima cópia será verificada por hash. Recuperação da chave em outro Windows e proteção contra perda física continuam pendentes.'});
    })},
    {label:'Criar backup criptografado agora',click:()=>report(async()=>{
-    const api=await load(),settings=await api.backupConfig(),result=await api.backup({retain:settings.retain});
+    const api=await load(),settings=await api.backupConfig(),result=await api.backup({retain:settings.retain,preserveExisting:true});
     await dialog.showMessageBox(window,{message:'Backup local criptografado criado.',detail:result.externalState==='verified-copy'?'Cópia no destino configurado verificada por hash. Recuperação independente da chave ainda pendente.':result.externalError||'Destino externo ainda não configurado.'});
    })},
    {label:'Testar restauração isolada do último backup',click:()=>report(async()=>{
