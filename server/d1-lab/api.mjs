@@ -1,4 +1,5 @@
 import {reconciliationPlan,reconcile} from './reconciliation.mjs';
+import {authorizedReport} from './reports.mjs';
 import {deliveryEnabled,assertDeliveryDatabase} from './delivery.mjs';
 import {attachmentsEnabled} from './capabilities.mjs';
 import {enqueueAttachment,transferAttachment,fetchAttachment,listLocalAttachments,localAttachment,authorizeAttachmentRecord} from './attachment-transfer.mjs';
@@ -96,6 +97,10 @@ export function createServer(pool,deviceId,{history=null,historyOnly=false,ident
         if(operationalHistory)await operationalHistory.list(user,'Employee');
         if(url.pathname.endsWith('/status'))return reply(200,await moduleStatus(pool,{historical:Boolean(operationalHistory)&&!operationalHistory.workspace}));
         return reply(200,{accounts:[],comments:[],messages:[],replies:[],drafts:[],metrics:[],posts:[],aiConfigured:false,connected:false,sendingEnabled:false,manychat:{configured:false,reachable:false,authenticated:false,error_code:'NOT_CONFIGURED',channels:[]}});
+      }
+      if(url.pathname.startsWith('/api/d1/reports/')){
+        if(req.method!=='GET')throw fail(405,'Relatórios são somente leitura.');
+        return reply(200,await authorizedReport(pool,user,url.pathname.slice('/api/d1/reports/'.length),Object.fromEntries(url.searchParams),operationalHistory));
       }
       if(operationalHistory&&await operationalHistory.route(req,res,url,user,reply,body))return;
       if(req.method==='GET'&&url.pathname==='/api/d1/settlements/reconciliation')return reply(200,await settlementReconciliation(pool,user));

@@ -1,4 +1,5 @@
-import {app, BrowserWindow, dialog, session, utilityProcess, screen} from 'electron';
+import {app, BrowserWindow, dialog, session, utilityProcess, screen,ipcMain} from 'electron';
+import {installReportExport} from './report-export.mjs';
 import path from 'node:path';
 import {fileURLToPath, pathToFileURL} from 'node:url';
 import fs from 'node:fs/promises';
@@ -127,7 +128,8 @@ async function start() {
   });
   preparing=false;
   window = new BrowserWindow({title:metadata.ruyOperationalWorkspace?'Sistema Ruy':'Sistema de Gestão Ruy — Laboratório',width:1366,height:900,minWidth:900,minHeight:640,
-    show:!smoke,icon:path.join(here,'assets/ruy.ico'),webPreferences:{...webPreferences,session:browserSession,backgroundThrottling:!smoke}});
+    show:!smoke,icon:path.join(here,'assets/ruy.ico'),webPreferences:{...webPreferences,preload:path.join(here,'report-preload.cjs'),session:browserSession,backgroundThrottling:!smoke}});
+  installReportExport({ipcMain,BrowserWindow,dialog,app,window,origin:localOrigin,protectedRoots:[root,here]});
   window.webContents.setWindowOpenHandler(()=>({action:'deny'}));
   window.webContents.on('will-navigate', (event,url)=>{if(!allowedNavigation(url))event.preventDefault();});
   window.webContents.on('will-redirect', (event,url)=>{if(!allowedNavigation(url))event.preventDefault();});

@@ -14,7 +14,7 @@ collect('pg',path.join(__dirname,'../package.json'));
 module.exports={...base,
  appId:'br.ruy.gestao.agente5.homologacao',productName:'Sistema Ruy - Homologacao Agente 5',
  directories:{output:'../artifacts/agente5-homolog-20261017'},
- files:[...base.files,'recovery-renderer.js','!electron-builder-*.cjs',...Array.from(modules,([name,value])=>({from:value.directory,to:'node_modules/'+name,filter:['**/*','!test/**','!tests/**']}))],
+ files:[...base.files,'recovery-renderer.js','report-preload.cjs',{from:'../src/lib',to:'src/lib',filter:['reportData.js','financialDashboard.js','expenseCategories.js','dailyExpenses.js','numberUtils.js']},'!electron-builder-*.cjs',...Array.from(modules,([name,value])=>({from:value.directory,to:'node_modules/'+name,filter:['**/*','!test/**','!tests/**']}))],
  extraMetadata:{ruyRevision:'A5-HOMOLOG-20261017',ruyAppId:'br.ruy.gestao.agente5.homologacao'},
  nsis:{...base.nsis,artifactName:'Sistema-Ruy-A5-Homolog-20261017-Setup.${ext}',shortcutName:'Sistema Ruy - Homologacao Agente 5'},
 };

@@ -15,6 +15,8 @@ import { EMPLOYEE_STATUS, tenure } from '@/lib/rhUtils';
 import { activeSectorOptions } from '@/lib/sectorUtils';
 import { deleteEmployeeIfUnused } from '@/lib/employeeDelete';
 import { toast } from '@/components/ui/use-toast';
+import ReportPDFButton from '@/components/shared/ReportPDFButton';
+import {filterReportEmployees,employeeReportRows} from '@/lib/reportData';
 
 const SANGRIA_ALLOWED = ['fabielle', 'patrick', 'luiz carlos neto', 'jocinei', 'gracielle', 'adriano', 'kamila'];
 const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
@@ -40,7 +42,7 @@ export default function Funcionarios() {
     setLoading(true);
     try {
       const [list, secs, rls] = await Promise.all([
-        base44.entities.Employee.list('-created_date', 500),
+        base44.entities.Employee.list('-created_date', globalThis.ruyReports ? Number.MAX_SAFE_INTEGER : 500),
         base44.entities.Sector.list('-created_date', 200),
         base44.entities.JobRole.list('-created_date', 200),
       ]);
@@ -53,14 +55,7 @@ export default function Funcionarios() {
   // Opções de setor do filtro: mesmas regras do cadastro (só Sector ativo).
   const opcoesSetorFiltro = useMemo(() => activeSectorOptions(sectors), [sectors]);
 
-  const filtered = useMemo(() => employees.filter((e) => {
-    const q = search.toLowerCase();
-    const matchSearch = [e.name, e.social_name, e.sector, e.function, e.unit].join(' ').toLowerCase().includes(q);
-    const matchSector = !sectorFilter || e.sector === sectorFilter;
-    const matchFunc = !functionFilter || e.function === functionFilter;
-    const matchStatus = statusFilter ? e.status === statusFilter : e.status !== 'inativo';
-    return matchSearch && matchSector && matchFunc && matchStatus;
-  }).sort((a, b) => (a.name || '').localeCompare(b.name || '', 'pt-BR', { sensitivity: 'base' })), [employees, search, sectorFilter, functionFilter, statusFilter]);
+  const filtered = useMemo(() => filterReportEmployees(employees,{search,sector:sectorFilter,function:functionFilter,status:statusFilter}), [employees, search, sectorFilter, functionFilter, statusFilter]);
 
   const onEdit = (e) => { setEditing(e); setFormOpen(true); };
   const onNew = () => { setEditing(null); setFormOpen(true); };
@@ -95,6 +90,7 @@ export default function Funcionarios() {
           <h1 className="text-2xl font-semibold tracking-tight">Colaboradores</h1>
           <p className="text-sm text-slate-500">Cadastro único de colaboradores — base do RH, Ponto e Escalas</p>
         </div>
+        <ReportPDFButton kind="employees" filters={{search,sector:sectorFilter,function:functionFilter,status:statusFilter}} expectedRows={employeeReportRows(filtered)} disabled={loading}>Exportar colaboradores em PDF</ReportPDFButton>
         <Button onClick={onNew} className="gap-2">
           <Plus className="w-4 h-4" /> Novo colaborador
         </Button>

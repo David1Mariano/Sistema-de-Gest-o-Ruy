@@ -1,4 +1,6 @@
 import Stat from '@/components/financeiro/FinancialStat';
+import ReportPDFButton from '@/components/shared/ReportPDFButton';
+import {categoryReportRows} from '@/lib/reportData';
 import FinancialOverviewCards from '@/components/financeiro/FinancialOverviewCards';
 import { buildFinancialDashboard, dashboardValue, applyDashboardResult, currentDashboardResult, inDashboardPeriod } from '@/lib/financialDashboard';
 import { todayISO, hasExpenseProof } from '@/lib/dailyExpenses';
@@ -35,6 +37,9 @@ import PaymentProof from '@/components/rh/PaymentProof';
 import { PayableAttachment, PayableAttachmentUpload } from '@/components/financeiro/PayableAttachment';
 
 const today = todayISO;
+// D1 returns the complete authorized collection in one response. Do not truncate
+// the selected period to the first 1,000 expenses when preparing the same table/PDF.
+const FINANCIAL_SOURCES = FONTE_FINANCEIRO.map(source => globalThis.ruyReports && source.alias === 'expenses' ? {...source,limit:Number.MAX_SAFE_INTEGER} : source);
 const monthStart = () => `${today().slice(0, 7)}-01`;
 const brl = (v) => Number(v || 0).toLocaleString('pt-BR', { style: 'currency', currency: 'BRL' });
 const fmt = (v) => v ? String(v).slice(0,10).split('-').reverse().join('/') : '—';
@@ -105,7 +110,7 @@ export default function Financeiro() {
     const versions = { ...aliasVersions.current };
     const revalidacoes = [];
     const aceitar = fase => currentDashboardResult(fase, versions, aliasVersions.current);
-    const fontes = FONTE_FINANCEIRO.map(({ alias, entity, sort, limit }) => ({
+    const fontes = FINANCIAL_SOURCES.map(({ alias, entity, sort, limit }) => ({
       alias,
       entity, sort, limit,
       entidade: base44.entities[entity],
@@ -197,7 +202,7 @@ export default function Financeiro() {
   const refreshAlias = alias => {
     if (targetedFlights.current.has(alias)) return targetedFlights.current.get(alias);
     const versions = { [alias]: aliasVersions.current[alias] = (aliasVersions.current[alias] || 0) + 1 };
-    const source = FONTE_FINANCEIRO.find(f => f.alias === alias);
+    const source = FINANCIAL_SOURCES.find(f => f.alias === alias);
     const promise = executarFontes([{ ...source, entidade: base44.entities[source.entity] }]).then(fase => {
       const current = currentDashboardResult(fase, versions, aliasVersions.current);
       for (const [key, rows] of Object.entries(current.valores)) guardarPrefetch(key, rows);
@@ -236,7 +241,7 @@ export default function Financeiro() {
       base44.entities.ExpenseCategory.subscribe(() => reloadCategories()),
     ];
     for (const alias of ['payments', 'vales', 'consumptions', 'payables', 'recurrings', 'closes', 'fechamentosCaixa', 'sangrias', 'accounts', 'centers']) {
-      const fonte = FONTE_FINANCEIRO.find(f => f.alias === alias);
+      const fonte = FINANCIAL_SOURCES.find(f => f.alias === alias);
       unsub.push(base44.entities[fonte.entity].subscribe(() => reloadAliases([alias])));
     }
     // Employee e Supplier alimentam várias abas de uma vez; para eles uma
@@ -312,7 +317,7 @@ export default function Financeiro() {
     {failure && tab !== 'gastos' && <p role="alert" className="text-sm text-destructive">{failure}</p>}
     <div className="flex items-center gap-2 text-sm"><Label>Período dos indicadores</Label><Input aria-label="Início dos indicadores" type="date" value={start} onChange={e=>setStart(e.target.value)} className="w-auto"/><Input aria-label="Fim dos indicadores" type="date" value={end} onChange={e=>setEnd(e.target.value)} className="w-auto"/></div>
     {panelState && tab !== 'gastos' && <p role="status">{panelState}</p>}
-    {tab==='visao' && <Overview rows={stats.byCategory} status={sourceStates.expenses}/>}
+    {tab==='visao' && <Overview rows={stats.byCategory} status={sourceStates.expenses} start={start} end={end}/>}
     {tab==='contas' && !panelState && <PayablePanel rows={data.payables} data={data} onSaved={load}/>}
     {tab==='recorrentes' && !panelState && <RecurringPanel rows={data.recurrings} data={data} onSaved={load}/>}
     {tab==='gastos' && <DailyExpensesPanel rows={data.expenses} loading={initialLoading && !data.expenses.length} refreshing={refreshing || targetedRefreshing} failure={failure} semDadosConfirmados={!invalidAliases.has('expenses')} data={data} onSaved={reloadExpenses} onCategoriesChanged={reloadCategories} openSignal={expenseOpenSignal} />}
@@ -337,8 +342,8 @@ const PAUSA_ENTRE_TENTATIVAS_MS = 1500;
 
 function SearchBox({value,setValue}) { return <div className="relative max-w-md"><Search className="w-4 h-4 absolute left-3 top-1/2 -translate-y-1/2 text-slate-400"/><Input className="pl-9" placeholder="Buscar..." value={value} onChange={e=>setValue(e.target.value)}/></div> }
 
-function Overview({rows, status}) {
-  return <div className="grid lg:grid-cols-2 gap-4"><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-3">Gastos por categoria</h3>{status !== 'ready' ? <p>{status === 'error' ? 'Indisponível' : 'Carregando…'}</p> : rows.length?rows.map(({chave:k,total:v,nome})=><div key={k} className="flex justify-between py-2 border-b text-sm"><span>{nome}</span><strong>{brl(v)}</strong></div>):<p className="text-sm text-slate-400">Sem lançamentos no período.</p>}</div><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-2">Como usar</h3><div className="text-sm text-slate-600 space-y-2"><p>• Gastos comuns entram em <b>Novo gasto</b>.</p><p>• Salários, diárias, extras e acertos entram em <b>Pagamento</b>.</p><p>• Vales já cadastrados no RH são lançados pela aba <b>Vales</b>, evitando duplicidade.</p><p>• Todo pagamento pode receber comprovante e nota/documento fiscal.</p></div></div></div>
+function Overview({rows, status,start,end}) {
+  return <div className="grid lg:grid-cols-2 gap-4"><div className="rounded-xl border bg-white p-4"><div className="flex flex-wrap items-center justify-between gap-2 mb-3"><h3 className="font-semibold">Gastos por categoria</h3><ReportPDFButton kind="categories" filters={{start,end}} expectedRows={categoryReportRows(rows)} disabled={status!=='ready'||!start||!end}>Exportar PDF</ReportPDFButton></div>{status !== 'ready' ? <p>{status === 'error' ? 'Indisponível' : 'Carregando…'}</p> : rows.length?rows.map(({chave:k,total:v,nome})=><div key={k} className="flex justify-between py-2 border-b text-sm"><span>{nome}</span><strong>{brl(v)}</strong></div>):<p className="text-sm text-slate-400">Sem lançamentos no período.</p>}</div><div className="rounded-xl border bg-white p-4"><h3 className="font-semibold mb-2">Como usar</h3><div className="text-sm text-slate-600 space-y-2"><p>• Gastos comuns entram em <b>Novo gasto</b>.</p><p>• Salários, diárias, extras e acertos entram em <b>Pagamento</b>.</p><p>• Vales já cadastrados no RH são lançados pela aba <b>Vales</b>, evitando duplicidade.</p><p>• Todo pagamento pode receber comprovante e nota/documento fiscal.</p></div></div></div>
 }
 
 function EmployeePaymentSummary({rows,loading}) {
