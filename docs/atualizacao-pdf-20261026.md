@@ -1,6 +1,6 @@
 # Sistema Ruy — atualização PDF 0.7.1-rc.1
 
-Atualização incremental da instalação identificada como **0.7.0-rc.1**, em `%LOCALAPPDATA%\Programs\Sistema Ruy`. Não instalada nesta rodada. Não autoriza ativação operacional nem lançamentos reais.
+Atualização incremental da instalação identificada como **0.7.0-rc.1**, em `%LOCALAPPDATA%\Programs\Sistema Ruy`. Aplicada interativamente em 26/10 após autorização expressa do responsável. Homologação assistida dos PDFs ainda em andamento. Não autoriza ativação operacional nem lançamentos reais.
 
 ## Escopo implementado
 
@@ -34,7 +34,9 @@ O HTML é escapado e renderizado em sessão transitória, com JavaScript e rede 
 | Fonte, contagens, permissões, backup cifrado conjunto e restauração nova | 6 aprovadas | Cópia histórica própria; 1.186 registros, 63 colaboradores, 59 anexos, 54 vinculados e 5 em quarentena |
 | Lint e builds principal/D1 | APROVADOS | Código da atualização |
 | Dependências no executável empacotado e integridade do conteúdo | APROVADO | Preflight 0.7.1-rc.1; sem iniciar banco ou enviar e-mail |
-| Janela nativa Salvar como e exportação no aplicativo atualizado instalado | PENDENTE | Exige autorização de atualização e teste assistido |
+| Instalação autorizada, conteúdo instalado e registro NSIS | APROVADO | Mesmo caminho e GUID; conteúdo instalado idêntico ao pacote verificado; registro por usuário 0.7.1-rc.1 |
+| Inicialização e saúde após atualização | APROVADO tecnicamente | Logs `window-created`/`window-loaded`, API 18146 saudável e PostgreSQL próprio 55496; confirmação visual assistida ainda necessária |
+| Janela nativa Salvar como e exportação no aplicativo atualizado instalado | PENDENTE | Atualização autorizada e aplicada; aguardando resultado do teste assistido |
 
 Uma tentativa adicional do fluxo amplo de interface de jornada expirou em `warning-submit`, sem erro de API comprovado. Não foi tratada como aprovação da interface nem corrigida alterando módulos alheios ao PDF. O teste específico dos relatórios foi isolado e aprovado posteriormente. Homologação completa das operações na versão instalada continua dependendo de evidência assistida; testes de backend não substituem esses cliques.
 
@@ -52,7 +54,9 @@ Pacote preparado: `artifacts/sistema-ruy-0.7.1-rc.1-20261026/Sistema-Ruy-0.7.1-r
 
 SHA-256: `5bb33754e8f4dc1cff3bfd67ac1b4739ac816969235ce6186de8939c008fdedf`.
 
-O instalador NSIS e o arquivo compactado interno passaram na verificação de integridade. O `app.asar` extraído do instalador coincide com o pacote conferido: `de4cac368a3616c57d707f5b5a6874e37363b9350707b5a99eeb1729bbe52740`. O pacote não contém dados recuperados, chaves privadas, backups ou auxiliares de testes. **Sem assinatura digital; não executado para instalação nesta rodada.**
+O instalador NSIS e o arquivo compactado interno passaram na verificação de integridade. O `app.asar` extraído do instalador coincide com o pacote conferido e com o arquivo instalado: `de4cac368a3616c57d707f5b5a6874e37363b9350707b5a99eeb1729bbe52740`. O pacote não contém dados recuperados, chaves privadas, backups ou auxiliares de testes. **Sem assinatura digital; instalado interativamente somente após autorização expressa.**
+
+Depois da atualização, consultas exclusivamente de leitura confirmaram 63 colaboradores, 1.186 registros históricos, 59 anexos e 54 vinculados; a fonte continua com `transaction_read_only=on`. As tabelas de liquidações e movimentos de estoque próprios continuam sem registros. Nenhum efeito histórico foi reaplicado. A API é o processo próprio da instalação e o log confirmou criação/carregamento da janela.
 
 Manter a mesma identidade: produto/atalho **Sistema Ruy**, AppId `br.ruy.gestao.windows.operacional`, GUID NSIS `75c7b9b8-6d06-4bf1-89d1-4e566b45c050`, perfil `windows-operational`, API 18146 e PostgreSQL 55496. Dados, chaves, usuários e anexos ficam fora da pasta do programa. Não há migrations nesta atualização.
 
