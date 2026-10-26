@@ -46,9 +46,9 @@ O backup conjunto cifra banco operacional, usuários, novos recibos e fonte hist
 
 O executável empacotado abriu a tela de login e passou em visibilidade, minimização, recuperação fora da tela e segunda instância sem variáveis configuradas manualmente. O fechamento encontrou um limite inadequado de dez segundos para backup: o aviso modal interrompia o fluxo de fechamento enquanto o backup ainda não havia terminado.
 
-A correção aguarda o backup assincronamente, sem modal durante a espera e sem encerramento forçado. A repetição do ciclo empacotado depende do encerramento normal da instância de teste que exibiu o aviso anterior. Este resultado não deve ser considerado instalação NSIS aprovada.
+A correção aguarda o backup assincronamente, sem modal durante a espera e sem encerramento forçado. Em 26/10, o responsável fechou normalmente a instância anterior; o log confirmou `shutdown-complete` e as duas portas próprias foram liberadas. O pacote corrigido repetiu o ciclo completo: login visível, segunda instância, minimização, recuperação fora da tela e encerramento normal da API e PostgreSQL próprios. Resultado: `manualInterventionRequired: false`. O pacote conferido corresponde ao código e não contém arquivos privados. Este resultado não deve ser considerado instalação NSIS aprovada.
 
-Não gerar o instalador final antes de repetir o fechamento empacotado. Não declarar aprovação operacional antes de instalar, fazer login individual, conferir Dashboard/menu/dados e reabrir a candidata. O controle gráfico não está disponível nesta sessão; os cliques de instalação e o login real exigem o responsável. Não solicitar senha ou código pelo chat.
+O fechamento empacotado foi aprovado; a geração do instalador final está autorizada. Não declarar aprovação operacional antes de instalar, fazer login individual, conferir Dashboard/menu/dados e reabrir a candidata. O controle gráfico não está disponível nesta sessão; os cliques de instalação e o login real exigem o responsável. Não solicitar senha ou código pelo chat.
 
 ## Identidade NSIS e atualização
 
@@ -57,3 +57,18 @@ AppId: `br.ruy.gestao.windows.operacional`. GUID exclusivo: `75c7b9b8-6d06-4bf1-
 Versões futuras devem manter AppId, GUID, namespace e caminhos de dados. Antes de atualizar: criar e verificar backup cifrado conjunto, preservar chave de recuperação por mecanismo seguro e registrar a versão de código. Depois: conferir acesso, contagens, anexos e persistência. Snapshot de código não substitui backup. Rollback deve preservar cópias e restaurar para um destino novo; não sobrepor banco existente automaticamente.
 
 Atualização real, desinstalação, Windows limpo e uso em dois computadores não foram comprovados nesta rodada. Não tratar configurações NSIS ou testes de desenvolvimento como equivalentes a esses testes.
+
+## Instalador produzido em 26/10/2026
+
+- Versão: **0.7.0-rc.1**, produto **Sistema Ruy**.
+- Arquivo: `artifacts/sistema-ruy-0.7.0-rc.1-20261024/Sistema-Ruy-0.7.0-rc.1-Setup.exe`.
+- Tamanho: **112.160.624 bytes**.
+- SHA-256: `47603fcabceee8d2220db81487f12117f09ffe564ae253eb43ba78883c200120`.
+- Arquivo NSIS testado com 7-Zip: **Everything is Ok**. Pacote interno conferido: versão, entrada, arquivos de código e ausência de artefatos privados.
+- SHA-256 do `app.asar`: `4bc3ddfa73d97bf38373666b757969281c153e44936400f5a0b69f708a6ecc1e`.
+- Assinatura digital: **ausente**. Não contornar bloqueios de segurança do Windows.
+- Pré-instalação: usuário Pichau sem elevação; destino exclusivo ausente; portas próprias livres; encerramento e backup anteriores concluídos; identidade exclusiva não encontrada nas chaves de desinstalação verificadas.
+
+O instalador foi aberto interativamente. Instalação efetiva, atalho, registro NSIS, login individual, conferência das telas e persistência na instalação permanecem **PENDENTES** até confirmação e verificação técnica. O teste empacotado anterior não substitui esses critérios.
+
+Roteiro: instalar apenas para o usuário atual no destino exclusivo indicado, abrir pelo atalho **Sistema Ruy**, entrar com a conta individual existente e conferir Dashboard, menu, colaboradores e ficha. Não informar senha no chat. Não realizar lançamentos reais: a autorização operacional permanece bloqueada no servidor. Fechar normalmente, aguardar o backup e reabrir para verificar persistência. Restauração deve criar bancos independentes, sem redirecionar a instalação ou substituir dados existentes.
