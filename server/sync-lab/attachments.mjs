@@ -9,10 +9,11 @@ async function reference(c,p,id,entity){
  const record=(await c.query('SELECT * FROM d1_central_records WHERE workspace_id=$1 AND id=$2 FOR SHARE',[p.workspace_id,id])).rows[0];
  if(!record||record.entity!==entity||record.data._deleted==='true')throw fail(403,'Attachment record unavailable.');return record;
 }
-export async function putAttachment(pool,token,body){
+export async function putAttachment(pool,token,body,{authorizeSession=null}={}){
  const bytes=validateAttachment(body),hash=syncHash(body);
  return transaction(pool,async c=>{
   const p=await principal(c,token);
+  if(authorizeSession)await authorizeSession(c);
   // Same lock order as acceptD1, avoiding races with record deletion/version changes.
   await c.query('SELECT cursor FROM d1_central_clock WHERE singleton FOR UPDATE');
   const record=await reference(c,p,body.recordId,body.entity);

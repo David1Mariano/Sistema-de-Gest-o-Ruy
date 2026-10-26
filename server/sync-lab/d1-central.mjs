@@ -5,15 +5,17 @@ import {validateEnvelope,syncHash} from '../d1-lab/sync-contract.mjs';
 import {sectorKey} from '../../src/lib/sectorUtils.js';
 import {domainSyncFields} from '../d1-lab/domain-contract.mjs';
 import {referencesEmployee} from '../d1-lab/employee-delete.mjs';
-async function authorize(c,token){
+import {projectEmployee} from '../d1-lab/catalog-contract.mjs';
+async function authorize(c,token,{write=true}={}){
  const p=(await c.query('SELECT * FROM d1_principals WHERE token_hash=$1',[digest(token||'')])).rows[0];
- if(!p?.active||p.role!=='admin')throw fail(403,'Ponte D1 restrita a administrador sintético autorizado.');
+ if(!p?.active||(write?p.role!=='admin':!['admin','viewer'].includes(p.role)))throw fail(403,'Ponte D1 exige perfil autorizado.');
  return p;
 }
-export async function acceptD1(pool,token,command,{business=false}={}){
+export async function acceptD1(pool,token,command,{business=false,authorizeSession=null}={}){
  validateEnvelope(command);
  return transaction(pool,async c=>{
   const p=await authorize(c,token);
+  if(authorizeSession)await authorizeSession(c);
   if(command.deviceId!==p.device_id||command.actorId!==p.actor_id||command.workspaceId!==p.workspace_id)throw fail(403,'Identidade D1 recusada.');
   await c.query('SELECT cursor FROM d1_central_clock WHERE singleton FOR UPDATE');
   const hash=syncHash(command),prior=(await c.query('SELECT * FROM d1_central_receipts WHERE operation_id=$1',[command.operationId])).rows[0];
@@ -80,16 +82,17 @@ export async function acceptD1(pool,token,command,{business=false}={}){
   return receipt;
  });
 }
-export async function changesD1(pool,token,cursor,{business=false}={}){
+export async function changesD1(pool,token,cursor,{business=false,readProjection=false}={}){
  if(!Number.isSafeInteger(cursor)||cursor<0)throw fail(400,'Cursor D1 inválido.');
  const c=await pool.connect();
  try{
-  await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const p=await authorize(c,token);
+  await c.query('BEGIN ISOLATION LEVEL REPEATABLE READ READ ONLY');const p=await authorize(c,token,{write:!readProjection});
   const head=Number((await c.query('SELECT cursor FROM d1_central_clock WHERE singleton')).rows[0].cursor);
   if(cursor>head)throw fail(409,'Central anterior ao cursor; reconciliação obrigatória.');
   const events=(await c.query('SELECT e.*,r.actor_id FROM d1_central_changes e JOIN d1_central_receipts r USING(operation_id) WHERE e.workspace_id=$1 AND e.cursor>$2 ORDER BY e.cursor LIMIT 100',[p.workspace_id,cursor])).rows.map(e=>({...e,cursor:Number(e.cursor)}));
   const hasMore=events.length===100;
-  const projection=business&&!hasMore?await businessSnapshot(c,p.workspace_id,head):null;
-  await c.query('COMMIT');return {...(projection?{business:projection}:{}),protocol:'D1LAB/1',events,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
+  const projection=business&&!hasMore&&p.role==='admin'?await businessSnapshot(c,p.workspace_id,head):null;
+  const visible=p.role==='viewer'?events.flatMap(event=>{const changes=event.changes.filter(r=>['Employee','Sector','JobRole'].includes(r.entity)).map(r=>({...r,data:r.entity==='Employee'?projectEmployee(r.data,'viewer'):r.data}));return changes.length?[{...event,changes}]:[];}):events;
+  await c.query('COMMIT');return {...(projection?{business:projection}:{}),protocol:'D1LAB/1',events:visible,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }
