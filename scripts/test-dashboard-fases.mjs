@@ -1,0 +1,61 @@
+import assert from 'node:assert/strict';
+import { test } from 'node:test';
+import { applyDashboardResult, buildFinancialDashboard, currentDashboardResult } from '../src/lib/financialDashboard.js';
+import { limparPrefetch, guardarPrefetch, lerPrefetch, lerComRevalidacao } from '../src/lib/financeiroPrefetch.js';
+import { renderComponent, cardText } from './dashboard-render-harness.mjs';
+import { expenses, payments, start, end } from './fixtures/dashboard-data.mjs';
+const render = await renderComponent('./src/components/financeiro/FinancialOverviewCards.jsx');
+const display = state => render({ stats: buildFinancialDashboard(state.data, start, end), sourceStates: state.states });
+const initial = () => ({ data: { expenses: [], payments: [] }, states: {}, errors: {} });
+test('expenses first, payments later: rendered cards update without reload', async () => {
+  let state = initial();
+  assert.equal(cardText(display(state), 'Lançamentos no período'), 'Carregando…');
+  state = applyDashboardResult(state, { valores: { expenses }, falhas: [] });
+  assert.equal(cardText(display(state), 'Lançamentos no período'), '4');
+  assert.equal(cardText(display(state), 'Diárias de motoboy'), 'Carregando…');
+  await Promise.resolve();
+  state = applyDashboardResult(state, { valores: { payments }, falhas: [] });
+  assert.match(cardText(display(state), 'Diárias de motoboy'), /100,00/);
+  assert.equal(state.data.expenses, expenses);
+});
+test('phase failures persist across unrelated successful phases and recover per source', () => {
+  let state = applyDashboardResult(initial(), { valores: { expenses }, falhas: [{ alias: 'categories', mensagem: 'offline' }] });
+  state = applyDashboardResult(state, { valores: { payments }, falhas: [] });
+  assert.equal(state.states.categories, 'error');
+  state = applyDashboardResult(state, { valores: {}, falhas: [{ alias: 'expenses', mensagem: 'offline' }] });
+  assert.equal(state.data.expenses, expenses);
+  assert.equal(cardText(display(state), 'Lançamentos no período'), 'Indisponível');
+  state = applyDashboardResult(state, { valores: { expenses: [] }, falhas: [] });
+  assert.equal(cardText(display(state), 'Lançamentos no período'), '0');
+});
+test('SWR delivers new rows and later phases cannot replay old snapshot', async () => {
+  limparPrefetch(); guardarPrefetch('expenses', []);
+  let resolve;
+  const read = await lerComRevalidacao('expenses', () => new Promise(r => { resolve = r; }));
+  let state = applyDashboardResult(initial(), { valores: { expenses: read.dados }, falhas: [] });
+  assert.equal(cardText(display(state), 'Lançamentos no período'), '0');
+  resolve(expenses);
+  state = applyDashboardResult(state, { valores: { expenses: await read.revalidacao }, falhas: [] });
+  state = applyDashboardResult(state, { valores: { categories: [] }, falhas: [] });
+  state = applyDashboardResult(state, { valores: { payments }, falhas: [] });
+  assert.equal(cardText(display(state), 'Lançamentos no período'), '4');
+  limparPrefetch();
+});
+test('selective refresh supersedes old expenses but does not discard late payments', () => {
+  const versions = {};
+  const current = { expenses: 1 };
+  const result = currentDashboardResult({ valores: { expenses: [], payments }, falhas: [] }, versions, current);
+  assert.deepEqual(Object.keys(result.valores), ['payments']);
+  const state = applyDashboardResult({ data: { expenses }, states: { expenses: 'ready' }, errors: {} }, result);
+  assert.equal(cardText(display(state), 'Lançamentos no período'), '4');
+  assert.match(cardText(display(state), 'Diárias de motoboy'), /100,00/);
+});
+test('older SWR response cannot restore an older cache after selective refresh', async () => {
+  limparPrefetch(); guardarPrefetch('expenses', []);
+  let resolve;
+  const read = await lerComRevalidacao('expenses', () => new Promise(r => { resolve = r; }));
+  guardarPrefetch('expenses', expenses);
+  resolve([]); await read.revalidacao;
+  assert.equal(lerPrefetch('expenses'), expenses);
+  limparPrefetch();
+});

@@ -219,7 +219,7 @@ test('L11 — Financeiro usa o loader corrigido e guarda as flags', async () => 
   // A preservação da última collection boa é feita por `aplicarFases`, que
   // chama `mesclarPreservando` no núcleo. A tela não precisa mais conhecê-la.
   assert.match(src, /aplicarResultado\(/, 'a tela aplica o resultado por fase');
-  assert.match(src, /aplicarFases\(/, 'e a junção das fases acontece pelo núcleo');
+  assert.match(src, /applyDashboardResult\(/, 'e a junção das fases acontece pelo núcleo');
   assert.match(src, /resumirFalhas\(/, 'a mensagem traz status e causa');
   assert.match(src, /ehFalhaDeSessao\(fase0\.falhas\)/, 'a falha de sessão é reconhecida');
   assert.match(src, /renovarSessao\(\)/, 'a sessão é renovada uma vez antes de desistir');

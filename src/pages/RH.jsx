@@ -1,3 +1,4 @@
+import { buildRHMetrics } from '@/lib/rhDashboardMetrics';
 import { useState, useEffect, useMemo } from 'react';
 import { useNavigate } from 'react-router-dom';
 import { base44 } from '@/api/base44Client';
@@ -19,6 +20,7 @@ export default function RH() {
   const [warnings, setWarnings] = useState([]);
   const [documents, setDocuments] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
 
   const [period, setPeriod] = useState('hoje');
   const [custom, setCustom] = useState({ start: todayISO(), end: todayISO() });
@@ -38,8 +40,9 @@ export default function RH() {
         base44.entities.Warning.list('-created_date', 500),
         base44.entities.EmployeeDocument.list('-created_date', 500),
       ]);
+      setLoadError(false);
       setEmployees(emp); setSchedules(sch); setAbsences(abs); setVales(val); setWarnings(war); setDocuments(docs);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, [today]);
 
@@ -49,19 +52,7 @@ export default function RH() {
     (!sectorFilter || e.sector === sectorFilter) && (!statusFilter || e.status === statusFilter)
   ), [employees, sectorFilter, statusFilter]);
 
-  const stats = useMemo(() => {
-    const active = filteredEmp.filter((e) => ['ativo', 'em_experiencia'].includes(e.status));
-    const workingToday = schedules.filter((s) => s.day_type === 'trabalho' && s.status === 'ativo' && filteredEmp.some((e) => e.id === s.employee_id)).length;
-    const offToday = schedules.filter((s) => s.day_type === 'folga' && filteredEmp.some((e) => e.id === s.employee_id)).length;
-    const absToday = absences.filter((a) => a.date === today && ['falta', 'nao_justificada'].includes(a.type) && a.status === 'ativo' && filteredEmp.some((e) => e.id === a.employee_id)).length;
-    const lateToday = absences.filter((a) => a.date === today && a.type === 'atraso' && a.status === 'ativo' && filteredEmp.some((e) => e.id === a.employee_id)).length;
-    const away = filteredEmp.filter((e) => e.status === 'afastado').length;
-    const valesPending = vales.filter((v) => v.status === 'pendente' && filteredEmp.some((e) => e.id === v.employee_id)).length;
-    const [y, m] = today.split('-');
-    const warnMonth = warnings.filter((w) => w.date?.startsWith(`${y}-${m}`) && filteredEmp.some((e) => e.id === w.employee_id)).length;
-    const newMonth = filteredEmp.filter((e) => e.created_date?.startsWith(`${y}-${m}`)).length;
-    return { total: filteredEmp.length, active: active.length, workingToday, offToday, absToday, lateToday, away, valesPending, warnMonth, newMonth };
-  }, [filteredEmp, schedules, absences, vales, warnings, today]);
+  const stats = useMemo(() => buildRHMetrics({ employees: filteredEmp, schedules, absences, vales, warnings }, today), [filteredEmp, schedules, absences, vales, warnings, today]);
 
   // Atenção do RH
   const attention = useMemo(() => {
@@ -102,6 +93,7 @@ export default function RH() {
     { k: 'hoje', label: 'Hoje' }, { k: 'semana', label: 'Esta semana' }, { k: 'mes', label: 'Este mês' }, { k: 'personalizado', label: 'Personalizado' },
   ];
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex flex-wrap items-center justify-between gap-3">
@@ -152,7 +144,7 @@ export default function RH() {
             <StatCard label="Faltas hoje" value={stats.absToday} icon={FileX2} tone="rose" />
             <StatCard label="Atrasos hoje" value={stats.lateToday} icon={Clock} tone="amber" />
             <StatCard label="Afastados" value={stats.away} icon={UserX} tone="amber" />
-            <StatCard label="Vales pendentes" value={stats.valesPending} icon={Wallet} tone="amber" hint={brl(vales.filter((v) => v.status === 'pendente').reduce((s, v) => s + (v.amount || 0), 0))} />
+            <StatCard label="Vales pendentes" value={stats.valesPending} icon={Wallet} tone="amber" hint={brl(stats.valesPendingAmount)} />
             <StatCard label="Advertências no mês" value={stats.warnMonth} icon={AlertTriangle} tone="rose" />
             <StatCard label="Novos no mês" value={stats.newMonth} icon={UserPlus} tone="violet" />
             <StatCard label="Total cadastrados" value={stats.total} icon={Users} tone="slate" />

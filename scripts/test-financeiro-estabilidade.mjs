@@ -251,11 +251,11 @@ test('18. a origem da instabilidade foi removida do codigo', async () => {
   assert.ok(!/\.catch\(\(\) => \[\]\)/.test(painel), 'falha nao pode virar lista vazia');
   // E o painel recebe os estados separados.
   assert.match(painel, /loading=\{initialLoading\}/);
-  assert.match(painel, /refreshing=\{refreshing\}/);
+  assert.match(painel, /refreshing=\{refreshing \|\| targetedRefreshing\}/);
   assert.match(painel, /failure=\{failure\}/);
   assert.match(painel, /onCategoriesChanged=\{reloadCategories\}/);
   assert.match(painel, /onSaved=\{reloadExpenses\}/);
   // E a subscription de caixa nao recarrega tudo.
-  assert.match(painel, /CashMovement\.subscribe\(async \(\) =>/);
+  assert.match(painel, /CashMovement\.subscribe\(\(\) => reloadAliases\(\['cashMovements'\]\)\)/);
   assert.ok(!/CashMovement\.subscribe\(\(\) => load\(\)\)/.test(painel));
 });

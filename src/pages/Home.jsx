@@ -8,13 +8,13 @@ import { Users, UserCheck, UserX, Clock4, Coffee, CalendarDays, ArrowRight, Rece
 
 export default function Home() {
   const date = todayISO();
-  const { schedules, records, loading } = usePontoData(date);
+  const { schedules, records, loading, error, reload } = usePontoData(date);
   const [tolerance, setTolerance] = useState(5);
 
   useEffect(() => {
     base44.entities.SystemSettings.list('-created_date', 1).then((s) => {
       if (s[0]?.tolerance_minutes != null) setTolerance(s[0].tolerance_minutes);
-    });
+    }).catch(() => { /* Mantém a tolerância padrão se a configuração não chegar. */ });
   }, []);
 
   const rows = useMemo(() => buildDayRows(schedules, records, tolerance), [schedules, records, tolerance]);
@@ -42,7 +42,9 @@ export default function Home() {
           </Link>
         </div>
 
-        {loading ? (
+        {error ? (
+          <div role="alert" className="py-8 text-center">Indicadores indisponíveis. <button onClick={reload}>Tentar novamente</button></div>
+        ) : loading ? (
           <div className="py-8 text-center text-slate-400 text-sm">Carregando...</div>
         ) : (
           <>

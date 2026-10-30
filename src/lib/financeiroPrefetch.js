@@ -18,6 +18,7 @@ const TTL_MS = 5 * 60 * 1000; // 5 min. Passado isso, revalida sem perguntar.
 
 const cache = new Map();   // alias -> { dados, em }
 const emVoo = new Map();   // alias -> Promise
+const revisions = new Map();
 
 const agora = () => (typeof performance !== 'undefined' ? performance.now() : Date.now());
 
@@ -37,6 +38,7 @@ export const prefetchEmVoo = (alias) => emVoo.has(alias);
 
 /** Guarda o resultado. Chamado tanto pelo prefetch quanto pela carga normal. */
 export function guardarPrefetch(alias, dados, referencia = agora()) {
+  revisions.set(alias, (revisions.get(alias) || 0) + 1);
   cache.set(alias, { dados, em: referencia });
   return dados;
 }
@@ -82,10 +84,14 @@ export function buscarDeduplicado(alias, buscarUm) {
 }
 
 function iniciar(alias, buscarUm) {
+  const revision = revisions.get(alias);
   const p = (async () => {
     try {
       const dados = await buscarUm(alias);
-      return guardarPrefetch(alias, dados);
+      // A selective refresh may have delivered newer data while this read
+      // was in flight. Do not restore its older snapshot in the cache.
+      if (revisions.get(alias) === revision) guardarPrefetch(alias, dados);
+      return dados;
     } finally {
       emVoo.delete(alias);
     }
@@ -118,8 +124,8 @@ export async function lerComRevalidacao(alias, buscarUm) {
   }
   // Revalida sem esperar. `buscarDeduplicado` garante que, se já houver uma em
   // curso, ela seja reaproveitada em vez de duplicada.
-  buscarDeduplicado(alias, buscarUm);
-  return { dados: guardado, doCache: true };
+  const revalidacao = buscarDeduplicado(alias, buscarUm);
+  return { dados: guardado, doCache: true, revalidacao };
 }
 
 // --- Marcas de desempenho (só em DEV) ---------------------------------------

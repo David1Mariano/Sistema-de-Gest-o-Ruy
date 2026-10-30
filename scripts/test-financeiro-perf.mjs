@@ -231,7 +231,7 @@ test('P11 — as subscriptions são específicas (nada recarrega as 15)', async 
   assert.doesNotMatch(src, /\w+\.subscribe\(\(\) => load\(\)\)/, 'nenhuma subscription dispara o loader completo de 15');
   // O agrupamento por atraso existe, mas é explícito e só para quem atende
   // várias abas.
-  assert.match(src, /onMudancaAmpla[\s\S]{0,200}setTimeout\(\(\) => load\(\), 800\)/, 'Employee/Supplier usam recarga agrupada com atraso');
+  assert.match(src, /onMudancaAmpla[\s\S]{0,200}setTimeout\(\(\) => reloadAliases\(\['employees', 'suppliers'\]\), 800\)/, 'Employee/Supplier usam recarga agrupada com atraso');
 });
 
 test('P12 — loading não bloqueia uma lista que já tem dados', async () => {
@@ -242,7 +242,7 @@ test('P12 — loading não bloqueia uma lista que já tem dados', async () => {
     'a tabela só entra em loading quando não há NENHUM dado para mostrar',
   );
   // E a camada 0 desliga o loading global antes da camada 1 começar.
-  assert.match(src, /aplicarResultado\(fase0, seq\)[\s\S]{0,160}setInitialLoading\(false\)/, 'initialLoading desliga na camada de render');
+  assert.match(src, /aplicarResultado\(aceitar\(fase0\), seq\)[\s\S]*?setInitialLoading\(false\)/, 'initialLoading desliga na camada de render');
   assert.match(src, /const \{ render, proxima, resto \} = separarPorPrioridade/, 'as três camadas são separadas');
 });
 

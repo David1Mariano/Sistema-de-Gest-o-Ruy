@@ -7,10 +7,12 @@ export function usePontoData(date) {
   const [schedules, setSchedules] = useState([]);
   const [records, setRecords] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [error, setError] = useState(false);
 
   const load = useCallback(async () => {
     if (!date) return;
     setLoading(true);
+    setError(false);
     try {
       const [scheds, recs] = await Promise.all([
         base44.entities.Schedule.filter({ date, status: 'ativo' }, 'start_time', 500),
@@ -18,13 +20,13 @@ export function usePontoData(date) {
       ]);
       setSchedules(scheds);
       setRecords(recs);
-    } finally {
+    } catch { setError(true); } finally {
       setLoading(false);
     }
   }, [date]);
 
   useEffect(() => { load(); }, [load]);
-  return { schedules, records, loading, reload: load };
+  return { schedules, records, loading, error, reload: load };
 }
 
 // Constrói linhas do dia mesclando escala + registro

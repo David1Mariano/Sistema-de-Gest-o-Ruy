@@ -3,13 +3,12 @@ import { base44 } from '@/api/base44Client';
 import { FONTE_FINANCEIRO } from '@/lib/financeiroLoad';
 import { prefetch } from '@/lib/financeiroPrefetch';
 
-// O que se busca antecipadamente: o mínimo para a aba Gastos abrir com a
-// lista na tela. Só as duas. Nunca as 15 — prefetch pesado seria trocar um
-// atraso por outro.
-const ALVOS = ['expenses', 'categories'];
+// No startup, antecipar somente categorias. FinancialExpense pode carregar
+// anexos grandes e deve ser consultada apenas ao entrar no Financeiro.
+const ALVOS = ['categories'];
 
-const ORDEM = { FinancialExpense: '-date', ExpenseCategory: 'name' };
-const LIMITE = { FinancialExpense: 1000, ExpenseCategory: 300 };
+const ORDEM = { ExpenseCategory: 'name' };
+const LIMITE = { ExpenseCategory: 300 };
 
 /**
  * Um único gatilho de prefetch, disparado uma vez por sessão do navegador.

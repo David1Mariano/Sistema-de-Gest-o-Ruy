@@ -1,0 +1,148 @@
+{
+  "generatedAt": "2026-10-15T21:01:06.307Z",
+  "purpose": "RUY_WINDOWS_SYNTHETIC_DEVELOPMENT",
+  "branch": "preparacao/windows-oficial-20261015",
+  "commit": "9d7e59ea59239f1ab25c0abbc346420d83e3783d",
+  "officialSourceChanges": [],
+  "production": {
+    "release": "20261015T155237724Z-d597121d",
+    "manifestHash": "a82921aa86895848c34dadd9d22d0ad0c329e295a81b5d9b28e3822fd3846ddc",
+    "verifiedFiles": 77,
+    "unchanged": true
+  },
+  "health": {
+    "production": {
+      "status": 200,
+      "service": "gestao-ruy-production",
+      "release": "20261015T155237724Z-d597121d"
+    },
+    "D1": {
+      "status": 200,
+      "service": "ruy-d1-lab",
+      "mode": "synthetic-only",
+      "syncEnabled": false
+    },
+    "C1": {
+      "status": 200,
+      "service": "ruy-etapa-b-lab",
+      "mode": "synthetic-only",
+      "syncEnabled": false
+    },
+    "C2": {
+      "status": 200,
+      "service": "ruy-c2-sync-lab",
+      "mode": "central",
+      "syntheticOnly": true
+    }
+  },
+  "installer": {
+    "file": "artifacts/windows-lab/Sistema-Gestao-Ruy-Lab-0.1.0-Setup.exe",
+    "bytes": 111784448,
+    "sha256": "5b4bd4e8d4b77a4c435034e691113c0c637212273fcd1622f15596ee88bc25e1",
+    "asarSHA256": "68d8767ec12676deee197d4792d6770d532c82c764d877e6e761c1acb6ae29d7",
+    "installedAsarMatches": true,
+    "signed": false
+  },
+  "desktopOwnedAPI": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "apiOwned": true,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18087"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: alterações pendentes",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true
+  },
+  "desktopInstalled": {
+    "purpose": "RUY_DESKTOP_SYNTHETIC_ONLY",
+    "packaged": true,
+    "apiOwned": false,
+    "renderer": {
+      "title": "Ruy — D1 isolado",
+      "hasLogin": true,
+      "nodeExposed": false,
+      "location": "http://127.0.0.1:18087"
+    },
+    "authenticated": true,
+    "cloudIndicator": "Nuvem: alterações pendentes",
+    "originalEmployeesPage": true,
+    "originalSettingsPage": true
+  },
+  "installationPreservation": {
+    "purpose": "RUY_WINDOWS_INSTALLATION_LAB",
+    "uninstallExit": 0,
+    "reinstallExit": 0,
+    "dataPreserved": true,
+    "deviceId": "b30ba24b-fda7-4f44-a16c-0cc47c8a668b",
+    "syntheticRecords": "138",
+    "pending": "240",
+    "productionAltered": false
+  },
+  "tests": {
+    "official": {
+      "passed": true,
+      "log": "logs/official-tests.log"
+    },
+    "d1API": {
+      "passed": true,
+      "log": "logs/test-api.mjs.final.log"
+    },
+    "d1Rename": {
+      "passed": true,
+      "log": "logs/test-sector-rename.mjs.delivery.log"
+    },
+    "d1Edit": {
+      "passed": true,
+      "log": "logs/test-sector-edit.mjs.final.log"
+    },
+    "feedback": {
+      "passed": true,
+      "log": "logs/test-save-feedback.mjs.final.log"
+    },
+    "windowsBackup": {
+      "passed": true,
+      "log": "logs/test-windows-cycle.mjs.final.log"
+    },
+    "catalog": {
+      "passed": true,
+      "log": "logs/test-catalog.mjs.delivery.log"
+    },
+    "critical": {
+      "passed": true,
+      "log": "logs/test-critical-engine.mjs.final.log"
+    },
+    "clientRecovery": {
+      "passed": true,
+      "log": "logs/test-client-recovery.mjs.delivery.log"
+    },
+    "buildAliases": {
+      "passed": true,
+      "log": "logs/test-build-aliases.mjs.delivery.log"
+    },
+    "syncC2": {
+      "passed": true,
+      "log": "logs/c2-cycle.log"
+    }
+  },
+  "typecheck": {
+    "passed": false,
+    "diagnostics": 1442,
+    "log": "logs/official-typecheck.log"
+  },
+  "limits": {
+    "visualParity": "pending; hidden-window frames were stale",
+    "windowsClean": "not-tested",
+    "physicalOffline": "not-tested; process-level network guard used",
+    "twoPhysicalComputers": "not-tested",
+    "operationalSyncEnabled": false,
+    "D1ConnectedToC2": false,
+    "privateAttachmentSync": "not-implemented",
+    "externalBackupProtected": false,
+    "crossMachineKeyRecovery": "not-implemented"
+  }
+}

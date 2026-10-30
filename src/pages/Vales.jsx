@@ -10,6 +10,7 @@ export default function Vales() {
   const [vales, setVales] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   const [period, setPeriod] = useState('mes');
@@ -18,14 +19,14 @@ export default function Vales() {
   const [empFilter, setEmpFilter] = useState('');
 
   const load = async () => {
-    setLoading(true);
+    setLoading(true); setLoadError(false);
     try {
       const [val, emps] = await Promise.all([
         base44.entities.Vale.list('-date', 500),
         base44.entities.Employee.list('-created_date', 500),
       ]);
       setVales(val); setEmployees(emps);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -40,16 +41,18 @@ export default function Vales() {
     return true;
   }), [vales, range, statusFilter, empFilter, sectorFilter, employees]);
 
-  const totalGeral = filtered.reduce((s, v) => s + (v.amount || 0), 0);
-  const totalPendente = filtered.filter((v) => v.status === 'pendente').reduce((s, v) => s + (v.amount || 0), 0);
+  const totalGeral = filtered.reduce((s, v) => s + Number(v.amount || 0), 0);
+  const totalPendente = filtered.filter((v) => v.status === 'pendente').reduce((s, v) => s + Number(v.amount || 0), 0);
   const porColaborador = useMemo(() => {
     const map = {};
-    filtered.forEach((v) => { map[v.employee_name] = (map[v.employee_name] || 0) + (v.amount || 0); });
+    filtered.forEach((v) => { map[v.employee_name] = (map[v.employee_name] || 0) + Number(v.amount || 0); });
     return Object.entries(map).sort((a, b) => b[1] - a[1]);
   }, [filtered]);
 
   const selectCls = 'h-9 rounded-md border border-input bg-background px-3 text-sm';
 
+  if (loading) return <div>Carregando indicadores...</div>;
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   return (
     <div className="space-y-5">
       <div className="flex items-center justify-between gap-3">

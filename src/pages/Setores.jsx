@@ -24,6 +24,7 @@ export default function Setores() {
   const [sectors, setSectors] = useState([]);
   const [employees, setEmployees] = useState([]);
   const [loading, setLoading] = useState(true);
+  const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
   // Setor aberto na visão detalhada. Guarda o ID, não o objeto: se o setor for
@@ -34,13 +35,14 @@ export default function Setores() {
 
   const load = async () => {
     setLoading(true);
+    setLoadError(false);
     try {
       const [secs, emps] = await Promise.all([
         base44.entities.Sector.list('-created_date', 200),
         base44.entities.Employee.list('-created_date', 500),
       ]);
       setSectors(secs); setEmployees(emps);
-    } finally { setLoading(false); }
+    } catch { setLoadError(true); } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
 
@@ -76,6 +78,7 @@ export default function Setores() {
     load();
   };
 
+  if (loadError) return <div role="alert">Indicadores indisponíveis. <button onClick={load}>Tentar novamente</button></div>;
   if (selected) {
     return (
       <div className="space-y-5">

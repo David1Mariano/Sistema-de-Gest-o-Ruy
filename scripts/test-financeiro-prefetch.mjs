@@ -2,7 +2,7 @@
 //
 // O que precisa ser verdade:
 //  - o prefetch começa ANTES de a aba abrir;
-//  - ele busca só o mínimo (expenses + categories), nunca as 15;
+//  - o hook de startup busca só categories; o cache também atende expenses na tela;
 //  - abrir a aba durante o prefetch NÃO dispara uma segunda consulta;
 //  - quem chega primeiro desenha: expenses antes de categories;
 //  - a lista existente nunca é limpa;
@@ -199,8 +199,37 @@ test('F11 — um único gatilho, no ponto central do app', async () => {
   const usos = (app.match(/usePrefetchFinanceiro\(\)/g) || []).length;
   assert.equal(usos, 1, 'o prefetch é disparado em UM lugar só, não espalhado');
   assert.match(hook, /requestIdleCallback/, 'e roda no tempo ocioso, sem roubar o primeiro render');
-  assert.match(hook, /ALVOS = \['expenses', 'categories'\]/, 'busca só o mínimo da aba Gastos');
+  assert.match(hook, /ALVOS = \['categories'\]/, 'startup antecipa somente categorias; gastos ficam para a tela Financeiro');
   assert.equal(/FONTE_FINANCEIRO\.length|Todas as 15/.test(hook), false, 'não há prefetch das 15');
+});
+
+test('startup executa somente leitura leve de categorias, sem consultar FinancialExpense', async () => {
+  const source = await readFile(new URL('../src/lib/usePrefetchFinanceiro.js', import.meta.url), 'utf8');
+  let idle;
+  let cleanup;
+  let cancelled;
+  const calls = [];
+  const makeHook = new Function('useEffect', 'useRef', 'base44', 'FONTE_FINANCEIRO', 'prefetch',
+    'requestIdleCallback', 'cancelIdleCallback',
+    source.replace(/^import .*;\r?\n/gm, '').replace('export function', 'function') + '\nreturn usePrefetchFinanceiro;');
+  const hook = makeHook(
+    effect => { cleanup = effect(); },
+    value => ({ current: value }),
+    { entities: {
+      FinancialExpense: { list: () => { throw Error('FinancialExpense não pode ser consultada no startup'); } },
+      ExpenseCategory: { list: async (...args) => { calls.push(args); return []; } },
+    } },
+    [{ alias: 'expenses', entity: 'FinancialExpense' }, { alias: 'categories', entity: 'ExpenseCategory' }],
+    async (aliases, fetchOne) => { await Promise.all(aliases.map(fetchOne)); },
+    callback => { idle = callback; return 42; },
+    id => { cancelled = id; },
+  );
+  hook();
+  assert.deepEqual(calls, [], 'não compete com o mount da Home');
+  await idle();
+  assert.deepEqual(calls, [['name', 300]]);
+  cleanup();
+  assert.equal(cancelled, 42);
 });
 
 test('F12 — as marcas de DEV existem e não vazam para produção', async () => {

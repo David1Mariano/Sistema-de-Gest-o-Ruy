@@ -1,4 +1,4 @@
-import { useState } from 'react';
+import { Suspense, useState } from 'react';
 import { Outlet, useLocation } from 'react-router-dom';
 import Sidebar from '@/components/Sidebar';
 import Topbar from '@/components/Topbar';
@@ -19,7 +19,9 @@ export default function Layout() {
 
         <main className="flex-1 overflow-x-hidden">
           <div className="w-full max-w-[1600px] mx-auto p-3 sm:p-4 lg:p-6 xl:p-8">
-            <Outlet />
+            <Suspense fallback={<div role="status" className="py-8 text-center text-muted-foreground">Carregando...</div>}>
+              <Outlet />
+            </Suspense>
           </div>
         </main>
       </div>
