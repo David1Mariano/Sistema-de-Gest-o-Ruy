@@ -11,7 +11,7 @@ import { logAudit } from '@/lib/pontoUtils';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { employeesUsingRole, roleDeleteBlocker, roleDeletePatch } from '@/lib/roleUtils';
 
-export default function Funcoes() {
+export default function Funcoes({ readOnly = false }) {
   const [roles, setRoles] = useState([]);
   const [sectors, setSectors] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -71,6 +71,7 @@ export default function Funcoes() {
   const abrirExclusao = (r) => { setRemoveError(''); setRemoving(r); };
   const acaoExcluir = (r) => (
     <button
+      disabled={readOnly}
       type="button"
       onClick={() => abrirExclusao(r)}
       title={`Excluir função ${r.name}`}
@@ -91,7 +92,7 @@ export default function Funcoes() {
           <h1 className="text-2xl font-semibold tracking-tight">Funções</h1>
           <p className="text-sm text-slate-500">Cadastro padronizado de funções por setor</p>
         </div>
-        <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Nova função</Button>
+        <Button disabled={readOnly} onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Nova função</Button>
       </div>
 
       {loading ? <div className="p-6 text-slate-400 text-sm">Carregando...</div> : (
@@ -109,7 +110,7 @@ export default function Funcoes() {
                       </div>
                       <div className="flex items-center gap-1">
                         <span className={`w-2 h-2 rounded-full ${r.status === 'ativo' ? 'bg-emerald-500' : 'bg-slate-300'}`} />
-                        <button type="button" onClick={() => { setEditing(r); setFormOpen(true); }} title={`Editar função ${r.name}`} aria-label={`Editar função ${r.name}`} className="p-1 rounded hover:bg-slate-100 text-slate-500"><Pencil className="w-3.5 h-3.5" /></button>
+                        <button disabled={readOnly} type="button" onClick={() => { setEditing(r); setFormOpen(true); }} title={`Editar função ${r.name}`} aria-label={`Editar função ${r.name}`} className="p-1 rounded hover:bg-slate-100 text-slate-500"><Pencil className="w-3.5 h-3.5" /></button>
                         {acaoExcluir(r)}
                       </div>
                     </div>
@@ -126,7 +127,7 @@ export default function Funcoes() {
                   <div key={r.id} className="flex items-center justify-between border border-slate-100 rounded-lg px-3 py-2">
                     <span className="text-sm text-slate-700">{r.name}</span>
                     <div className="flex items-center gap-1">
-                      <button type="button" onClick={() => { setEditing(r); setFormOpen(true); }} title={`Editar função ${r.name}`} aria-label={`Editar função ${r.name}`} className="p-1 rounded hover:bg-slate-100 text-slate-500"><Pencil className="w-3.5 h-3.5" /></button>
+                      <button disabled={readOnly} type="button" onClick={() => { setEditing(r); setFormOpen(true); }} title={`Editar função ${r.name}`} aria-label={`Editar função ${r.name}`} className="p-1 rounded hover:bg-slate-100 text-slate-500"><Pencil className="w-3.5 h-3.5" /></button>
                       {acaoExcluir(r)}
                     </div>
                   </div>

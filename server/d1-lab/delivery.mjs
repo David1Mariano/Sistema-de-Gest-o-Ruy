@@ -1,11 +1,13 @@
+import {centralOperational,centralContext} from '../central/context.mjs';
 import {installation,validateHome,database} from './environment.mjs';
 import {deliveryCapability} from './capabilities.mjs';
 import {fail} from './core.mjs';
 import {deliveryFields,isDelivery,validateDeliveryPayload,deliveryTotals,validateDeliveryEvolution} from './delivery-contract.mjs';
 export const deliveryEnabled=deliveryCapability;
-export function assertDeliveryLab(){if(!deliveryEnabled())throw fail(403,'Delivery restrito ao laboratório isolado autorizado.');}
+export function assertDeliveryLab(){if(!centralOperational()&&!deliveryEnabled())throw fail(403,'Delivery restrito ao laboratório isolado autorizado.');}
 export async function assertDeliveryDatabase(c){
  assertDeliveryLab();const target=(await c.query("SELECT current_setting('port') AS port,current_database() AS database")).rows[0];
+ if(centralOperational()){const expected=centralContext().target;if(target.port!==String(expected.port)||target.database!==expected.database)throw fail(403,'Central target mismatch.');return;}
  if(installation?.delivery){
   const marker=await validateHome();
   if(target.port!==String(installation.dbPort)||!(target.database===database||/^ruy_d1_rc_[a-f0-9]{16}$/.test(target.database)))throw fail(403,'Delivery installation target mismatch.');
@@ -20,7 +22,7 @@ export async function prepareDelivery(c,actor,body,old){
  if(body.entity!=='DeliveryOrder'){
   if(body.action!=='save')throw fail(409,'Cadastro Delivery usa edição versionada e inativação.');
   const supplied=body.data;if(!supplied||typeof supplied!=='object'||Array.isArray(supplied)||Object.keys(supplied).some(k=>!deliveryFields[body.entity].includes(k)&&!['id','_version','created_date','updated_date'].includes(k)))throw fail(400,'Campos de cadastro Delivery inválidos.');
-  const payload=Object.fromEntries(Object.entries(supplied).filter(([k])=>deliveryFields[body.entity].includes(k)));validateDeliveryPayload(body.entity,payload,{synthetic:!installation?.operationalCandidate});return payload;
+  const payload=Object.fromEntries(Object.entries(supplied).filter(([k])=>deliveryFields[body.entity].includes(k)));validateDeliveryPayload(body.entity,payload,{synthetic:!(installation?.operationalCandidate||centralOperational())});return payload;
  }
  if(!['save','transition','cancel'].includes(body.action))conflict('Pagamento e reembolso Delivery não integrados ao financeiro central.');
  const supplied=body.data||{};
@@ -43,7 +45,7 @@ export async function prepareDelivery(c,actor,body,old){
   next={...payload,status:body.action==='cancel'?'cancelled':supplied.status,cancelReason:body.action==='cancel'?body.reason||'':''};
   if(next.status==='dispatched')await reference(next.driverId,'DeliveryDriver');
  }
- validateDeliveryPayload(body.entity,next,{synthetic:!installation?.operationalCandidate});try{validateDeliveryEvolution(old,next);}catch{conflict('Transição ou edição Delivery inválida.');}return next;
+ validateDeliveryPayload(body.entity,next,{synthetic:!(installation?.operationalCandidate||centralOperational())});try{validateDeliveryEvolution(old,next);}catch{conflict('Transição ou edição Delivery inválida.');}return next;
 }
 export async function validateDeliveryChanges(c,command,records,known){
  if(!command.changes.some(change=>isDelivery(change.entity)))return;

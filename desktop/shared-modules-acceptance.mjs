@@ -1,0 +1,87 @@
+// Synthetic, own-application acceptance. Every command goes through the same
+// local HTTP facade and authenticated central TLS route as the production UI.
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {randomUUID} from 'node:crypto';
+export async function sharedModulesAcceptance({fixture,profileRoot,local,wait,exists,evaluate}){
+ const dir=fixture.coordination,side=fixture.side;
+ const signal=(name,value='yes')=>fs.writeFile(path.join(dir,name),typeof value==='string'?value:JSON.stringify(value));
+ const read=name=>fs.readFile(path.join(dir,name),'utf8').then(JSON.parse);
+ const progress=stage=>fs.writeFile(path.join(profileRoot,'module-progress.json'),JSON.stringify({stage,side}));
+ const list=async entity=>{const r=await local('/domain/'+entity);assert.equal(r.status,200,JSON.stringify(r));return r.body.records;};
+ const find=async(entity,id)=>{let r;await wait(async()=>{r=(await list(entity)).find(r=>r.id===id);return !!r;});return r;};
+ const send=async(body,expected=200)=>{const r=await local('/domain/command',body);assert.equal(r.status,expected,JSON.stringify({entity:body.entity,action:body.action,...r}));return r.body;};
+ const save=(entity,data,id=randomUUID(),baseVersion=null)=>({entity,data,id,baseVersion,operationId:randomUUID(),action:'save'});
+ const go=async route=>{await evaluate(`history.pushState({},'',${JSON.stringify(route)});dispatchEvent(new PopStateEvent('popstate'));`);await wait(()=>evaluate('!!document.querySelector("main h1")'));};
+ const get=async route=>{const r=await local(route);assert.equal(r.status,200,JSON.stringify(r));return r.body;};
+ const actor=(await get('/me')).user.id;
+ if(side==='A'){
+  await progress('attendance-and-payroll-setup');
+  const accounts=(await get('/operations/state')).accounts,current=name=>accounts.find(a=>a.account===name)||{version:0};
+  assert.equal((await local('/operations/command',{operationId:randomUUID(),kind:'journal',entries:[{account:'cash',baseVersion:Number(current('cash').version),cents:50000},{account:'equity',baseVersion:Number(current('equity').version),cents:-50000}]})).status,200);
+  const schedule=save('Schedule',{employee_id:fixture.recordId,date:'2026-10-26',start_time:'08:00',end_time:'17:00',break_start:'12:00',break_end:'13:00',day_type:'trabalho',status:'ativo'});await send(schedule);assert.equal((await send(schedule)).replay,true);
+  const point=save('TimeRecord',{employee_id:fixture.recordId,date:'2026-10-26',entry_time:'08:00',lunch_start:'12:00',lunch_end:'13:00',exit_time:'17:00',worked_minutes:99999});const p=(await send(point)).domainRecord;assert.equal(p.worked_minutes,480);assert.equal(p.responsible_user,actor);
+  const policy=save('PayrollPolicy',{employee_id:fixture.recordId,name:'FICTICIO Regra compartilhada',basis:'daily',basis_cents:10000,divisor_units:1,hourly_cents:0,overtime_bps:0,deduct_absences:false,status:'ativo'});await send(policy);
+  const vale=save('Vale',{employee_id:fixture.recordId,date:'2026-10-26',amount:10,type:'dinheiro',status:'pendente'});await send(vale);
+  const runBody=save('PayrollRun',{employee_id:fixture.recordId,policy_id:policy.id,reference_start:'2026-10-26',reference_end:'2026-10-26',units:1,absence_units:0,overtime_minutes:0,bonus_cents:0,vale_ids:[vale.id],consumption_ids:[],status:'rascunho'});let run=(await send(runBody)).domainRecord;assert.equal(run.calculation.netCents,9000);
+  run=(await send({entity:'PayrollRun',id:run.id,baseVersion:run._version,operationId:randomUUID(),action:'confirm',token:run.calculation.fingerprint,data:{}})).domainRecord;
+  await signal('modules-setup',{schedule:schedule.id,point:point.id,policy:policy.id,vale:vale.id,run:run.id});
+  await wait(()=>exists('modules-payroll-paid'));await progress('verify-payroll');
+  await wait(async()=>(await find('PayrollRun',run.id)).status==='pago');assert.equal((await find('Vale',vale.id)).status,'descontado');
+  run=await find('PayrollRun',run.id);const plan=await get('/settlements/preview/PayrollRun/'+run.id);
+  await send({entity:'PayrollRun',id:run.id,baseVersion:run._version,operationId:randomUUID(),action:'reverse',token:plan.token,reason:'FICTICIO Estorno de folha conferido',data:{}});await wait(async()=>(await find('Vale',vale.id)).status==='pendente');
+  await progress('purchase-and-production-setup');
+  const supplier=randomUUID();assert.equal((await local('/catalog/Supplier/'+supplier,{operation:'create',baseVersion:null,operationId:randomUUID(),data:{name:'FICTICIO Fornecedor dos mÃ³dulos',status:'ativo'}})).status,200);
+  const purchase=save('Purchase',{supplier_id:supplier,date:'2026-10-26',due_date:'2026-11-01',document_number:'FICTICIO-COMPRA-1',discount_cents:0,freight_cents:0,other_cents:0,items:[{id:randomUUID(),inventory_item_id:fixture.stockId,quantity_milli:2000,unit_cents:100}]});const po=(await send(purchase)).domainRecord;
+  const recipe=save('ProductionProduct',{name:'FICTICIO Receita compartilhada',category:'FICTICIO',yield_quantity:1,yield_unit:'un',preparation_time_minutes:1,instructions:'FICTICIO Preparo',status:'ativo',ingredients:[{inventory_item_id:fixture.stockId,quantity:1}]});await send(recipe);
+  const customer=save('DeliveryCustomer',{name:'FICTICIO Cliente compartilhado',status:'ativo'});await send(customer);
+  const menu=save('DeliveryMenuItem',{name:'FICTICIO Venda compartilhada',unitCents:1700,status:'ativo'});await send(menu);
+  const order=save('DeliveryOrder',{date:'2026-10-26',provider:'own',fulfillment:'pickup',customerId:customer.id,driverId:'',items:[{id:randomUUID(),menuItemId:menu.id,quantityMilli:1000}],discountCents:0,deliveryCents:0,platformCents:0,paymentFeeCents:0});await send(order);
+  await signal('modules-aggregates',{purchase:po.id,payable:po.accounts_payable_id,recipe:recipe.id,order:order.id});
+  await wait(()=>exists('modules-purchase-received'));const payable=await find('AccountsPayable',po.accounts_payable_id);
+  await send(save('AccountsPayable',{status:'pago',paid_date:'2026-10-26',payment_method_planned:'dinheiro'},payable.id,payable._version));
+  await progress('production-original-form');await go('/producao');
+  await wait(()=>evaluate("!![...document.querySelectorAll('[role=tab]')].find(t=>t.textContent.startsWith('Controle'))"));
+  await evaluate("[...document.querySelectorAll('[role=tab]')].find(t=>t.textContent.startsWith('Controle')).dispatchEvent(new MouseEvent('mousedown',{bubbles:true,button:0}))");
+  await wait(()=>evaluate("!![...document.querySelectorAll('main button')].find(b=>b.textContent.trim().startsWith('Registrar')&&!b.disabled)"));
+  await evaluate("[...document.querySelectorAll('main button')].find(b=>b.textContent.trim().startsWith('Registrar')).click()");
+  await wait(()=>evaluate(`!!document.querySelector('[role=dialog] select option[value="${recipe.id}"]')`));
+  await evaluate(`(()=>{const d=document.querySelector('[role=dialog]'),set=(label,value)=>{const l=[...d.querySelectorAll('label')].find(l=>l.textContent.startsWith(label)),e=l.parentElement.querySelector('input,select');Object.getOwnPropertyDescriptor(e.tagName==='SELECT'?HTMLSelectElement.prototype:HTMLInputElement.prototype,'value').set.call(e,value);e.dispatchEvent(new Event(e.tagName==='SELECT'?'change':'input',{bubbles:true}));};set('Produto',${JSON.stringify(recipe.id)});set('Data','2026-10-26');set('Quantidade','2');set('Respons','FICTICIO Operador');})()`);
+  await evaluate("[...document.querySelectorAll('[role=dialog] button')].find(b=>b.textContent==='Salvar').click()");
+  let production;await wait(async()=>{production=(await list('DailyProduction')).find(p=>p.product_id===recipe.id);return !!production;});
+  assert.equal(production.produced_quantity,2);assert.equal(production.local_status,'rascunho');
+  assert.equal((await get('/operations/state')).balances.find(r=>r.item_id===fixture.stockId).quantity_milli,7000);
+  await signal('modules-production',{id:production.id});
+  await wait(()=>exists('modules-production-confirmed'));await wait(async()=>(await find('DailyProduction',production.id)).local_status==='confirmado');
+  await wait(()=>exists('modules-delivery-refunded'));await wait(async()=>(await find('DeliveryOrder',order.id)).financialStatus==='refunded');
+  const reconciliation=await get('/settlements/reconciliation');assert.equal(reconciliation.consistent,true);assert.equal(reconciliation.records.length,2);
+  const insufficient=save('Purchase',{supplier_id:supplier,date:'2026-10-26',due_date:'2026-11-01',document_number:'FICTICIO-SEM-SALDO',discount_cents:0,freight_cents:0,other_cents:0,items:[{id:randomUUID(),inventory_item_id:fixture.stockId,quantity_milli:1000,unit_cents:1000000}]});const rejectedPurchase=(await send(insufficient)).domainRecord;
+  const unpaid=await find('AccountsPayable',rejectedPurchase.accounts_payable_id),attempt=save('AccountsPayable',{status:'pago',paid_date:'2026-10-26',payment_method_planned:'dinheiro'},unpaid.id,unpaid._version);
+  const before=(await get('/operations/state')).accounts;await send(attempt,409);assert.deepEqual((await get('/operations/state')).accounts,before);assert.equal((await find('AccountsPayable',unpaid.id)).status,'pendente');await signal('modules-rollback',{operationId:attempt.operationId,payable:unpaid.id});
+  await progress('administration-ui');await go('/acessos');await wait(()=>evaluate("document.querySelector('main h1')?.textContent==='Acessos individuais'"));await wait(()=>evaluate("[...document.querySelectorAll('form')].some(f=>f.textContent.includes('electron-1@example.invalid'))"));
+  const grant=async(active,role)=>{await evaluate(`(()=>{const f=[...document.querySelectorAll('form')].find(f=>f.textContent.includes('electron-1@example.invalid'));f.querySelector('select[name=role]').value=${JSON.stringify(role)};f.querySelector('input[name=active]').checked=${active};f.requestSubmit();})()`);await wait(async()=>{const u=(await get('/account/users')).users.find(u=>u.login==='electron-1@example.invalid');return u?.role===role&&u.active===active;});};
+  await grant(false,'viewer');await signal('modules-user-revoked');await wait(()=>exists('modules-revocation-observed'));
+  await grant(true,'admin');await signal('modules-user-restored');await wait(()=>exists('modules-user-relogged'));
+  await progress('finished');return {attendance:true,payroll:true,payrollDeductions:true,payrollReversal:true,purchasing:true,production:true,productionThroughOriginalForm:true,stockUnchangedBeforeConfirmation:true,delivery:true,administrationThroughUi:true,reconciliation:true,insufficientFundsRollback:true};
+ }
+ await progress('observe-attendance');await wait(()=>exists('modules-setup'));const setup=await read('modules-setup');const schedule=await find('Schedule',setup.schedule);await go('/escalas');await wait(()=>evaluate("document.querySelector('main h1')?.textContent.includes('Escalas')"));
+ await send(save('Schedule',{observation:'FICTICIO Editado pelo cliente B'},schedule.id,schedule._version));await send(save('TimeRecord',{employee_id:fixture.recordId,date:'2026-10-26',entry_time:'08:00'}),409);
+ await wait(async()=>(await find('PayrollRun',setup.run)).status==='fechado');let run=await find('PayrollRun',setup.run);assert.equal(run.status,'fechado');await go('/folha');await wait(()=>evaluate("document.querySelector('main h1')?.textContent.includes('Folha')"));
+ const reopen={entity:'PayrollRun',id:run.id,baseVersion:run._version,operationId:randomUUID(),action:'reopen',token:run.calculation.fingerprint,reason:'FICTICIO RevisÃ£o da folha pelo cliente B',data:{}};run=(await send(reopen)).domainRecord;assert.equal(run.status,'rascunho');
+ run=(await send({entity:'PayrollRun',id:run.id,baseVersion:run._version,operationId:randomUUID(),action:'confirm',token:run.calculation.fingerprint,data:{}})).domainRecord;
+ const plan=await get('/settlements/preview/PayrollRun/'+run.id),payment={entity:'PayrollRun',id:run.id,baseVersion:run._version,operationId:randomUUID(),action:'pay',token:plan.token,data:{account:'cash',payment_date:'2026-10-26',payment_method:'dinheiro'}};
+ await send(payment);assert.equal((await send(payment)).replay,true);await send({...payment,operationId:randomUUID()},409);await signal('modules-payroll-paid');
+ await wait(()=>exists('modules-aggregates'));const aggregates=await read('modules-aggregates');await progress('receive-purchase');let purchase=await find('Purchase',aggregates.purchase);const preview=await get('/domain/preview/'+purchase.id),receive={entity:'Purchase',id:purchase.id,baseVersion:purchase._version,operationId:randomUUID(),action:'confirm',token:preview.token,data:{}};
+ await send(receive);assert.equal((await send(receive)).replay,true);assert.equal((await get('/operations/state')).balances.find(r=>r.item_id===fixture.stockId).quantity_milli,7000);await signal('modules-purchase-received');
+ await progress('delivery-settlement');let order=await find('DeliveryOrder',aggregates.order);for(const status of ['confirmed','preparing','ready','concluded'])order=(await send({entity:'DeliveryOrder',id:order.id,baseVersion:order._version,operationId:randomUUID(),action:'transition',data:{status}})).domainRecord;
+ let conference=await get('/settlements/preview/DeliveryOrder/'+order.id);order=(await send({entity:'DeliveryOrder',id:order.id,baseVersion:order._version,operationId:randomUUID(),action:'pay',token:conference.token,data:{account:'cash',payment_date:'2026-10-26',payment_method:'dinheiro'}})).domainRecord;
+ conference=await get('/settlements/preview/DeliveryOrder/'+order.id);await send({entity:'DeliveryOrder',id:order.id,baseVersion:order._version,operationId:randomUUID(),action:'reverse',token:conference.token,reason:'FICTICIO Estorno Delivery pelo cliente B',data:{}});await signal('modules-delivery-refunded');
+ await wait(()=>exists('modules-production'));await progress('confirm-production');const production=await find('DailyProduction',(await read('modules-production')).id);const consumption=await get('/domain/preview/'+production.id),confirm={entity:'DailyProduction',id:production.id,baseVersion:production._version,operationId:randomUUID(),action:'confirm',token:consumption.token,data:{}};
+ await send(confirm);assert.equal((await send(confirm)).replay,true);await send({...confirm,operationId:randomUUID()},409);assert.equal((await get('/operations/state')).balances.find(r=>r.item_id===fixture.stockId).quantity_milli,5000);await signal('modules-production-confirmed');await signal('modules-production-command',confirm);
+ await wait(()=>exists('modules-user-revoked'));await progress('verify-revocation');await wait(()=>evaluate("!!document.querySelector('input[name=password]')"));await signal('modules-revocation-observed');await wait(()=>exists('modules-user-restored'));
+ await evaluate(`(()=>{document.querySelector('input[name=email]').value=${JSON.stringify(fixture.email)};document.querySelector('input[name=password]').value=${JSON.stringify(fixture.password)};document.querySelector('form').requestSubmit();})()`);
+ await wait(()=>evaluate("!!document.querySelector('aside')"));assert.equal((await get('/me')).user.role,'admin');assert.equal((await find('PayrollRun',setup.run)).status,'estornado');await signal('modules-user-relogged');await progress('finished');
+ return {attendance:true,payroll:true,payrollReopen:true,purchasing:true,delivery:true,production:true,revocationImmediatelyEnforced:true,reloginAfterExplicitGrant:true};
+}
+

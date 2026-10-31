@@ -18,21 +18,24 @@ export function PayableAttachment({ record, field, label = 'Abrir' }) {
 // Upload continua usando o fluxo existente; só valida o formato e adapta o preview.
 export function PayableAttachmentUpload({ label, record, field, busy, refEl, onFile }) {
   const [error, setError] = useState('');
+  const [status,setStatus]=useState('');
   const upload = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = '';
     if (!file) return;
     setError('');
+    setStatus('');
     try {
       await validatePayableAttachmentFile(file);
-      await onFile(file);
-    } catch {
-      const message = 'Não foi possível anexar o arquivo. Use JPG, JPEG, PNG, WEBP ou PDF válido e tente novamente.';
-      console.error(PAYABLE_ATTACHMENT_DIAG, 'ERRO', { status: null, code: 'UPLOAD_FAILED', message });
+      const result=await onFile(file);
+      setStatus(result?.confirmed?'Arquivo confirmado e vinculado na central.':result?.pending?'Arquivo selecionado. Será enviado após salvar o cadastro; ainda não está anexado.':'Arquivo selecionado.');
+    } catch (failure) {
+      const message = failure.message || 'Não foi possível validar o arquivo.';
+      console.error(PAYABLE_ATTACHMENT_DIAG, 'ERRO', { status: failure.status||null, code: 'UPLOAD_FAILED', message });
       setError(message);
     }
   };
-  return <div className="space-y-1">
+  return <div className="space-y-1" data-attachment-field={field}>
     <Label className="text-xs">{label}</Label>
     <input ref={refEl} type="file" className="hidden" accept={PAYABLE_ATTACHMENT_ACCEPT} onChange={upload} />
     <div className="flex items-center gap-2">
@@ -42,5 +45,6 @@ export function PayableAttachmentUpload({ label, record, field, busy, refEl, onF
       <PayableAttachment record={record} field={field} label={label === 'Comprovante' ? 'Ver comprovante' : 'Ver documento'} />
     </div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {status&&<p role="status" className="text-xs">{status}</p>}
   </div>;
 }

@@ -8,23 +8,24 @@ import {referencesEmployee} from '../d1-lab/employee-delete.mjs';
 import {projectEmployee} from '../d1-lab/catalog-contract.mjs';
 async function authorize(c,token,{write=true}={}){
  const p=(await c.query('SELECT * FROM d1_principals WHERE token_hash=$1',[digest(token||'')])).rows[0];
- if(!p?.active||(write?p.role!=='admin':!['admin','viewer'].includes(p.role)))throw fail(403,'Ponte D1 exige perfil autorizado.');
+ if(!p?.active||(write?p.role!=='admin':!['admin','writer','viewer'].includes(p.role)))throw fail(403,'Ponte D1 exige perfil autorizado.');
  return p;
 }
-export async function acceptD1(pool,token,command,{business=false,authorizeSession=null}={}){
+export async function acceptD1(pool,token,command,{business=false,authorizeSession=null,sourceRequestHash=null}={}){
  validateEnvelope(command);
  return transaction(pool,async c=>{
   const p=await authorize(c,token);
-  if(authorizeSession)await authorizeSession(c);
   if(command.deviceId!==p.device_id||command.actorId!==p.actor_id||command.workspaceId!==p.workspace_id)throw fail(403,'Identidade D1 recusada.');
   await c.query('SELECT cursor FROM d1_central_clock WHERE singleton FOR UPDATE');
+  if(authorizeSession)await authorizeSession(c);
   const hash=syncHash(command),prior=(await c.query('SELECT * FROM d1_central_receipts WHERE operation_id=$1',[command.operationId])).rows[0];
-  if(prior){if(prior.payload_hash!==hash||prior.device_id!==p.device_id||prior.actor_id!==p.actor_id)throw fail(409,'UUID D1 reutilizado.');if(business&&!prior.result.business?.confirmed)throw fail(409,'Legacy receipt requires explicit business reconciliation.');return {...prior.result,replay:true};}
+  if(prior){if((sourceRequestHash?prior.result.sourceRequestHash!==sourceRequestHash:prior.payload_hash!==hash)||prior.device_id!==p.device_id||prior.actor_id!==p.actor_id||prior.workspace_id!==p.workspace_id)throw fail(409,'UUID D1 reutilizado.');if(business&&!prior.result.business?.confirmed)throw fail(409,'Legacy receipt requires explicit business reconciliation.');return {...prior.result,replay:true};}
   const known=(await c.query('SELECT * FROM d1_central_records WHERE workspace_id=$1',[p.workspace_id])).rows;
   const records=new Map(known.map(r=>[r.id,r]));
   for(const change of command.changes){
    const row=records.get(change.id);
    if(row&&(row.entity!==change.entity))throw fail(409,'Entidade remota divergente.');
+   if(row?.data?.payload_json){const protectedSource=JSON.parse(row.data.payload_json);if(protectedSource.settlement_id||protectedSource.payroll_run_id||protectedSource.delivery_order_id)throw fail(409,'Agregado liquidado exige seu comando central de origem.');}
    if(row?.data._deleted==='true')throw fail(409,'Identidade excluída não pode ser reescrita.');
    if(change.baseVersion===null?!!row:!row||Number(row.version)!==change.baseVersion)throw fail(409,'Conflito remoto D1; proposta local preservada.');
    records.set(change.id,{id:change.id,entity:change.entity,data:change.data,version:row?Number(row.version)+1:1});
@@ -57,7 +58,7 @@ export async function acceptD1(pool,token,command,{business=false,authorizeSessi
      const rh=JSON.parse(records.get(item.id).data.payload_json);
      if(rh.employee_id!==payload.employee_id||rh.deduction_payment_id!==change.id||!['descontado','cobrado'].includes(rh.status)||Math.round(rh.amount*100)!==item.amountCents)throw fail(409,'Desconto remoto sem lançamento RH correspondente.');
     }
-    if(change.entity==='FinancialExpense'){reference(payload.linked_payment_id,'EmployeePayment');reference(payload.accounts_payable_id,'AccountsPayable');}
+    if(change.entity==='FinancialExpense'){reference(payload.linked_payment_id,'EmployeePayment');reference(payload.accounts_payable_id,'AccountsPayable');reference(payload.employee_id,'Employee');}
     if(['CardReceivable','DeliverySettlement'].includes(change.entity))reference(payload.accounts_receivable_id,'AccountsReceivable');
     if(change.entity==='AccountsReceivable'&&payload.source_id)reference(payload.source_id,payload.source_type==='cartao'?'CardReceivable':'DeliverySettlement');
     if(change.entity==='AccountsPayable')reference(payload.recurring_expense_id,'RecurringExpense');
@@ -77,6 +78,7 @@ export async function acceptD1(pool,token,command,{business=false,authorizeSessi
   }
   const cursor=Number((await c.query('UPDATE d1_central_clock SET cursor=cursor+1 WHERE singleton RETURNING cursor')).rows[0].cursor);
   const receipt={...(business?{business:{mode:'authoritative-lab',confirmed:true}}:{}),protocol:'D1LAB/1',operationId:command.operationId,deviceId:p.device_id,actorId:p.actor_id,workspaceId:p.workspace_id,payloadHash:hash,cursor,confirmedAt:new Date().toISOString(),changes:changes.map(r=>({entity:r.entity,id:r.id,version:r.version,dataHash:syncHash(r.data)}))};
+  if(sourceRequestHash)receipt.sourceRequestHash=sourceRequestHash;
   await c.query('INSERT INTO d1_central_receipts VALUES($1,$2,$3,$4,$5,$6)',[command.operationId,p.device_id,p.actor_id,p.workspace_id,hash,receipt]);
   await c.query('INSERT INTO d1_central_changes VALUES($1,$2,$3,$4,$5)',[cursor,command.operationId,p.workspace_id,p.device_id,JSON.stringify(changes)]);
   return receipt;
@@ -92,7 +94,7 @@ export async function changesD1(pool,token,cursor,{business=false,readProjection
   const events=(await c.query('SELECT e.*,r.actor_id FROM d1_central_changes e JOIN d1_central_receipts r USING(operation_id) WHERE e.workspace_id=$1 AND e.cursor>$2 ORDER BY e.cursor LIMIT 100',[p.workspace_id,cursor])).rows.map(e=>({...e,cursor:Number(e.cursor)}));
   const hasMore=events.length===100;
   const projection=business&&!hasMore&&p.role==='admin'?await businessSnapshot(c,p.workspace_id,head):null;
-  const visible=p.role==='viewer'?events.flatMap(event=>{const changes=event.changes.filter(r=>['Employee','Sector','JobRole'].includes(r.entity)).map(r=>({...r,data:r.entity==='Employee'?projectEmployee(r.data,'viewer'):r.data}));return changes.length?[{...event,changes}]:[];}):events;
+  const visible=p.role!=='admin'?events.flatMap(event=>{const changes=event.changes.filter(r=>['Employee','Sector','JobRole'].includes(r.entity)).map(r=>({...r,data:r.entity==='Employee'?projectEmployee(r.data,'viewer'):r.data}));return changes.length?[{...event,changes}]:[];}):events;
   await c.query('COMMIT');return {...(projection?{business:projection}:{}),protocol:'D1LAB/1',events:visible,head,cursor:hasMore?events.at(-1).cursor:head,hasMore};
  }catch(e){await c.query('ROLLBACK');throw e;}finally{c.release();}
 }

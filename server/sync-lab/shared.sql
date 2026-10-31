@@ -5,10 +5,15 @@ CREATE TABLE shared_devices(
 );
 CREATE TABLE shared_memberships(
  user_id uuid NOT NULL REFERENCES lab_users, workspace_id uuid NOT NULL,
- role text NOT NULL CHECK(role IN ('admin','viewer')), active boolean NOT NULL DEFAULT true,
+ role text NOT NULL CHECK(role IN ('admin','writer','viewer')), active boolean NOT NULL DEFAULT true,
  PRIMARY KEY(user_id,workspace_id)
 );
 CREATE TABLE shared_sessions(
  token_hash text PRIMARY KEY REFERENCES d1_principals(token_hash) ON UPDATE CASCADE ON DELETE CASCADE,
  expires_at timestamptz NOT NULL
+);
+-- Stable data scope for the existing server-side D1 domain engine. This is not
+-- a login identity; individual callers are recorded separately in every receipt.
+CREATE TABLE shared_execution_scopes(
+ workspace_id uuid PRIMARY KEY,owner_id uuid NOT NULL UNIQUE REFERENCES lab_users
 );

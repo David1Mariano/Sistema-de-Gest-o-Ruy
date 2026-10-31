@@ -5,6 +5,7 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
  const emit=()=>globalThis.dispatchEvent(new Event('d1-changed'));
  const clean=(entity,data)=>Object.fromEntries(Object.entries(data).filter(([key])=>domainFields[entity]?.includes(key)));
  async function command(entity,id,data,action='save',extra={}){
+  if(getSession()?.consultationOnly||getSession()?.operationalHistoryPreview)return signal(Error('Consulta somente leitura: alterações ainda não foram liberadas.'));
   const user=getSession()?.user;
   if(user?.role!=='admin')return signal(Error('Domínio exige administrador local.'));
   if(readOnlyDomains.includes(entity))return signal(Error('Esta escrita ainda aguarda integração atômica e homologação.'));
@@ -38,7 +39,8 @@ export function createDomainAdapter({request,getSession,signal,committed=()=>{}}
  const entityClient=entity;
  return {entity,clear:()=>cache.clear(),command,
   canWrite:()=>!getSession()?.operationalHistoryPreview&&getSession()?.user.role==='admin',
-  canEditRh:record=>!getSession()?.operationalHistoryPreview&&getSession()?.user.role==='admin'&&(!record?.source_device_id||record.source_device_id===getSession()?.deviceId),
+  financialOpeningPending:()=>getSession()?.sharedMode===true&&getSession()?.operationalRestrictions?.financialOpeningPending===true,
+  canEditRh:record=>!record?._readOnly&&!getSession()?.operationalHistoryPreview&&getSession()?.user.role==='admin'&&(getSession()?.sharedMode||!record?.source_device_id||record.source_device_id===getSession()?.deviceId),
   rhHistory:(entity,id)=>request('/domain/history/'+entity+'/'+id),
   recipe:(product,ingredients)=>command('ProductionProduct',product.id||null,{...product,ingredients:ingredients.map(line=>({...line,quantity:Number(line.quantity)}))}),
   preview:id=>request('/domain/preview/'+id),

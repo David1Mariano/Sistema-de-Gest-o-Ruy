@@ -1,3 +1,4 @@
+import {centralOperational} from '../central/context.mjs';
 import {installation} from './environment.mjs';
 import {prepareSettlement} from './settlements.mjs';
 import {assertActiveIntent} from './core.mjs';
@@ -30,7 +31,7 @@ function validate(entity,data){
   if(typeof value==='number'&&money(key)&&value<0&&!['difference','machine_system_difference','expected_balance','expected_cash'].includes(key))throw fail(400,'Valor monetário negativo não permitido neste campo.');
   if((key==='date'||key.endsWith('_date'))&&value&&!date(value))throw fail(400,'Data inválida.');
  }
- if(entity==='ProductionProduct'&&(!data.name?.trim()||!installation?.operationalCandidate&&!data.name?.startsWith('FICTICIO ')||!positive(data.yield_quantity)||!data.yield_unit||!['ativo','inativo'].includes(data.status)))throw fail(400,'Ficha sintética, rendimento, unidade e status obrigatórios.');
+ if(entity==='ProductionProduct'&&(!data.name?.trim()||!(installation?.operationalCandidate||centralOperational())&&!data.name?.startsWith('FICTICIO ')||!positive(data.yield_quantity)||!data.yield_unit||!['ativo','inativo'].includes(data.status)))throw fail(400,'Ficha sintética, rendimento, unidade e status obrigatórios.');
  if(['ProductionOrder','DailyProduction'].includes(entity)&&(!date(data.date)||!uuid(data.product_id)))throw fail(400,'Data e produto obrigatórios.');
  if(entity==='ProductionOrder'&&(!positive(data.planned_quantity)||!['planejada','em_producao','concluida','cancelada'].includes(data.status)))throw fail(400,'Ordem inválida.');
  if(isRh(entity)&&(!positive(data.amount)||!date(data.date)))throw fail(400,'Data válida e valor positivo em centavos obrigatórios.');
@@ -44,7 +45,7 @@ function validate(entity,data){
  if(entity==='FinancialExpense'&&(!data.description?.trim()||!date(data.date)||!['pago','pendente','cancelado'].includes(data.status)))throw fail(400,'Descrição, data e situação do gasto obrigatórias.');
  if(entity==='Revenue'&&(!date(data.date)||!positive(data.gross_amount)||typeof data.fee_amount!=='number'||data.fee_amount<0||data.fee_amount>data.gross_amount||Math.round((data.gross_amount-data.fee_amount)*100)!==Math.round(data.net_amount*100)||!['recebido','pendente','cancelado'].includes(data.status)))throw fail(400,'Receita/valor líquido inválido.');
  if(entity==='AccountsPayable'&&(!data.description?.trim()||!date(data.due_date)||!['pendente','pago','cancelado'].includes(data.status)))throw fail(400,'Conta a pagar inválida.');
- if(entity==='FinancialAccount'&&(!data.name?.trim()||!installation?.operationalCandidate&&!data.name?.startsWith('FICTICIO ')||data.initial_balance!==0||data.current_balance!==0))throw fail(400,'Conta sintética com saldos informativos zero obrigatória; use o razão para movimentação.');
+ if(entity==='FinancialAccount'&&(!data.name?.trim()||!(installation?.operationalCandidate||centralOperational())&&!data.name?.startsWith('FICTICIO ')||data.initial_balance!==0||data.current_balance!==0))throw fail(400,'Conta sintética com saldos informativos zero obrigatória; use o razão para movimentação.');
  if(entity==='Sangria'&&(!date(data.date)||!data.responsible?.trim()||!data.purpose?.trim()||!['ativo','cancelado'].includes(data.status)))throw fail(400,'Sangria inválida.');
  if(['CashMovement','FechamentoCaixa'].includes(entity)&&(!date(data.date)||!data.operator_name?.trim()))throw fail(400,'Data e operador obrigatórios.');
 }
@@ -102,8 +103,9 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
   await c.query('SELECT pg_advisory_xact_lock(hashtextextended($1,0))',[user.id]);
   const actor=(await c.query('SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE',[user.id])).rows[0];
   if(actor?.role!=='admin')throw fail(403,'Administrador sintético obrigatório.');
+  actor.auditId=user.auditId||actor.id;
   const hash=syncHash(body),prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[body.operationId])).rows[0];
-  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado com outra intenção.');return {...prior.result,replay:true};}
+  if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.auditId||prior.payload_hash!==hash)throw fail(409,'UUID reutilizado com outra intenção.');return {...prior.result,replay:true};}
   const current=(await c.query('SELECT * FROM d2_catalog WHERE id=$1 FOR UPDATE',[body.id])).rows[0];
   if(current&&(current.owner_id!==actor.id||current.entity!==body.entity))throw fail(403,'Documento fora do escopo.');
   if(current?Number(current.version)!==body.baseVersion:body.baseVersion!==null)throw fail(409,'Documento alterado; recarregue.');
@@ -269,7 +271,7 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
     results.push({employee_id:employee.id,payment_id:paymentId,expense_id:expenseId});
    }
    const obs='Lote de '+results.length+' pagamento(s).';
-   data={date:new Date().toISOString().slice(0,10),status:'processado',observation:obs,responsible_user:actor.id};
+   data={date:new Date().toISOString().slice(0,10),status:'processado',observation:obs,responsible_user:actor.auditId||actor.id};
    body.id=body.id||crypto.randomUUID();
   }else if(isRh(body.entity)&&body.action==='cancel'){
    if(!old)throw fail(409,'Lançamento RH inexistente.');
@@ -278,13 +280,35 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    if(!old||old.status!=='fechado'||body.token!==old.calculation?.fingerprint||typeof body.reason!=='string'||body.reason.trim().length<8||body.reason.length>300)throw fail(409,'Reabertura exige calculo fechado, conferencia e motivo.');
    const linked=(await rows(c,actor.id,'EmployeePayment')).map(unwrapDomain).some(p=>p.status!=='cancelado'&&p.employee_id===old.employee_id&&(!p.reference_start||!p.reference_end||p.reference_start<=old.reference_end&&old.reference_start<=p.reference_end));
    if(linked)throw fail(409,'Existe pagamento no periodo; reconciliacao necessaria antes de reabrir.');
-   data={...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'rascunho',reopen_reason:body.reason.trim(),reopened_by:actor.id};
+   data={...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'rascunho',reopen_reason:body.reason.trim(),reopened_by:actor.auditId||actor.id};
   }else if(body.entity==='PayrollRun'&&body.action==='confirm'){
    if(!old)throw fail(409,'Cálculo de folha inexistente.');
    data=await preparePayroll({c,actor,body,old,data:Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k)))});
   }else if(isAttendance(body.entity)&&body.action==='cancel'){
    if(!old||body.entity==='TimeRecord')throw fail(409,'Registro exige ajuste auditado.');
    data=await prepareAttendance({c,actor,body,old,data:{...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:body.entity==='Warning'?'cancelada':'cancelado'},save});
+  }else if(body.action==='cancel'){
+    // Cancelamento autorizado de FinancialExpense manual ou de pagamento
+    // colaborador. Contas a pagar (origin_type='conta_pagar') são bloqueadas
+    // aqui: o cancelamento deve vir do agregado de origem (AccountsPayable),
+    // que cancela a despesa em cascata e preserva o vínculo.
+    if(body.entity!=='FinancialExpense')throw fail(409,'Cancelamento deste domínio exige ação específica.');
+    if(!old)throw fail(409,'Gasto inexistente.');
+    if(old.source_device_id!==deviceId)throw fail(409,'Movimento de outro dispositivo exige reconciliação.');
+    const origin=old.origin_type;
+    if(origin==='conta_pagar')throw fail(409,'Despesa de conta a pagar exige cancelamento do agregado de origem.');
+    if(origin==='vale')throw fail(409,'Gasto de Vale exige cancelamento do Vale na tela de Vales.');
+    if(old.accounts_payable_id)throw fail(409,'Despesa vinculada a conta a pagar; cancle a conta a pagar.');
+    // Pagamento vinculado ativo: cancela primeiro para preservar a composição salarial.
+    if(old.linked_payment_id&&old.status!=='cancelado'){
+      const linked=await get(c,actor.id,'EmployeePayment',old.linked_payment_id);
+      if(linked){
+        const d=unwrapDomain(linked);
+        if(d.rh_deductions?.length)throw fail(409,'Pagamento com descontos RH exige agregado de estorno completo.');
+        await save('EmployeePayment',linked.id,{...Object.fromEntries(Object.entries(d).filter(([k])=>!metadata.includes(k))),status:'cancelado',cancellation_id:body.operationId},linked);
+      }
+    }
+    data={...Object.fromEntries(Object.entries(old).filter(([k])=>!metadata.includes(k))),status:'cancelado',cancellation_id:body.operationId};
   }else if(body.action==='reverse'){
    if(!old||!['FinancialExpense','Revenue','AccountsReceivable'].includes(body.entity)||!['pago','recebido'].includes(old.status))throw fail(409,'Settled financial document required.');
    if(old.rh_deductions?.length)throw fail(409,'Linked obligation reversal requires complete linked aggregate; preserve original.');
@@ -316,13 +340,13 @@ export async function domainCommand(pool,user,deviceId,body,hook=async()=>{}){
    }
   }
   const publicRecord=await save(body.entity,body.id,data,current);
-  if(isPurchase(body.entity))await c.query('INSERT INTO d1_purchase_history(owner_id,record_id,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$1,$4,$5,$6)',[actor.id,body.id,body.operationId,publicRecord._version,body.action,publicRecord]);
-  if(isAttendance(body.entity))await c.query('INSERT INTO d1_attendance_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
-  if(isPayroll(body.entity))await c.query('INSERT INTO d1_payroll_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$1,$5,$6,$7)',[actor.id,body.id,body.entity,body.operationId,publicRecord._version,body.action,publicRecord]);
-  await rhHistoryInsert(c,{owner:actor.id,id:body.id,entity:body.entity,operation:body.operationId,actor:actor.id,device:deviceId,version:publicRecord._version,action:body.action,snapshot:publicRecord});
+  if(isPurchase(body.entity))await c.query('INSERT INTO d1_purchase_history(owner_id,record_id,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7)',[actor.id,body.id,body.operationId,actor.auditId,publicRecord._version,body.action,publicRecord]);
+  if(isAttendance(body.entity))await c.query('INSERT INTO d1_attendance_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[actor.id,body.id,body.entity,body.operationId,actor.auditId,publicRecord._version,body.action,publicRecord]);
+  if(isPayroll(body.entity))await c.query('INSERT INTO d1_payroll_history(owner_id,record_id,entity,operation_id,actor_id,record_version,action,snapshot) VALUES($1,$2,$3,$4,$5,$6,$7,$8)',[actor.id,body.id,body.entity,body.operationId,actor.auditId,publicRecord._version,body.action,publicRecord]);
+  await rhHistoryInsert(c,{owner:actor.id,id:body.id,entity:body.entity,operation:body.operationId,actor:actor.auditId,device:deviceId,version:publicRecord._version,action:body.action,snapshot:publicRecord});
   const main=changes.pop(),result={operationId:body.operationId,record:main.record,cascata:changes,domainRecord:publicRecord,replay:false,businessConfirmed:false,externalConfirmed:false};
-  await c.query('INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[body.operationId,deviceId,actor.id,body.entity,body.id,current?'update':'create',current?Number(current.version):null,main.record._version,hash,main.record,result]);
-  await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[actor.id,body.entity+':'+body.action,body.operationId]);
+  await c.query('INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,$4,$5,$6,$7,$8,$9,$10,$11)',[body.operationId,deviceId,actor.auditId,body.entity,body.id,current?'update':'create',current?Number(current.version):null,main.record._version,hash,main.record,result]);
+  await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[actor.auditId,body.entity+':'+body.action,body.operationId]);
   await hook(c);return result;
  });
 }

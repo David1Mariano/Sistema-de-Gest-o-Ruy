@@ -1,0 +1,15 @@
+# PREPARATION ONLY. Replace placeholders only after domain/account approval.
+tunnel: '<APPROVED_TUNNEL_UUID>'
+credentials-file: '<SERVER_ONLY_CREDENTIALS_JSON_ABSOLUTE_PATH>'
+metrics: 127.0.0.1:20241
+ingress:
+  - hostname: '<APPROVED_API_FQDN>'
+    path: '^/(api/local/d1/.*|\.well-known/sistema-ruy\.json)$'
+    service: https://127.0.0.1:18716
+    originRequest:
+      originServerName: '<SERVER_CERTIFICATE_SAN_DNS_NAME>'
+      caPool: '<SERVER_PUBLIC_CA_CERTIFICATE_ABSOLUTE_PATH>'
+      noTLSVerify: false
+      connectTimeout: 10s
+      tlsTimeout: 10s
+  - service: http_status:404

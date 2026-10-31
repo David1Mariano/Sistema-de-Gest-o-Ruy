@@ -11,9 +11,9 @@ export default function RhDetails({entity,form,setForm,editing}){
  },[entity,editing?.id]);
  const deducted=form.status===(entity==='Vale'?'descontado':'cobrado');
  const options=payments.filter(p=>p.employee_id===form.employee_id&&p.status==='pago'&&p.discount_amount>0&&p.source_device_id===getSession()?.deviceId&&!['vale','adiantamento'].includes(p.payment_type));
- return <div className="col-span-2 space-y-2 text-sm">
+ return <div className="space-y-2 text-sm">
   <p className="text-xs text-muted-foreground">{entity==='Vale'?'Vale concedido: lançamento pendente de desconto.':'Consumo lançado: registrado; cobrado indica desconto de folha; liberado indica dispensa de cobrança.'} Este registro não executa pagamento, movimentação de caixa ou estoque.</p>
-  {editing&&!base44.localDomain.canEditRh(editing)&&<p>Documento recebido de outro dispositivo: somente consulta; alterações exigem reconciliação na origem.</p>}
+  {editing&&!base44.localDomain.canEditRh(editing)&&<p>{editing._readOnly?'Registro histórico em consulta: sem descontos ou pagamentos automáticos.':'Documento somente para consulta neste perfil; edição não autorizada.'}</p>}
   {deducted&&<label className="block">Pagamento com desconto já previsto
    <select aria-label="Pagamento do desconto" className="w-full rounded border bg-background p-2" value={form.deduction_payment_id||''} disabled={!!editing?.deduction_payment_id} onChange={e=>{const p=payments.find(p=>p.id===e.target.value);setForm(f=>({...f,deduction_payment_id:p?.id||'',deduction_payment_version:p?._version}));}}>
     <option value="">Selecione a folha do colaborador</option>{options.map(p=><option key={p.id} value={p.id}>{p.payment_date} · desconto R$ {Number(p.discount_amount).toFixed(2)}</option>)}

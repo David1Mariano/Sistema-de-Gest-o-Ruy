@@ -13,7 +13,7 @@ export default function Consumo() {
   const [loadError, setLoadError] = useState(false);
   const [formOpen, setFormOpen] = useState(false);
   const [editing, setEditing] = useState(null);
-  const [period, setPeriod] = useState('mes');
+  const [period, setPeriod] = useState(base44.localDomain.canWrite() ? 'mes' : 'todos');
   const [statusFilter, setStatusFilter] = useState('');
   const [empFilter, setEmpFilter] = useState('');
 
@@ -67,7 +67,7 @@ export default function Consumo() {
 
       <div className="flex flex-wrap items-center gap-2">
         <div className="flex gap-1 bg-slate-100 rounded-lg p-1">
-          {[{ k: 'hoje', l: 'Hoje' }, { k: 'semana', l: 'Semana' }, { k: 'mes', l: 'Mês' }].map((p) => (
+          {[{ k: 'todos', l: 'Todo o histórico' }, { k: 'hoje', l: 'Hoje' }, { k: 'semana', l: 'Semana' }, { k: 'mes', l: 'Mês' }].map((p) => (
             <button key={p.k} onClick={() => setPeriod(p.k)} className={`px-3 py-1.5 rounded-md text-xs font-medium ${period === p.k ? 'bg-white text-slate-900 shadow-sm' : 'text-slate-500'}`}>{p.l}</button>
           ))}
         </div>

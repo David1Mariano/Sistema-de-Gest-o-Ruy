@@ -156,7 +156,7 @@ function inRange(value, start, end) {
   return true;
 }
 
-export const hasExpenseProof = (expense = {}) => Boolean(expense.proof_url || expense.storage_path);
+export const hasExpenseProof = (expense = {}) => Boolean(expense.proof_url || expense.invoice_url || expense.storage_path);
 
 // ---------------------------------------------------------------------------
 // CATEGORIA — a regra única do sistema
@@ -291,7 +291,7 @@ export function dailyExpenseIndicators(rows = [], { reference = new Date() } = {
     monthCount: monthRows.length,
     totalCount: valid.length,
     totalSum: sum(valid),
-    noProofCount: paid.filter((expense) => !expense.proof_url && !expense.storage_path).length,
+    noProofCount: paid.filter((expense) => !hasExpenseProof(expense)).length,
   };
 }
 
@@ -301,7 +301,7 @@ export function emptyExpenseForm(reference = new Date()) {
   return {
     date: today, paid_date: today, description: '', classification: 'despesa_operacional',
     category_id: '', cost_center_id: '', beneficiary_type: 'outro', beneficiary_name: '',
-    employee_id: '', amount: '', payment_method: 'pix', account: '', document_number: '',
+    employee_id: '', amount: '', payment_method: 'pix', account: '', financial_account_id:'', financial_account_name:'', due_date:'', document_number: '',
     proof_url: '', invoice_url: '', status: 'pago', observation: '',
   };
 }
@@ -311,6 +311,8 @@ export function emptyExpenseForm(reference = new Date()) {
 export function expenseToForm(expense = {}, reference = new Date()) {
   const base = emptyExpenseForm(reference);
   const form = { ...base };
+  if(expense._attachmentFields)form._attachmentFields=expense._attachmentFields;
+  if(expense.cost_center_name!==undefined)form.cost_center_name=expense.cost_center_name;
   for (const key of Object.keys(base)) {
     if (expense[key] !== undefined && expense[key] !== null) form[key] = expense[key];
   }
@@ -365,17 +367,19 @@ export function buildExpensePayload(form = {}, { categories = [], centers = [], 
     category_id: form.category_id || '',
     category_name: category?.name || '',
     cost_center_id: form.cost_center_id || '',
-    cost_center_name: center?.name || '',
+    cost_center_name: form.cost_center_name !== undefined ? form.cost_center_name : center?.name || '',
     beneficiary_type: form.beneficiary_type || 'outro',
     beneficiary_id: employee?.id || '',
     beneficiary_name: employee ? employee.name : (form.beneficiary_name || ''),
     amount,
     payment_method: form.payment_method || 'pix',
     account: form.account || '',
+    ...(form.financial_account_id?{financial_account_id:form.financial_account_id,financial_account_name:form.financial_account_name||''}:{}),
+    ...(form.due_date?{due_date:form.due_date}:{}),
     document_number: form.document_number || '',
     proof_url: form.proof_url || '',
     invoice_url: form.invoice_url || '',
-    status: form.status || 'pago',
+    status: form.status || 'pendente',
     observation: form.observation || '',
   };
   if (employee) payload.employee_id = employee.id;
@@ -663,6 +667,7 @@ export const linkedPayment = (expense, payments = []) =>
 // colaborador não impede a edição — o `saveDailyExpense` já mantém o
 // EmployeePayment sincronizado.
 export function expenseEditBlocker(expense = {}, { vales = [] } = {}) {
+  if(expense._readOnly)return 'Registro histórico preservado: somente consulta.';
   if (!expense.id) return 'Gasto não encontrado.';
   const origin = expense.origin_type || 'manual';
   if (PROTECTED_EXPENSE_ORIGINS.has(origin)) {

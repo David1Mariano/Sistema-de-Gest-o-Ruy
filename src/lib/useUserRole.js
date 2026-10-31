@@ -11,7 +11,8 @@ export function useUserRole() {
   const isManager = role === 'manager' || role === 'gerente' || isAdmin;
   // dados sensíveis: CPF, endereço, salário, dados bancários, documentos
   const canViewSensitive = isAdmin;
-  const canManageEmployees = isAdmin || isManager;
-  const canRegisterOccurrences = isAdmin || isManager;
+  const readOnly = user?.consultationOnly === true;
+  const canManageEmployees = !readOnly && (isAdmin || isManager);
+  const canRegisterOccurrences = !readOnly && (isAdmin || isManager);
   return { role, isAdmin, isManager, canViewSensitive, canManageEmployees, canRegisterOccurrences };
 }

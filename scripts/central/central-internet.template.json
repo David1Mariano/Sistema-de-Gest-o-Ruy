@@ -1,0 +1,15 @@
+{
+  "contract":"RUY-CENTRAL/1",
+  "mode":"controlled",
+  "enabled":false,
+  "authentication":"user-session",
+  "exposure":"cloudflare-tunnel",
+  "publicHostname":"<APPROVED_API_FQDN>",
+  "activationApproved":false,
+  "authorizationSha256":null,
+  "pgBin":"C:/Program Files/PostgreSQL/17/bin",
+  "database":{"host":"127.0.0.1","port":55516,"database":"ruy_central_rc1_staging","user":"<RUY_CENTRAL_UNIQUE_ROLE>"},
+  "api":{"host":"127.0.0.1","port":18216},
+  "tls":{"host":"127.0.0.1","port":18716,"serverName":"<SERVER_CERTIFICATE_SAN_DNS_NAME>"},
+  "history":{"database":{"host":"127.0.0.1","port":55516,"database":"<RUY_CENTRAL_HISTORY_UNIQUE_DATABASE>","user":"<READ_ONLY_HISTORY_ROLE>"},"datasetSha256":null,"records":null,"attachments":null,"grants":[]}
+}

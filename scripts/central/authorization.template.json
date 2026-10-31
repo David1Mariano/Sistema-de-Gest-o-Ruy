@@ -1,0 +1,6 @@
+{
+ "productionActivationApproved":false,"installWindowsServiceApproved":false,"initializeEmptyCentralApproved":false,"installClientApproved":false,
+ "server":"PICHAU","service":"SistemaRuyCentralRc1","profile":"central-pichau-rc1-staging","database":"ruy_central_rc1_staging",
+ "tlsAddress":null,"historySha256":null,"approvedBy":null,"expiresAt":null,
+ "note":"Separate explicit owner authorization is required for each action; this template does not grant it."
+}

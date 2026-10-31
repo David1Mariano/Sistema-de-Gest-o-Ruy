@@ -27,9 +27,9 @@ export function expenseAttachmentRecord(record = {}, field = 'proof_url') {
     id: record.id,
     proof_url: field === 'storage_path' ? '' : record[field],
     storage_path: field === 'storage_path' ? record.storage_path : '',
-    file_name: field === 'storage_path' ? record.file_name : undefined,
-    mime_type: field === 'storage_path' ? record.mime_type : undefined,
-    file_size: field === 'storage_path' ? record.file_size : undefined,
+    file_name: record._attachmentFields?.[field]?.filename || (field === 'storage_path' ? record.file_name : undefined),
+    mime_type: record._attachmentFields?.[field]?.mediaType || (field === 'storage_path' ? record.mime_type : undefined),
+    file_size: record._attachmentFields?.[field]?.size || (field === 'storage_path' ? record.file_size : undefined),
   };
 }
 

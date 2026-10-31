@@ -23,10 +23,10 @@ export async function prepareRh({c,actor,deviceId,body,old,data,get,save}){
  if(body.entity==='Vale'){
   if(data.authorized_by!==undefined&&typeof data.authorized_by!=='string')throw fail(400,'Responsável pela autorização deve ser texto.');
   if(!['pendente','descontado','cancelado'].includes(data.status)||!['dinheiro','pix','produto','outros'].includes(data.type))throw fail(400,'Tipo/status do vale inválido.');
-  data.authorized_by=data.authorized_by?.trim()||actor.id;
+  data.authorized_by=data.authorized_by?.trim()||actor.auditId||actor.id;
  }else{
   if(!['registrado','cobrado','liberado','cancelado'].includes(data.status)||typeof data.product!=='string'||!data.product.trim()||typeof data.quantity!=='number'||!Number.isFinite(data.quantity)||data.quantity<=0||data.quantity>1e6||Math.abs(data.quantity*1000-Math.round(data.quantity*1000))>1e-6||!/^([01]\d|2[0-3]):[0-5]\d$/.test(data.time||''))throw fail(400,'Produto, quantidade, horário ou status de consumo inválido.');
-  data.registered_by=actor.id;
+  data.registered_by=actor.auditId||actor.id;
  }
  if(!old&&!['pendente','registrado'].includes(data.status))throw fail(409,'Cadastre primeiro o lançamento pendente/registrado antes de alterar seu status.');
  const duplicateKeys=body.entity==='Vale'?['employee_id','date','amount','type','motive']:['employee_id','date','time','product','quantity','amount'];

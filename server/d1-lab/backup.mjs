@@ -29,7 +29,8 @@ export function decryptArchive(bytes,key){
  decipher.setAAD(magic);decipher.setAuthTag(bytes.subarray(-16));
  const archive=JSON.parse(Buffer.concat([decipher.update(bytes.subarray(20,-16)),decipher.final()]).toString());
  if(!['RUY_D1_SYNTHETIC_BACKUP','RUY_OPERATIONAL_CANDIDATE_BACKUP'].includes(archive.purpose)||archive.version!==1||hash(Buffer.from(archive.dump,'base64'))!==archive.dumpHash)throw Error('Manifesto de backup inválido.');
- if(archive.purpose==='RUY_OPERATIONAL_CANDIDATE_BACKUP'&&(!archive.historyDump||hash(Buffer.from(archive.historyDump,'base64'))!==archive.historyDumpHash))throw Error('Fonte historica do backup invalida.');
+ const reference=archive.contract==='RUY-CENTRAL-BACKUP/1'&&archive.historyReference&&/^central-[0-9]+-[a-f0-9]{8}\.ruybak$/.test(archive.historyReference.file||'')&&/^[a-f0-9]{64}$/.test(archive.historyReference.sha256||'')&&archive.historyReference.datasetSha256===archive.historyManifest?.datasetSha256;
+ if(archive.purpose==='RUY_OPERATIONAL_CANDIDATE_BACKUP'&&(!archive.historyDump||hash(Buffer.from(archive.historyDump,'base64'))!==archive.historyDumpHash)&&!reference)throw Error('Fonte historica do backup invalida.');
  for(const a of archive.attachments){if(!/^[a-zA-Z0-9_-]+\.(?:pdf|png|jpg|webp|txt)$/.test(a.name)||hash(Buffer.from(a.bytes,'base64'))!==a.sha256)throw Error('Anexo inválido.');}
  return archive;
 }

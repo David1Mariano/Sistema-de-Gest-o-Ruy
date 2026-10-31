@@ -1,5 +1,6 @@
 import { filterExpenses, hasExpenseProof } from './dailyExpenses.js';
 import { summarizeByCategory, totalOf } from './expenseCategories.js';
+import {uniqueFinancialDocuments} from '../../server/d1-lab/expense-obligations.mjs';
 
 export const inDashboardPeriod = (value, start, end) => {
   const date = String(value || '').slice(0, 10);
@@ -9,22 +10,24 @@ export const inDashboardPeriod = (value, start, end) => {
 // Preserve the ledger contract: payments and vales have linked expenses.
 // Adding their amounts again would double count those expenses.
 export function buildFinancialDashboard(data, start = '', end = '') {
-  const expenses = filterExpenses(data.expenses || [], { start, end });
+  const currentExpenses=(data.expenses||[]).filter(e=>!e._historical),currentPayables=(data.payables||[]).filter(e=>!e._historical);
+  const expenses = filterExpenses(currentExpenses, { start, end });
+  const obligations=filterExpenses(uniqueFinancialDocuments(currentExpenses,currentPayables),{start,end});
   const payments = (data.payments || []).filter(x => x.status !== 'cancelado'
     && inDashboardPeriod(x.payment_date || x.work_date || x.reference_start, start, end));
   const sumClass = classification => totalOf(expenses.filter(x => x.classification === classification));
   return {
-    expenses, payments,
-    total: totalOf(expenses),
+    expenses, payments, obligations,
+    total: totalOf(obligations),
     paid: totalOf(expenses.filter(x => x.status === 'pago')),
     personnel: sumClass('pagamento_colaborador'),
     advances: sumClass('adiantamento_colaborador'),
     inputs: sumClass('compra_insumo'),
     motoboy: totalOf(payments.filter(x => x.payment_type === 'diaria_motoboy' && x.status === 'pago').map(x => ({ amount: x.net_amount }))),
-    pending: totalOf(expenses.filter(x => x.status === 'pendente')),
+    pending: totalOf(obligations.filter(x => ['pendente','agendado','vencido'].includes(x.status))),
     noProof: expenses.filter(x => x.status === 'pago' && !hasExpenseProof(x)).length,
     periodCount: expenses.length,
-    byCategory: summarizeByCategory(expenses),
+    byCategory: summarizeByCategory(obligations),
   };
 }
 

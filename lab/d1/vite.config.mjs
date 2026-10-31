@@ -6,6 +6,7 @@ import fs from 'node:fs/promises';
 import {guardFinancialBatches} from './financial-guards.mjs';
 const root=fileURLToPath(new URL('../../',import.meta.url));
 export default defineConfig({root,envDir:false,publicDir:path.join(root,'lab/d1/public'),plugins:[{name:'d1-financial-guard',enforce:'pre',transform(code,id){if(id===path.join(root,'src/pages/Financeiro.jsx').replaceAll('\\','/'))return guardFinancialBatches(code);}},{name:'d1-local-fonts',enforce:'pre',async transform(code,id){if(id===path.join(root,'src/index.css').replaceAll('\\','/'))return code.replace(/^@import url\([^\n]+\);/,await fs.readFile(path.join(root,'lab/d1/fonts.css'),'utf8'));}},react()],resolve:{alias:[
+ {find:/^(?:\.\.\/central\/context\.mjs|.*\/server\/central\/context\.mjs)$/,replacement:path.join(root,'lab/d1/central-context-browser.mjs')},
  {find:'@/api/base44Client',replacement:path.join(root,'lab/d1/client.mjs')},
  {find:'@/lib/stockService',replacement:path.join(root,'lab/d1/stock-service.mjs')},
  {find:'@/lib/employeeDelete',replacement:path.join(root,'lab/d1/employee-delete.mjs')},

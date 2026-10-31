@@ -4,7 +4,7 @@ import { formatBR } from '@/lib/timeUtils';
 import { ABSENCE_TYPES, VALE_STATUS, WARNING_CATEGORIES, DOC_CATEGORIES, brl } from '@/lib/rhUtils';
 
 // Linha do tempo automática do colaborador — agrega auditoria + eventos de RH
-export default function EmployeeTimeline({ employeeId }) {
+export default function EmployeeTimeline({ employeeId, unavailableModules = [] }) {
   const [events, setEvents] = useState([]);
   const [loading, setLoading] = useState(true);
 
@@ -17,8 +17,8 @@ export default function EmployeeTimeline({ employeeId }) {
           base44.entities.Absence.filter({ employee_id: employeeId }, '-created_date', 200),
           base44.entities.Vale.filter({ employee_id: employeeId }, '-created_date', 200),
           base44.entities.Warning.filter({ employee_id: employeeId }, '-created_date', 200),
-          base44.entities.Evaluation.filter({ employee_id: employeeId }, '-created_date', 200),
-          base44.entities.EmployeeDocument.filter({ employee_id: employeeId }, '-created_date', 200),
+          unavailableModules.includes('evaluation') ? Promise.resolve([]) : base44.entities.Evaluation.filter({ employee_id: employeeId }, '-created_date', 200),
+          unavailableModules.includes('document') ? Promise.resolve([]) : base44.entities.EmployeeDocument.filter({ employee_id: employeeId }, '-created_date', 200),
         ]);
         const evs = [];
         audit.forEach((a) => evs.push({

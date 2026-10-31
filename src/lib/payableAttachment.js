@@ -11,16 +11,18 @@ export function payableAttachmentRecord(record = {}, field = 'document_url') {
     id: record.id,
     proof_url: field === 'storage_path' ? '' : record[field],
     storage_path: field === 'storage_path' ? record.storage_path : '',
-    file_name: field === 'storage_path' ? record.file_name : undefined,
-    mime_type: field === 'storage_path' ? record.mime_type : undefined,
-    file_size: field === 'storage_path' ? record.file_size : undefined,
+    file_name: record._attachmentFields?.[field]?.filename || (field === 'storage_path' ? record.file_name : undefined),
+    mime_type: record._attachmentFields?.[field]?.mediaType || (field === 'storage_path' ? record.mime_type : undefined),
+    file_size: record._attachmentFields?.[field]?.size || (field === 'storage_path' ? record.file_size : undefined),
   };
 }
 
 export async function validatePayableAttachmentFile(file) {
   if (!file?.size) throw new Error('O arquivo está vazio.');
-  if (!PAYMENT_PROOF_TYPES.includes(file.type) || !/\.(jpe?g|png|webp|pdf)$/i.test(file.name || '')) {
+  if(file.size>15*1024*1024)throw new Error('O arquivo excede o limite de 15 MiB.');
+  const mime=({pdf:'application/pdf',jpg:'image/jpeg',jpeg:'image/jpeg',png:'image/png',webp:'image/webp'})[(file.name||'').split('.').at(-1).toLowerCase()];
+  if (!PAYMENT_PROOF_TYPES.includes(mime)) {
     throw new Error('Selecione um arquivo JPG, JPEG, PNG, WEBP ou PDF.');
   }
-  await validateContent(file);
+  await validateContent(new Blob([file],{type:mime}));
 }

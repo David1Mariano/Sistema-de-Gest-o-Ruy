@@ -117,7 +117,7 @@ export function createIdentity({pool,sender,pepper}){
    await c.query("UPDATE lab_users SET role='admin',active=true WHERE id=$1",[target.id]);await c.query('UPDATE identity_accounts SET approved_at=now(),approved_by=$1 WHERE user_id=$1',[target.id]);await c.query('UPDATE identity_bootstrap SET consumed_at=now() WHERE singleton');await c.query("INSERT INTO lab_audit(actor,action) VALUES($1,'initial_admin_provisioned_once')",[target.id]);return {ok:true};
   });
  }
- return {route,bootstrap,throttle,hashPassword:identityPassword,verifyPassword:identityVerify,
+ return {route,bootstrap,throttle,hashPassword:identityPassword,verifyPassword:identityVerify,withPool:nextPool=>createIdentity({pool:nextPool,sender,pepper}),
  async publicUser(id){return (await pool.query('SELECT u.id,u.role,u.login email,a.full_name FROM lab_users u JOIN identity_accounts a ON a.user_id=u.id WHERE u.id=$1',[id])).rows[0];},
  async allowed(id){return Boolean((await pool.query('SELECT 1 FROM identity_accounts a JOIN lab_users u ON u.id=a.user_id WHERE a.user_id=$1 AND verified_at IS NOT NULL AND approved_at IS NOT NULL AND revoked_at IS NULL AND u.active',[id])).rowCount);}};
 }

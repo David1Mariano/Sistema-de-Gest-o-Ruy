@@ -1,0 +1,19 @@
+# Server CSR/extensions template only. No operational key/certificate generated.
+[req]
+default_bits = 3072
+default_md = sha256
+prompt = no
+distinguished_name = subject
+req_extensions = server_extensions
+
+[subject]
+CN = ADM-RUY
+
+[server_extensions]
+basicConstraints = critical, CA:FALSE
+keyUsage = critical, digitalSignature, keyEncipherment
+extendedKeyUsage = serverAuth
+subjectAltName = @server_names
+
+[server_names]
+DNS.1 = ADM-RUY

@@ -1,0 +1,33 @@
+import fs from 'node:fs/promises';
+import path from 'node:path';
+import assert from 'node:assert/strict';
+import {createHash} from 'node:crypto';
+import {execFile} from 'node:child_process';
+import {promisify} from 'node:util';
+const exec=promisify(execFile),root=path.resolve('.'),out=path.join(root,'artifacts/pre-ativacao-lan-20261028');
+const read=async f=>JSON.parse((await fs.readFile(f,'utf8')).replace(/^\uFEFF/,''));
+const sha=async f=>createHash('sha256').update(await fs.readFile(f)).digest('hex');
+const prep=await read('artifacts/central-sessoes-20261027/package-prep.4.json');
+assert.equal(await sha(prep.zip),prep.sha256);
+const files=(await read(path.join(prep.directory,'manifest.json'))).files;
+for(const entry of files){const file=path.resolve(prep.directory,entry.path);assert.ok(file.startsWith(path.resolve(prep.directory)+path.sep));assert.equal(await sha(file),entry.sha256);}
+const candidate=await read('artifacts/multicomputador-0.10.0-rc.2-20261028/resultado.json');
+assert.equal(await sha(candidate.installer.path),candidate.installer.sha256);
+const previous=await read('artifacts/multicomputador-0.10.0-rc.2-20261028/preservacao-entrada.json');
+for(const entry of previous)assert.equal(await sha(entry.Path),entry.SHA256,entry.Path);
+const ps=async source=>JSON.parse((await exec('powershell.exe',['-NoProfile','-NonInteractive','-Command',source],{encoding:'utf8',windowsHide:true,timeout:15000})).stdout.replace(/^\uFEFF/,''));
+const observation=await ps("$ErrorActionPreference='Stop'; $dnsOnly=$true;$dnsError=$null;try{$dns=@(Resolve-DnsName ADM-RUY -Server 192.168.1.1 -DnsOnly -QuickTimeout -ErrorAction Stop | Where-Object {$_.IPAddress} | Select-Object -ExpandProperty IPAddress)}catch{$dnsOnly=$false;$dns=@();$dnsError=$_.FullyQualifiedErrorId}; [pscustomobject]@{ComputerName=$env:COMPUTERNAME;ResolvedLocally=@([Net.Dns]::GetHostAddresses('ADM-RUY') | ForEach-Object {$_.IPAddressToString});ConfiguredDns='192.168.1.1';ConfiguredDnsResolves=$dnsOnly;DnsOnlyAddresses=$dns;DnsOnlyError=$dnsError;Listeners=@(Get-NetTCPConnection -State Listen | Where-Object {$_.LocalPort -in @(18716,18216,55516,5432,8080)} | Select-Object LocalAddress,LocalPort,OwningProcess);NetworkProfile=(Get-NetConnectionProfile -InterfaceAlias Ethernet).NetworkCategory.ToString();CentralProfileExists=(Test-Path -LiteralPath (Join-Path $env:LOCALAPPDATA 'GestaoRuy\\central-pichau-rc1-staging'));ServiceExists=[bool](Get-Service SistemaRuyCentralRc1 -ErrorAction SilentlyContinue)} | ConvertTo-Json -Depth 5");
+assert.equal(observation.ComputerName,'ADM-RUY');
+const evidence=await read(path.join(root,'artifacts/multicomputador-0.10.0-rc.2-20261028/packaged-two-clients/da8960846610db7a/result.json'));
+assert.equal(evidence.passed,true);assert.equal(evidence.centralPackageSha256,prep.sha256);
+await fs.mkdir(out);
+for(const name of ['adm-ruy-server-tls.cnf','Test-RuyLanConnection.ps1','central-lan.template.json','Trust-ServerPublicCa.ps1','Update-SharedClient.ps1'])await fs.copyFile(path.join(root,'scripts/central',name),path.join(out,name));
+const draft=await read('scripts/central/central-lan.template.json');
+draft.tls.host='192.168.1.102'; // Observed DHCP address; bind proposal, NOT a client IP.
+assert.equal(draft.enabled,false);assert.equal(draft.activationApproved,false);
+await fs.writeFile(path.join(out,'central.disabled.json'),JSON.stringify(draft,null,2),{flag:'wx'});
+const commands={executed:false,serviceInstallationRequiredForFirstTest:false,initializationDryRun:{executable:path.join(prep.directory,'runtime/node.exe'),args:[path.join(prep.directory,'scripts/central/initialize-empty.mjs'),'--profile=<DEDICATED_SERVICE_ACCOUNT_LOCALAPPDATA>/GestaoRuy/central-pichau-rc1-staging']},supervisedConsoleAfterAuthorization:{executable:path.join(prep.directory,'runtime/RuyCentralService.exe'),args:['--console',path.join(prep.directory,'runtime/node.exe'),path.join(prep.directory,'scripts/central/supervisor.mjs'),'<DEDICATED_SERVICE_ACCOUNT_LOCALAPPDATA>/GestaoRuy/central-pichau-rc1-staging'],stop:'shutdown + Enter, followed by verification of worker exit and supervisor.lock release'},note:'The runtime PICHAU authorization label is its existing logical deployment identifier; ADM-RUY is the observed Windows hostname. Preserve the package; do not treat templates or these commands as approval.'};
+await fs.writeFile(path.join(out,'supervisao-preparada.json'),JSON.stringify(commands,null,2),{flag:'wx'});
+const result={timestamp:new Date().toISOString(),readOnlyProduction:true,observation,ports:{tls18716Free:!observation.Listeners.some(l=>l.LocalPort===18716),api18216Free:!observation.Listeners.some(l=>l.LocalPort===18216),postgres55516Free:!observation.Listeners.some(l=>l.LocalPort===55516)},prep4:{sha256:prep.sha256,manifestFilesVerified:files.length,compatiblePackagedClient:evidence.version,syntheticTwoClientOperations:evidence.committedOperations},installer:{version:candidate.version,sha256:candidate.installer.sha256,unchanged:true},tls:{serverName:'ADM-RUY',san:'DNS:ADM-RUY',eku:'serverAuth',privateKeyGenerated:false,operationalCertificateIssued:false,validationBypass:false},technicalReadiness:'Runtime validated; operational deployment NOT configured or active. DNS and trust not ready.',otherComputerAccessed:false,otherComputerNameResolutionProven:false,installedApplicationUnchanged:true,realDataModified:false,servicesStarted:false,firewallDnsRouterModified:false};
+await fs.writeFile(path.join(out,'resultado.json'),JSON.stringify(result,null,2),{flag:'wx'});
+console.log(JSON.stringify({out,...result}));

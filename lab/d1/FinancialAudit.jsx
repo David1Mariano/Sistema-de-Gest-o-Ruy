@@ -1,0 +1,7 @@
+import {useEffect,useState} from 'react';
+import {request} from './client.mjs';
+export default function FinancialAudit({recordId}){
+ const [page,setPage]=useState(null),[offset,setOffset]=useState(0),[error,setError]=useState('');
+ useEffect(()=>{let active=true;const query=new URLSearchParams({offset:String(offset),...(recordId?{record:recordId}:{})});const load=()=>request('/domain/financial-audit?'+query).then(v=>{if(active){setPage(v);setError('');}}).catch(e=>{if(active)setError(e.message);});void load();window.addEventListener('d1-changed',load);return()=>{active=false;window.removeEventListener('d1-changed',load);};},[recordId,offset]);
+ return <section aria-label="Auditoria financeira central" className="space-y-2 rounded border p-3"><h2 className="font-semibold">Histórico de confirmações da central</h2>{error&&<p role="alert">{error}</p>}{page&&<><ul>{page.records.map(r=><li key={r.operation_id+':'+r.record_id} className="border-t py-2 text-xs">{new Date(r.confirmed_at).toLocaleString('pt-BR')} · {r.entity} · {r.record_id} · Versão {r.version} · {r.status} · Operador {r.actor_id}</li>)}</ul>{!page.records.length&&<p className="text-sm text-muted-foreground">Nenhuma confirmação financeira nesta consulta.</p>}<div className="flex gap-3"><button disabled={!offset} onClick={()=>setOffset(v=>Math.max(0,v-50))}>Anterior</button><button disabled={!page.hasMore} onClick={()=>setOffset(v=>v+50)}>Próxima</button></div></>}</section>;
+}

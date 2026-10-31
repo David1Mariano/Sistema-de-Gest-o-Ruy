@@ -3,6 +3,7 @@ import { Download, FileText, Minus, Plus, Printer } from 'lucide-react';
 import { Button } from '@/components/ui/button';
 import { Dialog, DialogContent, DialogHeader, DialogTitle } from '@/components/ui/dialog';
 import { loadPaymentProof, PAYMENT_PROOF_DIAG } from '@/lib/paymentProof';
+import PdfPages from './PdfPages';
 import {
   FIT, FIT_LABELS, attachmentErrorMessage, attachmentKind, autoFitMode, buildImagePrintHtml,
   createPreviewSession, downloadName, exportPdfName, formatBytes, formatPixels, imageStyle,
@@ -49,7 +50,13 @@ export default function AttachmentPreview({
   // conta a pagar em `document_url` e a foto em `photo_url` — campos que a
   // checagem antiga considerava "sem anexo" e o botão nem aparecia.
   const normalized = useMemo(
-    () => normalizeAttachment(record, { field: sourceField, mime: record?.mime_type }),
+    () => {
+      const source={...record};
+      for(const field of ['proof_url','document_url','invoice_url','photo_url','file_url']){
+        if(/^\/api\/d1\/(?:(?:history|migrated)\/)?attachments\/[a-f0-9-]{36}\/download$/.test(source[field]||''))source[field]=new URL(source[field],location.origin).href;
+      }
+      return normalizeAttachment(source, { field: sourceField, mime: record?.mime_type });
+    },
     [record, sourceField], // eslint-disable-line react-hooks/exhaustive-deps
   );
   const hasProof = Boolean(normalized.url || normalized.dataUrl);
@@ -234,7 +241,7 @@ export default function AttachmentPreview({
     if (!preview?.url) return;
     // <a download> sem target: baixa sem abrir aba nova.
     const anchor = document.createElement('a');
-    anchor.href = preview.url;
+    anchor.href = globalThis.ruyReports && normalized.url ? new URL(normalized.url,location.origin).href : preview.url;
     anchor.download = preview.name || 'comprovante';
     document.body.appendChild(anchor);
     anchor.click();
@@ -249,9 +256,8 @@ export default function AttachmentPreview({
       // carregado no iframe). Se o navegador bloquear, orientação clara.
       const frame = pdfFrameRef.current;
       try {
-        if (!frame?.contentWindow) throw new Error('sem janela');
-        frame.contentWindow.focus();
-        frame.contentWindow.print();
+        if (!frame?.print) throw new Error('sem documento');
+        void frame.print().catch(() => setError('Não foi possível iniciar a impressão. Use Baixar e imprima no leitor de PDF.'));
       } catch {
         setError('Não foi possível imprimir o PDF por aqui. Use Baixar e imprima do leitor de PDF.');
       }
@@ -380,7 +386,7 @@ export default function AttachmentPreview({
                 ))}
               </>
             ) : (
-              <span className="text-xs text-slate-500">PDF: use a barra do leitor do navegador para zoom e rolagem.</span>
+              <span className="text-xs text-slate-500">PDF verificado · Role para consultar as páginas.</span>
             )}
             <span className="ml-auto flex items-center gap-1">
               <Button type="button" variant="outline" size="sm" onClick={downloadFile} className="gap-1.5">
@@ -442,13 +448,10 @@ export default function AttachmentPreview({
                decide o resto. Esta é a única superfície light-only do dialog —
                no tema escuro a caixa continua clara para o documento ser legível. */
             <div className="theme-static-light-surface flex min-h-0 flex-1 flex-col">
-              <iframe
+              <PdfPages
                 ref={pdfFrameRef}
-                title="Comprovante PDF"
-                src={preview.url}
-                className="min-h-0 w-full flex-1 border-0 bg-white"
-                onLoad={() => sourceField && console.info(diagLabel, 'preview carregado', { mimeType: preview.type })}
-                onError={() => previewFailed('O navegador não conseguiu exibir o PDF.')}
+                url={preview.url}
+                onError={previewFailed}
               />
             </div>
           ) : (

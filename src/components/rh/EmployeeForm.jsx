@@ -116,7 +116,7 @@ export default function EmployeeForm({ open, onOpenChange, employee, onSaved, se
             });
           }
         }
-        const updated = await base44.entities.Employee.update(employee.id, payload);
+        const updated = await base44.entities.Employee.update(employee.id, payload, Number.isSafeInteger(employee._version) ? {baseVersion:employee._version} : undefined);
         onSaved?.(updated);
       } else {
         const created = await base44.entities.Employee.create(payload);

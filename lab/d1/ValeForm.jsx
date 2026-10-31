@@ -10,6 +10,7 @@ import { Dialog, DialogContent, DialogHeader, DialogTitle, DialogFooter } from '
 import { Upload } from 'lucide-react';
 import AttachmentPreview from '@/components/rh/AttachmentPreview';
 import RhDetails from './RhDetails';
+import {useInlineCentralFiles} from '@/lib/useInlineCentralFiles';
 
 const VALE_DIAG = '[vale-comprovante]';
 const VALE_PROOF_ACCEPT = 'image/jpeg,image/png,image/webp,application/pdf';
@@ -22,6 +23,7 @@ export default function ValeForm({ open, onOpenChange, employees = [], onSaved, 
   const [uploading, setUploading] = useState(false);
   const [uploadError,setUploadError] = useState('');
   const fileRef = useRef(null);
+  const files=useInlineCentralFiles({open,editing,entity:'Vale',initial:{...empty,...editing}});
   useEffect(() => { if (open) setForm(editing ? { ...empty, ...editing } : empty); }, [open, editing]);
   const set = (k, v) => setForm((f) => ({ ...f, [k]: v, ...(k==='status'&&v!=='descontado'?{deduction_payment_id:'',deduction_payment_version:undefined}:{}) }));
 
@@ -31,6 +33,7 @@ export default function ValeForm({ open, onOpenChange, employees = [], onSaved, 
     setUploading(true);
     setUploadError('');
     try {
+      if(files.enabled){await files.select(file,'proof_url',setForm);return;}
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       set('proof_url', file_url);
     } catch(error){setUploadError(error.message);} finally { setUploading(false); }
@@ -46,12 +49,14 @@ export default function ValeForm({ open, onOpenChange, employees = [], onSaved, 
     setSaving(true);
     try {
       const payload = { ...form, amount: Number(form.amount), authorized_by: form.authorized_by || currentUserName() };
-      let saved;
-      if (editing?.id) saved = await base44.entities.Vale.update(editing.id, payload);
-      else saved = await base44.entities.Vale.create(payload);
-      await logAudit({ entity_type: 'Vale', entity_id: saved.id, action: editing ? 'alteracao' : 'criacao', new_value: `${payload.amount}`, responsible_user: currentUserName() });
+      const write=async target=>{
+        const result=target?.id?await base44.entities.Vale.update(target.id,{...payload,_version:target._version}):await base44.entities.Vale.create(payload);
+        await logAudit({ entity_type: 'Vale', entity_id: result.id, action: target ? 'alteracao' : 'criacao', new_value: `${payload.amount}`, responsible_user: currentUserName() });
+        return result;
+      };
+      const saved=files.enabled?await files.persist(form,write):await write(editing);
       onSaved?.(saved); onOpenChange?.(false);
-    } finally { setSaving(false); }
+    } catch(error){setUploadError(error.message);} finally { setSaving(false); }
   };
 
   const inputCls = 'h-9 w-full rounded-md border border-input bg-background px-3 text-sm';
@@ -92,12 +97,13 @@ export default function ValeForm({ open, onOpenChange, employees = [], onSaved, 
               </Button>
               {(form.proof_url || form.storage_path) && <AttachmentPreview record={form} label="Ver comprovante ✓" prefix="Vale" diagLabel={VALE_DIAG} className="text-xs text-emerald-600 underline" />}
             </div>
+            {files.status.proof_url&&<p role="status" className="text-xs text-slate-500">{files.status.proof_url}</p>}
           </div>
         </div>
         <RhDetails entity="Vale" form={form} setForm={setForm} editing={editing}/>
         <DialogFooter>
           <Button variant="outline" onClick={() => onOpenChange?.(false)}>Cancelar</Button>
-          <Button onClick={save} disabled={saving || !base44.localDomain.canEditRh(editing) || ['descontado','cancelado'].includes(editing?.status) || !form.employee_id || !form.date || !form.amount}>{saving ? 'Salvando...' : 'Salvar'}</Button>
+          <Button onClick={save} disabled={saving || uploading || !base44.localDomain.canEditRh(editing) || ['descontado','cancelado'].includes(editing?.status) || !form.employee_id || !form.date || !form.amount}>{saving ? 'Salvando...' : 'Salvar'}</Button>
         </DialogFooter>
       </DialogContent>
     </Dialog>

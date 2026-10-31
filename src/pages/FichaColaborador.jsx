@@ -36,8 +36,12 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
   const [employee, setEmployee] = useState(null);
   const [absences, setAbsences] = useState([]);
   const [vales, setVales] = useState([]);
+  const [historicalVales,setHistoricalVales]=useState([]);
+  const displayVales=[...vales,...historicalVales.filter(h=>!vales.some(v=>v.id===h.id))];
   const [consumptions, setConsumptions] = useState([]);
   const [payments, setPayments] = useState([]);
+  const [historicalPayments,setHistoricalPayments]=useState([]);
+  const displayPayments=[...payments,...historicalPayments.filter(h=>!payments.some(p=>p.id===h.id))];
   const [warnings, setWarnings] = useState([]);
   const [evaluations, setEvaluations] = useState([]);
   const [documents, setDocuments] = useState([]);
@@ -57,21 +61,24 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
     setLoading(true);
     setLoadError(false);
     try {
+      const restricted = readOnly && !canViewSensitive;
+      const readRelated = read => restricted ? Promise.resolve([]) : read();
       const [emp, abs, val, cons, pay, war, evals, docs, sch, tr, secs, rls, sgr] = await Promise.all([
         base44.entities.Employee.get(id),
-        base44.entities.Absence.filter({ employee_id: id }, '-date', 200),
-        base44.entities.Vale.filter({ employee_id: id }, '-date', 200),
-        base44.entities.Consumption.filter({ employee_id: id }, '-date', 200),
-        base44.entities.EmployeePayment.filter({ employee_id: id }, '-payment_date', 500),
-        base44.entities.Warning.filter({ employee_id: id }, '-date', 200),
-        base44.entities.Evaluation.filter({ employee_id: id }, '-date', 200),
-        base44.entities.EmployeeDocument.filter({ employee_id: id }, '-date', 200),
-        base44.entities.Schedule.filter({ employee_id: id }, '-date', 100),
-        base44.entities.TimeRecord.filter({ employee_id: id }, '-date', 100),
+        readRelated(() => base44.entities.Absence.filter({ employee_id: id }, '-date', 200)),
+        readRelated(() => base44.entities.Vale.filter({ employee_id: id }, '-date', 200)),
+        readRelated(() => base44.entities.Consumption.filter({ employee_id: id }, '-date', 200)),
+        readRelated(() => base44.entities.EmployeePayment.filter({ employee_id: id }, '-payment_date', 500)),
+        readRelated(() => base44.entities.Warning.filter({ employee_id: id }, '-date', 200)),
+        unavailableModules.includes('evaluation') ? Promise.resolve([]) : base44.entities.Evaluation.filter({ employee_id: id }, '-date', 200),
+        unavailableModules.includes('document') ? Promise.resolve([]) : base44.entities.EmployeeDocument.filter({ employee_id: id }, '-date', 200),
+        readRelated(() => base44.entities.Schedule.filter({ employee_id: id }, '-date', 100)),
+        readRelated(() => base44.entities.TimeRecord.filter({ employee_id: id }, '-date', 100)),
         base44.entities.Sector.list('-created_date', 200),
         base44.entities.JobRole.list('-created_date', 200),
-        base44.entities.Sangria.list('-date', 500),
+        readRelated(() => base44.entities.Sangria.list('-date', 500)),
       ]);
+      if(canViewSensitive&&base44.localDomain?.historicalRecords){const [old,oldVales]=await Promise.all(['EmployeePayment','Vale'].map(e=>base44.localDomain.historicalRecords(e)));setHistoricalPayments(old.filter(r=>r.employee_id===id));setHistoricalVales(oldVales.filter(r=>r.employee_id===id));}else{setHistoricalPayments([]);setHistoricalVales([]);}
       setEmployee(emp); setAbsences(abs); setVales(val); setConsumptions(cons); setPayments(pay); setWarnings(war);
       setEvaluations(evals); setDocuments(docs); setSchedules(sch); setTimeRecords(tr);
       setSectors(secs); setRoles(rls); setSangrias(sgr);
@@ -143,9 +150,9 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
         <button onClick={() => navigate('/funcionarios')} className="flex items-center gap-1.5 text-sm text-slate-500 hover:text-slate-800">
           <ArrowLeft className="w-4 h-4" /> Voltar
         </button>
-        <Button variant="outline" size="sm" onClick={() => setEditOpen(true)} className="gap-2">
+        {!readOnly&&<Button variant="outline" size="sm" onClick={() => setEditOpen(true)} className="gap-2">
           <Pencil className="w-4 h-4" /> Editar
-        </Button>
+        </Button>}
       </div>
 
       {/* Cabeçalho da ficha */}
@@ -271,7 +278,7 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
         <TabsContent value="vales" className="mt-4">
           <SectionHeader title="Vales" onNew={canRegisterOccurrences ? () => openForm('vale') : null} extra={`Total: ${brl(vales.reduce((s, v) => s + Number(v.amount || 0), 0))}`} />
           <SimpleTable
-            rows={vales}
+            rows={displayVales}
             columns={[
               { key: 'date', label: 'Data', render: (r) => formatBR(r.date) },
               { key: 'amount', label: 'Valor', render: (r) => brl(r.amount) },
@@ -315,7 +322,7 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
         <TabsContent value="pagamentos" className="mt-4">
           <SectionHeader title="Pagamentos do colaborador" onNew={canViewSensitive && !readOnly ? () => openForm('payment') : null} extra={`Total pago: ${brl(payments.filter((p) => p.status === 'pago').reduce((s, p) => s + Number(p.net_amount || 0), 0))}`} />
           <SimpleTable
-            rows={payments}
+            rows={displayPayments}
             columns={[
               { key: 'payment_date', label: 'Data', render: (r) => formatBR(r.payment_date || r.work_date || r.reference_start) },
               { key: 'payment_type', label: 'Tipo', render: (r) => PAYMENT_TYPE_LABELS[r.payment_type] || r.payment_type },
@@ -403,7 +410,7 @@ export default function FichaColaborador({ readOnly = false, unavailableModules 
         <TabsContent value="historico" className="mt-4">
           <div className="rounded-xl border border-slate-200 bg-white p-5">
             <h3 className="font-semibold text-slate-800 mb-4">Linha do tempo do colaborador</h3>
-            <EmployeeTimeline employeeId={id} />
+            <EmployeeTimeline employeeId={id} unavailableModules={unavailableModules} />
           </div>
         </TabsContent>
       </Tabs>

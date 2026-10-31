@@ -1,4 +1,5 @@
-import { Menu, Bell, LogOut } from 'lucide-react';
+import { Menu, LogOut } from 'lucide-react';
+import NotificationsBell from '@/components/shared/NotificationsBell';
 import { useAuth } from '@/lib/AuthContext';
 import { Button } from '@/components/ui/button';
 
@@ -21,9 +22,7 @@ export default function Topbar({ title, onMenu }) {
       </div>
 
       <div className="ml-auto flex items-center gap-1 sm:gap-2">
-        <Button variant="ghost" size="icon" className="relative rounded-xl" aria-label="Alertas">
-          <Bell className="h-5 w-5" />
-        </Button>
+        <NotificationsBell/>
         <Button variant="ghost" size="sm" onClick={() => logout()} className="gap-2 rounded-xl text-slate-500 hover:text-rose-600">
           <LogOut className="h-4 w-4" />
           <span className="hidden sm:inline">Sair</span>

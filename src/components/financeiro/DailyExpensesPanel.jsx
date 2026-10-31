@@ -73,13 +73,14 @@ function Indicator({ label, value, icon: Icon, hint, danger }) {
 // qualquer gasto com vínculo de Vale (são eles que devem ser alterados na tela
 // dona, para não quebrar a rastreabilidade).
 function ExpenseRow({ expense, editBlocker, deleteBlocker, onEdit, onRemove }) {
-  const canEdit = !editBlocker;
-  const canDelete = !deleteBlocker;
+  const canEdit = !expense._readOnly&&!editBlocker;
+  const canDelete = !expense._readOnly&&!deleteBlocker;
   const origem = expense.origin_type || 'manual';
-  return <tr className="hover:bg-slate-50">
+  return <tr className="hover:bg-slate-50" data-expense-id={expense.id}>
     <td className="px-4 py-3 whitespace-nowrap">{formatExpenseDate(expense.date)}</td>
     <td className="px-4 py-3 font-medium">
       {expense.description || '—'}
+      {expense._historical&&<span className="block text-xs font-normal text-slate-500">Recuperado · somente consulta</span>}
       {expense.beneficiary_name && <span className="block text-xs font-normal text-slate-500">{expense.beneficiary_name}</span>}
       {origem !== 'manual' && <span className="block text-xs font-normal text-slate-400">Origem: {EXPENSE_ORIGIN_LABELS[origem] || origem}</span>}
     </td>
@@ -94,7 +95,7 @@ function ExpenseRow({ expense, editBlocker, deleteBlocker, onEdit, onRemove }) {
       <div className="flex items-center gap-2">
         <ExpenseAttachment record={expense} field="proof_url" label="Comprovante" />
         <ExpenseAttachment record={expense} field="invoice_url" label="Nota fiscal" />
-        {!hasExpenseProof(expense) && <span className="text-amber-600 text-xs">Sem anexo</span>}
+        {!hasExpenseProof(expense) && <span className="text-amber-600 text-xs">{expense._attachmentReviewPending?.length?'Anexo aguardando conferência':'Sem anexo'}</span>}
       </div>
     </td>
     <td className="px-4 py-3">
@@ -209,6 +210,9 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
   const [removing, setRemoving] = useState(null);
   const [removeError, setRemoveError] = useState('');
   const [removingBusy, setRemovingBusy] = useState(false);
+  const [historicalRows,setHistoricalRows]=useState([]);
+  useEffect(()=>{if(!base44.localDomain?.historicalRecords)return;let live=true;const read=()=>base44.localDomain.historicalRecords('FinancialExpense').then(values=>{if(live)setHistoricalRows(values);}).catch(()=>{});void read();window.addEventListener('d1-changed',read);return()=>{live=false;window.removeEventListener('d1-changed',read);};},[]);
+  const displayRows=useMemo(()=>[...rows,...historicalRows.filter(h=>!rows.some(r=>r.id===h.id))],[rows,historicalRows]);
 
   // No histórico a busca é livre (sem a trava de período padrão), senão o
   // funcionário não acha um lançamento antigo. Os totais da tela continuam
@@ -231,14 +235,14 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     () => resolverFiltroCategoria(categories, categoryId),
     [categories, categoryId],
   );
-  const visible = useMemo(() => filterExpenses(rows, {
+  const visible = useMemo(() => filterExpenses(displayRows, {
     search, start: effectivePeriod.start, end: effectivePeriod.end,
     categoryId: filtroCategoria.id, categoryName: filtroCategoria.nome, paymentMethod,
     beneficiary, status, proof, includeCancelled: view === 'historico',
-  }), [rows, search, effectivePeriod.start, effectivePeriod.end, filtroCategoria.id, filtroCategoria.nome, paymentMethod, beneficiary, status, proof, view]);
+  }), [displayRows, search, effectivePeriod.start, effectivePeriod.end, filtroCategoria.id, filtroCategoria.nome, paymentMethod, beneficiary, status, proof, view]);
 
   // Indicadores sobre todos os gastos carregados, não sobre a busca filtrada.
-  const indicators = useMemo(() => dailyExpenseIndicators(rows), [rows]);
+  const indicators = useMemo(() => dailyExpenseIndicators(rows.filter(r=>!r._historical)), [rows]);
   const beneficiaries = useMemo(
     () => [...new Set(rows.map((r) => r.beneficiary_name).filter(Boolean))].sort((a, b) => a.localeCompare(b, 'pt-BR')),
     [rows],
@@ -259,9 +263,9 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     for (const expense of rows) mapa.set(expense.id, expenseDeleteBlocker(expense, { payments: data.payments, vales: data.vales }));
     return mapa;
   }, [rows, data.payments, data.vales]);
-  const visibleSum = useMemo(() => totalOf(visible), [visible]);
+  const visibleSum = useMemo(() => totalOf(visible.filter(r=>!r._historical)), [visible]);
   const periodRows = useMemo(
-    () => filterExpenses(rows, { start: effectivePeriod.start, end: effectivePeriod.end }),
+    () => filterExpenses(rows.filter(r=>!r._historical), { start: effectivePeriod.start, end: effectivePeriod.end }),
     [rows, effectivePeriod.start, effectivePeriod.end],
   );
   const periodTotal = useMemo(() => totalOf(periodRows), [periodRows]);
@@ -291,11 +295,11 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     setRemoveError('');
     try {
       await deleteDailyExpense({
-        entities: base44.entities,
         expense: removing,
         payments: data.payments,
         vales: data.vales,
         responsibleUser: currentUserName(),
+        domain: base44.localDomain,
       });
       setRemoving(null);
       await onSaved();
@@ -345,7 +349,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     />}
 
     {view === 'historico' && isAdmin && <DailyExpenseHistory
-      expenses={rows}
+      expenses={displayRows}
       categories={data.categories}
       auditRecords={data.auditRecords}
       loading={loading}
@@ -353,6 +357,7 @@ export default function DailyExpensesPanel({ rows = [], loading, refreshing = fa
     />}
 
     {view !== 'historico' && <>
+    {historicalRows.length>0&&<p className="text-xs text-slate-500">Registros recuperados aparecem nas mesmas linhas, em consulta. Os totais operacionais abaixo consideram somente movimentos atuais; não aprovam saldos históricos.</p>}
     {/* "R$ 0,00" e "não consegui ler" são coisas diferentes. Quando a
         collection de gastos não foi lida, mostrar zero seria afirmar que não
         existe gasto nenhum — o que é uma mentira bem mais perigosa que um

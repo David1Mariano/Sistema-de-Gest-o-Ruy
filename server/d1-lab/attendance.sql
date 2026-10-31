@@ -1,6 +1,6 @@
 -- Explicit provisioning ONLY in a NEW synthetic final-development database.
 DO $$ BEGIN
- IF NOT ((current_setting('port')='55483' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$') OR (current_setting('port')='55496' AND current_database()='ruy_d1_disposable' AND coalesce(current_setting('ruy.initializing_installation',true),'')='windows-operational')) THEN
+ IF NOT ((current_setting('port')='55516' AND current_database()='ruy_central_rc1_staging' AND coalesce(current_setting('ruy.initializing_installation',true),'')='central-pichau-rc1') OR ((current_setting('port')='55483' AND current_database() ~ '^ruy_d1_rc_[a-f0-9]{16}$') OR (current_setting('port')='55483' AND current_database() ~ '^ruy_central_prod_[a-f0-9]{16}$' AND coalesce(current_setting('ruy.initializing_installation',true),'')='central-production-approved')) OR (current_setting('port')='55496' AND current_database()='ruy_d1_disposable' AND coalesce(current_setting('ruy.initializing_installation',true),'')='windows-operational')) THEN
   RAISE EXCEPTION 'New isolated attendance test database required';
  END IF;
 END $$;

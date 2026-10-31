@@ -13,7 +13,7 @@ export function sharedSessions(pool,identity){
   if(!login||login.length>254||typeof body.password!=='string'||body.password.length>256)throw fail(400,'Invalid login.');
   const user=(await pool.query('SELECT * FROM lab_users WHERE login=$1',[login])).rows[0];
   // The existing bounded KDF also runs for unknown identities.
-  const dummy=await pool.query('SELECT password_hash FROM lab_users ORDER BY id LIMIT 1');
+  const dummy=await pool.query("SELECT password_hash FROM lab_users WHERE password_hash LIKE 'scrypt-v2:%' ORDER BY id LIMIT 1");
   if(!await identity.verifyPassword(body.password,user?.password_hash||dummy.rows[0]?.password_hash)||!user?.active||!await identity.allowed(user.id))throw fail(401,'Account not authorized.');
   return transaction(pool,async c=>{
    await device(deviceToken,c,true);

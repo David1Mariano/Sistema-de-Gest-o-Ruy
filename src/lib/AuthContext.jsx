@@ -30,8 +30,13 @@ export function AuthProvider({ children }) {
       setError(null);
     } catch (err) {
       if (seq !== generation.current) return;
-      clearUserState();
-      if (err.status !== 401) {
+      // APENAS limpar estado se for erro 401 (sessão expirada/revogada).
+      // Errors 403 (permissão negada) e outros erros de API devem apenas
+      // definir um erro de perfil, NÃO limpar o usuário e causar logout.
+      if (err.status === 401) {
+        clearUserState();
+        setError({ type: 'session_expired', message: err.message });
+      } else {
         setError({ type: 'profile_error', message: err.message });
       }
     } finally {

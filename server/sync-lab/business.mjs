@@ -59,10 +59,11 @@ async function reverse(c,workspace,command,records){
  if(entries.length)await journal(c,workspace,command.operationId,entries.map(entry=>{const input=command.entries?.find(i=>i.account===entry.account);if(!input)throw fail(400,'Reversal account version required.');return {account:entry.account,cents:-Number(entry.cents),baseVersion:input.baseVersion};}));
  await c.query('INSERT INTO d1_business_reversals VALUES($1,$2,$3,$4)',[workspace,command.referenceId,command.operationId,command.reason]);
 }
-export async function applyBusiness(c,p,command,records){
+export async function applyBusiness(c,p,command,records,{operationalApplied=false}={}){
  const changed=new Set(command.changes.map(change=>change.id));
  const reversals=command.changes.filter(change=>change.entity==='OperationalEvent'&&change.data.kind==='reversal').map(change=>JSON.parse(change.data.command_json));
  for(const reversal of reversals){
+  if([...records.values()].some(row=>{const d=payload(row);return d.settlement_id===reversal.referenceId&&!['cancelado','estornado'].includes(d.status)&&d.financialStatus!=='refunded';}))throw fail(409,'Estorno exige o agregado central que originou a liquidação.');
   for(const row of records.values()){const d=payload(row);if(row.entity==='DailyProduction'&&d.confirmation_id===reversal.referenceId&&d.local_status!=='cancelado')throw fail(409,'Reverse production document and consumption together.');if(['EmployeePayment','AccountsPayable'].includes(row.entity)&&d.financial_expense_id===reversal.referenceId&&d.status!=='cancelado')throw fail(409,'Linked financial obligation must be cancelled atomically.');}
   const settled=(await c.query('SELECT 1 FROM d1_business_settlements WHERE workspace=$1 AND record_id=$2',[p.workspace_id,reversal.referenceId])).rowCount;
   if(settled){const change=command.changes.find(item=>item.id===reversal.referenceId);if(!change||payload(records.get(change.id)).status!=='cancelado')throw fail(409,'Reversal requires cancelled financial aggregate.');}
@@ -120,7 +121,7 @@ export async function applyBusiness(c,p,command,records){
   }
  }
 
- for(const change of command.changes)if(change.entity==='OperationalEvent')await operation(c,p.workspace_id,change,records);
+ for(const change of command.changes)if(!operationalApplied&&change.entity==='OperationalEvent')await operation(c,p.workspace_id,change,records);
  for(const change of command.changes){
   const d=payload(records.get(change.id));
   if(!['FinancialExpense','Revenue','AccountsReceivable'].includes(change.entity))continue;
@@ -132,6 +133,10 @@ export async function applyBusiness(c,p,command,records){
   const account=d.financial_account_id?'account:'+d.financial_account_id:change.entity==='AccountsReceivable'?'bank':['dinheiro','cash'].includes(d.payment_method||'dinheiro')?'cash':'bank';
   // One obligation may be paid once even if devices generate different expense UUIDs.
   let obligation=change.entity+':'+change.id;
+  if(change.entity==='Revenue'&&d.source_type==='manual-shared-receipt'){
+   if(typeof d.source!=='string'||!d.source.trim())throw fail(409,'A manual central receipt requires its source reference.');
+   obligation='manual-receipt:'+d.source.trim().toLowerCase();
+  }
   if(debit&&d.document_number&&!d.accounts_payable_id&&!d.linked_payment_id){
    const vendor=d.beneficiary_id||d.beneficiary_name;
    if(typeof vendor!=='string'||!vendor.trim()||typeof d.document_number!=='string')throw fail(409,'Invoice settlement requires supplier identity.');

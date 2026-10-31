@@ -31,9 +31,9 @@ export async function preparePurchase({c,actor,deviceId,body,old,save,changes}){
   const total=subtotal-d.discount_cents+d.freight_cents+d.other_cents;if(!cents(subtotal)||!cents(total)||total<=0||d.discount_cents>subtotal)throw fail(400,'Total da compra invalido.');
   const payableId=old?.accounts_payable_id||randomUUID();let payable;
   if(old){payable=await owned(c,actor.id,'AccountsPayable',payableId);if(unwrapDomain(payable).status!=='pendente')throw fail(409,'Conta vinculada liquidada ou cancelada.');}
-  const data={...d,items,supplier_name:supplier.data.name,subtotal_cents:subtotal,total_cents:total,status:'aguardando_recebimento',stock_posted:false,accounts_payable_id:payableId,source_device_id:deviceId,responsible_user:actor.id,receipt_operations:[]};
+  const data={...d,items,supplier_name:supplier.data.name,subtotal_cents:subtotal,total_cents:total,status:'aguardando_recebimento',stock_posted:false,accounts_payable_id:payableId,source_device_id:deviceId,responsible_user:actor.auditId||actor.id,receipt_operations:[]};
   if(JSON.stringify({...data,receipt_operations:items.map(()=>randomUUID()),received_date:'2000-01-01',cancellation_reason:'x'.repeat(300),cancelled_by:actor.id}).length>4000)throw fail(413,'Compra excede limite de documento; reduza os itens antes de salvar.');
-  await save('AccountsPayable',payableId,{description:'Compra - '+supplier.data.name,issue_date:d.date,due_date:d.due_date,amount:total/100,beneficiary_name:supplier.data.name,beneficiary_type:'fornecedor',purchase_id:body.id,supplier_id:d.supplier_id,status:'pendente',priority:'normal',responsible_user:actor.id},payable);
+  await save('AccountsPayable',payableId,{description:'Compra - '+supplier.data.name,issue_date:d.date,due_date:d.due_date,amount:total/100,beneficiary_name:supplier.data.name,beneficiary_type:'fornecedor',purchase_id:body.id,supplier_id:d.supplier_id,status:'pendente',priority:'normal',responsible_user:actor.auditId||actor.id},payable);
   return data;
  }
  if(!old||!['confirm','cancel'].includes(body.action)||old.status==='cancelada'||old.source_device_id!==deviceId)throw fail(409,'Transicao de compra recusada.');
@@ -46,7 +46,7 @@ export async function preparePurchase({c,actor,deviceId,body,old,save,changes}){
  }else{
   if(!plan.canCancel||typeof body.reason!=='string'||body.reason.trim().length<8||body.reason.length>300)throw fail(409,'Cancelamento exige motivo e conta pendente.');
   if(old.stock_posted)for(let i=0;i<old.items.length;i++){const item=old.items[i],b=plan.balances.find(x=>x.itemId===item.inventory_item_id);const op=await applyOperational(c,actor,deviceId,{operationId:stableId(body.operationId+item.id),kind:'reversal',referenceId:old.receipt_operations[i],reason:body.reason,inputs:[{itemId:item.inventory_item_id,baseVersion:b.baseVersion}]},async()=>{},{enqueue:false});changes.push({entity:'OperationalEvent',record:op.record});}
-  await save('AccountsPayable',payable.id,{...clean(p),status:'cancelado'},payable);data.status='cancelada';data.cancellation_reason=body.reason.trim();data.cancelled_by=actor.id;
+  await save('AccountsPayable',payable.id,{...clean(p),status:'cancelado'},payable);data.status='cancelada';data.cancellation_reason=body.reason.trim();data.cancelled_by=actor.auditId||actor.id;
  }
  return data;
 }

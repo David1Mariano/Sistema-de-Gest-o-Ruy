@@ -1,12 +1,13 @@
 import {createD1Transport} from './http-transport.mjs';
 import {catalogFields} from '../../server/d1-lab/catalog-contract.mjs';
 import {createDomainAdapter,isDomain} from './domain-client.mjs';
+import {createRecordAttachments} from './record-attachments.mjs';
 let session=null,generation=0;
-export function setSession(value){if(session?.user.id!==value?.user.id){generation++;cache.clear();audits.clear();domain.clear();}session=value;}
+export function setSession(value){if(session?.user.id!==value?.user.id){generation++;cache.clear();audits.clear();domain.clear();}session=value?.consultationOnly?{...value,user:{...value.user,consultationOnly:true}}:value;}
 export function getSession(){return session;}
 const transport=createD1Transport();
 export async function request(route,body){
- if(body&&session?.operationalHistoryPreview&&route!=='/logout'&&!route.startsWith('/account/'))throw Error('Dados recuperados em conferência: alterações bloqueadas.');
+ if(body&&(session?.consultationOnly||session?.operationalHistoryPreview)&&route!=='/logout'&&!route.startsWith('/account/'))throw Error('Dados recuperados em conferência: alterações bloqueadas.');
  const started=generation;
  const changed=error=>Object.assign(Error('Sessao alterada; recarregue a consulta.'),{...error,status:401,d1SessionChanged:true,outcome:body?'unknown':'not_applicable'});
  try{
@@ -22,10 +23,14 @@ export async function request(route,body){
 const cache=new Map(),audits=new Map();
 const allowed={Sector:['name','description','role_purpose','responsible_name','status'],JobRole:['name','sector_id','sector_name','status'],...catalogFields};
 const route=entity=>(catalogFields[entity]?'/catalog/':'/entities/')+entity;
-const signal=error=>{error.d1Shown=true;globalThis.dispatchEvent(new CustomEvent('d1-error',{detail:error.message}));throw error;};
+const signal=error=>{error.d1Shown=true;globalThis.dispatchEvent(new CustomEvent('d1-error',{detail:{message:error.message,status:error.status,code:error.code}}));throw error;};
 const domain=createDomainAdapter({request,getSession,signal,committed:result=>{for(const item of [{record:result.record},...(result.cascata||[])])audits.set(item.record.id,{id:result.operationId,serverCommitted:true});}});
 export const localDomain=domain;
+domain.historicalRecords=async entity=>(await request('/archive/'+entity)).records;
+domain.attachments=createRecordAttachments({request,getSession});
 async function performMutation(entity,id,data,operation,options={}){
+ if(session?.consultationOnly||session?.operationalHistoryPreview)return signal(Error('Consulta somente leitura: alterações ainda não foram liberadas.'));
+ if(session?.sharedMode&&operation==='delete')return signal(Error('Exclusão definitiva bloqueada: desative o cadastro para preservar os vínculos e o histórico.'));
  if(!allowed[entity])return signal(Error('Entidade somente de consulta no laboratório.'));
  if(!['admin','writer'].includes(session?.user.role))return signal(Error('Sessão com permissão somente de consulta.'));
  if(['Employee','SystemSettings'].includes(entity)&&session?.user.role!=='admin')return signal(Error('Cadastro exige administrador local.'));
@@ -71,10 +76,10 @@ export function entityClient(entity){return {
  delete:(id,options)=>entity==='Employee'?mutate(entity,id,{},'delete',options):signal(Error('Exclusão não habilitada para esta entidade.')),
  subscribe(fn){globalThis.addEventListener('d1-changed',fn);return()=>globalThis.removeEventListener('d1-changed',fn);},
 };}
-export const base44={localDomain:domain,integrations:{Core:{UploadFile:async()=>signal(Error('Anexos privados ainda não homologados no laboratório.'))}},entities:new Proxy({},{get(_,entity){
+export const base44={localDomain:domain,integrations:{Core:{UploadFile:async()=>signal(Error('Envio ainda não integrado neste formulário. Nenhum arquivo foi enviado.'))}},entities:new Proxy({},{get(_,entity){
  if((session?.operationalHistoryPreview||session?.operationalWorkspace)&&['Absence','Warning','Evaluation','EmployeeDocument','Schedule','TimeRecord'].includes(entity))return domain.entity(entity);
  if(isDomain(entity)||entity==='RecipeIngredient')return domain.entity(entity);
- if(entity==='AuditLog')return {...(session?.operationalHistoryPreview||session?.operationalWorkspace?domain.entity(entity):{}),create:async data=>{const receipt=audits.get(data.entity_id);if(!receipt)throw Error('Auditoria exige gravação transacional confirmada.');return receipt;}};
+ if(entity==='AuditLog')return {...(session?.operationalHistoryPreview||session?.operationalWorkspace||session?.sharedMode?domain.entity(entity):{}),create:async data=>{const receipt=audits.get(data.entity_id);if(!receipt)throw Error('Auditoria exige gravação transacional confirmada.');return receipt;}};
  if(!['Sector','JobRole','StockMovement',...Object.keys(catalogFields)].includes(entity))throw Error('Módulo fora do laboratório D1.');
  return entityClient(entity);
 }})};

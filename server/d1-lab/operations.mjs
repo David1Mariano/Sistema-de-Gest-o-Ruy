@@ -50,8 +50,9 @@ export async function applyOperational(c,user,deviceId,body,hook=async()=>{}, {e
  if(Object.keys(body).some(k=>!['operationId','kind','itemId','baseVersion','quantityMilli','targetMilli','unitCents','inputs','output','entries','referenceId','reason'].includes(k)))throw fail(400,'Campos operacionais não permitidos.');
  const actor=(await c.query("SELECT id,role FROM lab_users WHERE id=$1 AND active FOR SHARE",[user.id])).rows[0];
  if(actor?.role!=='admin')throw fail(403,'Operações críticas exigem administrador sintético neste piloto.');
+ actor.auditId=user.auditId||actor.id;
  const hash=syncHash(body),prior=(await c.query('SELECT * FROM lab_outbox WHERE operation_id=$1',[body.operationId])).rows[0];
- if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.id||prior.payload_hash!==hash||prior.entity!=='OperationalEvent')throw fail(409,'UUID operacional reutilizado.');return {...prior.result,replay:true};}
+ if(prior){await assertActiveIntent(c,prior.operation_id);if(prior.actor!==actor.auditId||prior.payload_hash!==hash||prior.entity!=='OperationalEvent')throw fail(409,'UUID operacional reutilizado.');return {...prior.result,replay:true};}
  const effects=[];
  if(['entry','exit','adjust'].includes(body.kind)){
   let delta=body.kind==='entry'?body.quantityMilli:-body.quantityMilli;
@@ -88,8 +89,8 @@ export async function applyOperational(c,user,deviceId,body,hook=async()=>{}, {e
  if(Object.values(data).some(v=>v.length>4000))throw fail(413,'Agregado excede o limite de homologação.');
  const row=(await c.query("INSERT INTO d1_operation_events(id,owner_id,entity,data,name_key) VALUES($1,$2,'OperationalEvent',$3,$4) RETURNING *",[body.operationId,actor.id,data,body.operationId])).rows[0];
  result.record=record(row);
- if(enqueue)await c.query("INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,'OperationalEvent',$1,'create',NULL,1,$4,$5,$6)",[body.operationId,deviceId,actor.id,hash,data,result]);
- await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[actor.id,'operational:'+body.kind,body.operationId]);
+ if(enqueue)await c.query("INSERT INTO lab_outbox(operation_id,device_id,actor,entity,record_id,operation,base_version,record_version,payload_hash,payload,result) VALUES($1,$2,$3,'OperationalEvent',$1,'create',NULL,1,$4,$5,$6)",[body.operationId,deviceId,actor.auditId,hash,data,result]);
+ await c.query('INSERT INTO lab_audit(actor,action,operation_id) VALUES($1,$2,$3)',[actor.auditId,'operational:'+body.kind,body.operationId]);
  await hook(c);return result;
 }
 export async function operationalCommand(pool,user,deviceId,body,hook=async()=>{}){

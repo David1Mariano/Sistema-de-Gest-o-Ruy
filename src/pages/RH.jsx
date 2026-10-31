@@ -11,7 +11,7 @@ import {
   Users, UserCheck, CalendarOff, FileX2, Clock, UserX, Wallet, AlertTriangle, UserPlus, AlertCircle, ArrowRight,
 } from 'lucide-react';
 
-export default function RH() {
+export default function RH({ readOnly = false, unavailableDocuments = false }) {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [schedules, setSchedules] = useState([]);
@@ -22,7 +22,7 @@ export default function RH() {
   const [loading, setLoading] = useState(true);
   const [loadError, setLoadError] = useState(false);
 
-  const [period, setPeriod] = useState('hoje');
+  const [period, setPeriod] = useState(readOnly ? 'todos' : 'hoje');
   const [custom, setCustom] = useState({ start: todayISO(), end: todayISO() });
   const [sectorFilter, setSectorFilter] = useState('');
   const [statusFilter, setStatusFilter] = useState('');
@@ -38,7 +38,7 @@ export default function RH() {
         base44.entities.Absence.list('-created_date', 500),
         base44.entities.Vale.list('-created_date', 500),
         base44.entities.Warning.list('-created_date', 500),
-        base44.entities.EmployeeDocument.list('-created_date', 500),
+        readOnly || unavailableDocuments ? Promise.resolve([]) : base44.entities.EmployeeDocument.list('-created_date', 500),
       ]);
       setLoadError(false);
       setEmployees(emp); setSchedules(sch); setAbsences(abs); setVales(val); setWarnings(war); setDocuments(docs);

@@ -1,3 +1,4 @@
+import {centralOperational} from '../central/context.mjs';
 import {catalogFields} from './catalog-contract.mjs';
 import {digest,fail,uuid} from './core.mjs';
 import {domainSyncFields,validateDomainSnapshot} from './domain-contract.mjs';
@@ -14,7 +15,7 @@ export function validateEnvelope(command){
   seen.add(change.id);
   const d=change.data;
   if(!d||Array.isArray(d)||typeof d!=='object'||Object.keys(d).some(k=>!syncFields[change.entity].includes(k))||Object.values(d).some(v=>v!==null&&typeof v!=='string'&&typeof v!=='number')||Object.values(d).some(v=>typeof v==='string'&&v.length>4000))throw fail(400,'Campos D1 inválidos.');
-  if(change.entity!=='SystemSettings'&&(!d.name?.startsWith('FICTICIO ')||d.name.length>120))throw fail(400,'Somente dados sintéticos D1.');
+  if(change.entity!=='SystemSettings'&&(!(centralOperational()?typeof d.name==='string'&&d.name.trim():d.name?.startsWith('FICTICIO '))||d.name.length>120))throw fail(400,'Somente dados sintéticos D1.');
   if(d.photo_url)throw fail(400,'Anexos exigem protocolo próprio.');
   if(d._deleted!==undefined||d._deleted_at!==undefined){
    if(change.entity!=='Employee'||d._deleted!=='true'||d.status!=='inativo'||change.baseVersion===null||!Number.isFinite(Date.parse(d._deleted_at)))throw fail(400,'Tombstone inválido.');
@@ -24,6 +25,6 @@ export function validateEnvelope(command){
    if(change.baseVersion!==null||change.id!==command.operationId||!['entry','exit','adjust','production','consume','journal','reversal'].includes(d.kind)||d.status!=='pending-central'||d.source_device_id!==command.deviceId)throw fail(400,'Evento operacional deve ser imutável e sintético.');
    try{const input=JSON.parse(d.command_json),result=JSON.parse(d.result_json);if(input.operationId!==change.id||result.operationId!==change.id||result.businessConfirmed!==false||result.externalConfirmed!==false)throw Error();}catch{throw fail(400,'Recibo de negócio inválido.');}
   }
-   if(change.entity==='Employee')for(const k of ['cpf','rg','pix_key','bank'])if(d[k]&&!String(d[k]).startsWith('FICTICIO'))throw fail(400,'Documento sintético obrigatório.');
+   if(change.entity==='Employee')for(const k of ['cpf','rg','pix_key','bank'])if(!centralOperational()&&d[k]&&!String(d[k]).startsWith('FICTICIO'))throw fail(400,'Documento sintético obrigatório.');
  }
 }

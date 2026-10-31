@@ -22,7 +22,7 @@ const SANGRIA_ALLOWED = ['fabielle', 'patrick', 'luiz carlos neto', 'jocinei', '
 const norm = (s) => (s || '').trim().toLowerCase().replace(/\s+/g, ' ');
 const canSangria = (name) => SANGRIA_ALLOWED.some(k => norm(name).startsWith(k));
 
-export default function Funcionarios() {
+export default function Funcionarios({ readOnly = false }) {
   const navigate = useNavigate();
   const [employees, setEmployees] = useState([]);
   const [sectors, setSectors] = useState([]);
@@ -50,6 +50,7 @@ export default function Funcionarios() {
     } finally { setLoading(false); }
   };
   useEffect(() => { load(); }, []);
+  useEffect(() => base44.entities.Employee.subscribe?.(() => { void load(); }), []);
 
   const functions = useMemo(() => [...new Set(employees.map((e) => e.function).filter(Boolean))], [employees]);
   // Opções de setor do filtro: mesmas regras do cadastro (só Sector ativo).
@@ -91,9 +92,9 @@ export default function Funcionarios() {
           <p className="text-sm text-slate-500">Cadastro único de colaboradores — base do RH, Ponto e Escalas</p>
         </div>
         <ReportPDFButton kind="employees" filters={{search,sector:sectorFilter,function:functionFilter,status:statusFilter}} expectedRows={employeeReportRows(filtered)} disabled={loading}>Exportar colaboradores em PDF</ReportPDFButton>
-        <Button onClick={onNew} className="gap-2">
+        {!readOnly&&<Button onClick={onNew} className="gap-2">
           <Plus className="w-4 h-4" /> Novo colaborador
-        </Button>
+        </Button>}
       </div>
 
       {/* Filtros */}
@@ -179,28 +180,28 @@ export default function Funcionarios() {
                           <button onClick={() => navigate(`/funcionarios/${e.id}`)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500" title="Ver ficha">
                             <Eye className="w-4 h-4" />
                           </button>
-                          <button onClick={() => onEdit(e)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500" title="Editar">
+                          {!readOnly&&<button onClick={() => onEdit(e)} className="p-1.5 rounded-md hover:bg-slate-100 text-slate-500" title="Editar">
                             <Pencil className="w-4 h-4" />
-                          </button>
-                          {canSangria(e.name) && (
+                          </button>}
+                          {!readOnly&&canSangria(e.name) && (
                             <button onClick={() => { setSangriaResp(e.name); setSangriaOpen(true); }} className="p-1.5 rounded-md hover:bg-amber-50 text-amber-600" title="Registrar sangria">
                               <Wallet className="w-4 h-4" />
                             </button>
                           )}
-                          <button onClick={() => onDesligar(e)} className="p-1.5 rounded-md hover:bg-rose-50 text-rose-500" title="Desligar">
+                          {!readOnly&&<button onClick={() => onDesligar(e)} className="p-1.5 rounded-md hover:bg-rose-50 text-rose-500" title="Desligar">
                             <Trash2 className="w-4 h-4" />
-                          </button>
+                          </button>}
                           {/* Excluir é DESTRUTIVO e distinto do Desligar: outro ícone,
                               outra cor e outro tooltip. Nada de exclusão em cascata —
                               o serviço bloqueia se houver qualquer vínculo. */}
-                          <button
+                          {!readOnly&&<button
                             onClick={() => setExcluindo(e)}
                             className="p-1.5 rounded-md hover:bg-rose-100 text-red-600"
                             title="Excluir definitivamente"
                             aria-label={`Excluir definitivamente o cadastro de ${e.name}`}
                           >
                             <UserX className="w-4 h-4" />
-                          </button>
+                          </button>}
                         </div>
                       </td>
                     </tr>

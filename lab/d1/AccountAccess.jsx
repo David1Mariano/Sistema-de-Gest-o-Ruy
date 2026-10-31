@@ -1,10 +1,14 @@
-import {useState} from 'react';
+import {useEffect,useState} from 'react';
 import {request} from './client.mjs';
-export default function AccountAccess({adopt}){
+export default function AccountAccess({adopt,sharedMode=false}){
  const [mode,setMode]=useState('login'),[message,setMessage]=useState(''),[busy,setBusy]=useState(false);
+ const [connection,setConnection]=useState(''),[checking,setChecking]=useState(false);
+ const checkConnection=async()=>{setChecking(true);try{await request('/connection');setConnection('');}catch(error){setConnection(error.message);}finally{setChecking(false);}};
+ useEffect(()=>{if(sharedMode)void checkConnection();},[sharedMode]);
  const modes={login:'Entrar',register:'Criar conta',verify:'Confirmar e-mail',resend:'Reenviar código','reset-request':'Recuperar senha',reset:'Redefinir senha'};
  return <section className="mx-auto mt-8 max-w-md space-y-4 rounded-xl border bg-card p-6">
-  <h1 className="text-xl font-semibold">Sistema Ruy — acesso individual</h1><p>Ambiente isolado de desenvolvimento. Confirmação de e-mail e aprovação administrativa são obrigatórias.</p>
+  <h1 className="text-xl font-semibold">Sistema Ruy — acesso individual</h1><p>{sharedMode?'Entre com seu e-mail e senha para acessar os dados da central.':'Ambiente isolado de desenvolvimento. Confirmação de e-mail e aprovação administrativa são obrigatórias.'}</p>
+  {sharedMode&&connection&&<div role="alert"><p>{connection}</p><button type="button" className="underline" disabled={checking} onClick={checkConnection}>{checking?'Verificando…':'Tentar novamente'}</button></div>}
   <form className="space-y-3" onSubmit={async e=>{e.preventDefault();setBusy(true);setMessage('');const form=e.currentTarget,f=new FormData(form);try{
    const data=Object.fromEntries(f);if(mode==='login')adopt(await request('/login',{login:data.email,password:data.password}));
    else{await request('/account/'+mode,data);form.reset();setMessage(mode==='verify'?'E-mail confirmado. Aguarde aprovação do administrador.':'Solicitação recebida. Verifique seu e-mail quando o envio estiver configurado. Nenhum código será mostrado aqui.');}
@@ -16,6 +20,6 @@ export default function AccountAccess({adopt}){
    <button type="submit" disabled={busy} className="rounded bg-amber-500 px-4 py-2 text-black">{busy?'Aguarde…':modes[mode]}</button>
   </form>
   {message&&<p role="status">{message}</p>}
-  <nav aria-label="Opções de acesso" className="flex flex-wrap gap-3">{Object.entries(modes).filter(([key])=>key!==mode).map(([key,title])=><button type="button" className="underline" disabled={busy} key={key} onClick={()=>{setMode(key);setMessage('');}}>{title}</button>)}</nav>
+  {sharedMode?<p>O acesso e as permissões são validados pelo servidor.</p>:<nav aria-label="Opções de acesso" className="flex flex-wrap gap-3">{Object.entries(modes).filter(([key])=>key!==mode).map(([key,title])=><button type="button" className="underline" disabled={busy} key={key} onClick={()=>{setMode(key);setMessage('');}}>{title}</button>)}</nav>}
  </section>;
 }

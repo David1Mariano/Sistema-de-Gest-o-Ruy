@@ -5,7 +5,7 @@ export function guardFinancialBatches(source){
  if(start<0||end<0)throw Error('Contrato do formulário de lote mudou; revisar guarda D1.');
  const block=source.slice(start,end),anchor='  const save = async () => {';
  if(block.split(anchor).length!==2)throw Error('Comando de lote não identificado; build D1 bloqueado.');
- const guarded=block.replace(anchor,anchor+"\n    if(base44.localDomain)throw Error('Lote de vales/adiantamentos indisponível neste laboratório; use os cadastros individuais de RH. Nenhuma gravação foi executada.');");
+ const guarded=block.replace(anchor,anchor+"\n    if(base44.localDomain)throw Error('Lote de vales/adiantamentos ainda não integrado; use os cadastros individuais de RH. Nenhuma gravação foi executada.');");
  return source.slice(0,start)+guarded+source.slice(end);
 }
 

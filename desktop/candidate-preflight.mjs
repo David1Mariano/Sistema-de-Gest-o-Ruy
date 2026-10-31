@@ -1,5 +1,7 @@
 import {app} from 'electron';import fs from 'node:fs/promises';import path from 'node:path';import {pathToFileURL} from 'node:url';
 async function run(){
+ // This diagnostic must never share Chromium state with the installed application.
+ app.setPath('userData',await fs.mkdtemp(path.join(app.getPath('temp'),'ruy-packaged-preflight-')));
  await app.whenReady();if(!app.isPackaged)throw Error('PACKAGED_PREFLIGHT_REQUIRED');const root=app.getAppPath(),metadata=JSON.parse(await fs.readFile(path.join(root,'package.json'),'utf8'));
  if(!['RUY-WINDOWS-CANDIDATE-20261021','RUY-WINDOWS-LAYOUT-20261021','RUY-WINDOWS-OPERATIONAL-20261024'].includes(metadata.ruyRevision)||metadata.ruyIndividualIdentity!==true)throw Error('CANDIDATE_METADATA_REFUSED');
  const env=await import(pathToFileURL(path.join(root,'server/d1-lab/environment.mjs')));await env.validateHome();

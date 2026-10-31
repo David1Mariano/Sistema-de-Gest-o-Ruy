@@ -19,7 +19,7 @@ const STATUS_FILTERS = [
   { key: 'desligados', label: 'Desligados' },
 ];
 
-export default function Setores() {
+export default function Setores({ readOnly = false }) {
   const navigate = useNavigate();
   const [sectors, setSectors] = useState([]);
   const [employees, setEmployees] = useState([]);
@@ -95,8 +95,8 @@ export default function Setores() {
             </p>
           </div>
           <div className="flex gap-2">
-            <Button variant="outline" className="gap-2" onClick={() => { setEditing(selected); setFormOpen(true); }}><Pencil className="w-4 h-4" /> Editar setor</Button>
-            <Button variant="ghost" onClick={() => toggleStatus(selected)}>{selected.status === 'ativo' ? 'Desativar' : 'Ativar'}</Button>
+            <Button disabled={readOnly} variant="outline" className="gap-2" onClick={() => { setEditing(selected); setFormOpen(true); }}><Pencil className="w-4 h-4" /> Editar setor</Button>
+            <Button disabled={readOnly} variant="ghost" onClick={() => toggleStatus(selected)}>{selected.status === 'ativo' ? 'Desativar' : 'Ativar'}</Button>
           </div>
         </header>
 
@@ -193,7 +193,7 @@ export default function Setores() {
           <h1 className="text-2xl font-semibold tracking-tight">Setores</h1>
           <p className="text-sm text-slate-500">Gerenciamento de setores da operação</p>
         </div>
-        <Button onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Novo setor</Button>
+        <Button disabled={readOnly} onClick={() => { setEditing(null); setFormOpen(true); }} className="gap-2"><Plus className="w-4 h-4" /> Novo setor</Button>
       </div>
 
       <div className="grid grid-cols-1 md:grid-cols-2 lg:grid-cols-3 gap-3">
@@ -228,8 +228,8 @@ export default function Setores() {
                 <p className="mt-3 text-xs font-medium text-amber-700">Ver detalhes do setor →</p>
               </button>
               <div className="flex gap-2 mt-2">
-                <Button size="sm" variant="outline" onClick={() => { setEditing(s); setFormOpen(true); }} className="gap-1.5"><Pencil className="w-3.5 h-3.5" /> Editar</Button>
-                <Button size="sm" variant="ghost" onClick={() => toggleStatus(s)}>{s.status === 'ativo' ? 'Desativar' : 'Ativar'}</Button>
+                <Button disabled={readOnly} size="sm" variant="outline" onClick={() => { setEditing(s); setFormOpen(true); }} className="gap-1.5"><Pencil className="w-3.5 h-3.5" /> Editar</Button>
+                <Button disabled={readOnly} size="sm" variant="ghost" onClick={() => toggleStatus(s)}>{s.status === 'ativo' ? 'Desativar' : 'Ativar'}</Button>
               </div>
             </div>
           );

@@ -23,7 +23,7 @@ export default function JobRoleForm({ open, onOpenChange, editing = null, onSave
     setSaving(true);
     try {
       let saved;
-      if (editing?.id) saved = await base44.entities.JobRole.update(editing.id, form);
+      if (editing?.id) saved = await base44.entities.JobRole.update(editing.id, form, Number.isSafeInteger(editing._version) ? {baseVersion:editing._version} : undefined);
       else saved = await base44.entities.JobRole.create(form);
       await logAudit({ entity_type: 'JobRole', entity_id: saved.id, action: editing ? 'alteracao' : 'criacao', new_value: form.name, responsible_user: currentUserName() });
       onSaved?.(saved); onOpenChange?.(false);

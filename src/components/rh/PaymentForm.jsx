@@ -11,6 +11,7 @@ import { Upload } from 'lucide-react';
 import PaymentProof from './PaymentProof';
 import { createRecordId } from '@/lib/cloudDb';
 import { uploadPaymentProof } from '@/lib/paymentProof';
+import {useInlineCentralFiles} from '@/lib/useInlineCentralFiles';
 
 const PAYMENT_TYPES = {
   salario: 'Salário', diaria_motoboy: 'Diária de motoboy', diaria_freelancer: 'Diária de freelancer',
@@ -48,6 +49,7 @@ export default function PaymentForm({ open, onOpenChange, employee, onSaved, edi
   const [saveError, setSaveError] = useState('');
   const draftIdRef = useRef(null);
   const fileRef = useRef(null);
+  const files=useInlineCentralFiles({open,editing,entity:'EmployeePayment',initial:{...empty,...editing}});
   useEffect(() => {
     if (!open) {
       draftIdRef.current = null;
@@ -76,6 +78,7 @@ export default function PaymentForm({ open, onOpenChange, employee, onSaved, edi
     setUploading(true);
     setUploadError('');
     try {
+      if(files.enabled){await files.select(file,'proof_url',setForm);return;}
       const recordId = form.id || editing?.id;
       if (!recordId) throw new Error('O pagamento ainda não tem um ID definitivo.');
       const uploaded = await uploadPaymentProof({ recordId, file });
@@ -101,10 +104,11 @@ export default function PaymentForm({ open, onOpenChange, employee, onSaved, edi
         days_quantity: Number(form.days_quantity) || 1,
         responsible_user: form.responsible_user || currentUserName(),
       };
-      let saved;
-      if (editing?.id) saved = await base44.entities.EmployeePayment.update(editing.id, payload);
-      else saved = await base44.entities.EmployeePayment.create(payload);
-      await logAudit({ entity_type: 'EmployeePayment', entity_id: saved.id, action: editing ? 'alteracao' : 'criacao', new_value: `${payload.net_amount}`, responsible_user: currentUserName() });
+      const write=async target=>{
+        const result=target?.id?await base44.entities.EmployeePayment.update(target.id,{...payload,_version:target._version}):await base44.entities.EmployeePayment.create(payload);
+        await logAudit({ entity_type: 'EmployeePayment', entity_id: result.id, action: target ? 'alteracao' : 'criacao', new_value: `${payload.net_amount}`, responsible_user: currentUserName() });return result;
+      };
+      const saved=files.enabled?await files.persist(form,write):await write(editing);
       onSaved?.(saved);
       onOpenChange?.(false);
     } catch (error) {
@@ -154,7 +158,8 @@ export default function PaymentForm({ open, onOpenChange, employee, onSaved, edi
               </Button>
               <PaymentProof payment={form} />
             </div>
-            <p className="text-xs text-slate-500">JPG, PNG, WEBP ou PDF, até 15 MB. O arquivo é enviado ao bucket privado <strong>anexos</strong>; a visualização usa uma URL temporária.</p>
+            <p className="text-xs text-slate-500">JPG, PNG, WEBP ou PDF, até 15 MB. {files.enabled?'Envio à central autenticada, confirmado após salvar o pagamento.':'O arquivo é enviado ao armazenamento privado; a visualização usa acesso temporário.'}</p>
+            {files.status.proof_url&&<p role="status" className="text-xs text-slate-500">{files.status.proof_url}</p>}
             {uploadError && <div role="alert" className="text-xs text-red-700"><p>{uploadError}</p><button type="button" className="underline" onClick={() => setUploadError('')}>Descartar tentativa de anexar (manter comprovante anterior, se houver)</button></div>}
           </div>
         </div>

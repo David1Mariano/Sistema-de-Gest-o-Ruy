@@ -20,21 +20,23 @@ export function ExpenseAttachment({ record, field = 'proof_url', label = 'Ver co
 
 export function ExpenseAttachmentUpload({ label, record, field = 'proof_url', busy, refEl, onFile }) {
   const [error, setError] = useState('');
+  const [status,setStatus]=useState('');
   const upload = async (event) => {
     const file = event.target.files?.[0];
     event.target.value = ''; // permite reenviar o mesmo arquivo
     if (!file) return;
     setError('');
+    setStatus('');
     try {
       await validateExpenseAttachmentFile(file);
-      await onFile(file);
+      const result=await onFile(file);setStatus(result?.confirmed?'Confirmado na central: '+file.name:result?.pending?'Selecionado: '+file.name+'. Envio pendente até salvar o cadastro.':'Arquivo selecionado.');
     } catch (err) {
       const message = err?.message || EXPENSE_ATTACHMENT_ERROR;
       console.error(EXPENSE_ATTACHMENT_DIAG, 'ERRO', { status: null, code: 'UPLOAD_FAILED', message });
       setError(message);
     }
   };
-  return <div className="space-y-1">
+  return <div className="space-y-1" data-attachment-field={field}>
     <Label className="text-xs">{label}</Label>
     <input ref={refEl} type="file" className="hidden" accept={EXPENSE_ATTACHMENT_ACCEPT} onChange={upload} />
     <div className="flex flex-wrap items-center gap-2">
@@ -45,5 +47,6 @@ export function ExpenseAttachmentUpload({ label, record, field = 'proof_url', bu
       <span className="text-xs text-slate-400">JPG, JPEG, PNG, WEBP ou PDF</span>
     </div>
     {error && <p role="alert" className="text-sm text-red-700">{error}</p>}
+    {status&&<p role="status" className="text-xs">{status}</p>}
   </div>;
 }

@@ -9,7 +9,8 @@ import DraftNotice from '@/components/shared/DraftNotice';
 import { base44 } from '@/api/base44Client';
 import { currentUserName } from '@/lib/useCurrentUser';
 import { usePersistentDraft } from '@/lib/usePersistentDraft';
-import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE, draftEditKey } from '@/lib/draftConfig';
+import { DRAFT_CANCEL_CONFIRM, DRAFT_FORM_KEYS, DRAFT_LABEL_FILE } from '@/lib/draftConfig';
+import {financialDraftKey} from '@/lib/financialDraftKey';
 import { hasDraftChanged } from '@/lib/draftStore';
 import { ExpenseAttachmentUpload } from '@/components/financeiro/ExpenseAttachment';
 import {
@@ -19,6 +20,7 @@ import {
 } from '@/lib/dailyExpenses';
 import { toNumberBR } from '@/lib/numberUtils';
 import { employeeById, employeeSelectOptions } from '@/lib/paymentRecipients';
+import {useInlineCentralFiles} from '@/lib/useInlineCentralFiles';
 
 // Anexos NÃO entram no rascunho. `proof_url`/`invoice_url` são o resultado de
 // um upload que já aconteceu; o File em si nunca está no estado. Guardar a URL
@@ -54,7 +56,10 @@ const CurrencyInput = ({ value, onChange, error }) => <NumberInput
 
 
 export default function DailyExpenseForm({ open, onClose, onSaved, data, editing }) {
-  const [form, setForm] = useState(emptyExpenseForm());
+  const financialOpeningPending=base44.localDomain?.financialOpeningPending?.()===true;
+  const newForm=()=>({...emptyExpenseForm(),status:'pendente',paid_date:''});
+  const openingMessage='O gasto pendente pode ser salvo sem reduzir caixa ou banco. O pagamento exige a conferência dos saldos de abertura.';
+  const [form, setForm] = useState(newForm);
   const [errors, setErrors] = useState({});
   const [saving, setSaving] = useState(false);
   const [uploading, setUploading] = useState('');
@@ -65,13 +70,15 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   const pendingId = useRef('');
   const proofRef = useRef();
   const invoiceRef = useRef();
+  const files=useInlineCentralFiles({open,editing,entity:'FinancialExpense',initial:editing?expenseToForm(editing):newForm()});
+  const historical=editing?._readOnly===true;
 
   // Rascunho local. Chave por usuário + por formulário; em edição o id do
   // gasto entra na chave para não misturar dois registros. Anexos ficam de
   // fora (ver CAMPOS_DE_ANEXO).
-  const draftKey = draftEditKey(
+  const draftKey = financialDraftKey(
     editing ? DRAFT_FORM_KEYS.FINANCEIRO_GASTO_EDIT : DRAFT_FORM_KEYS.FINANCEIRO_GASTO_NOVO,
-    editing?.id,
+    editing,
   );
   const draft = usePersistentDraft({
     formKey: draftKey,
@@ -87,12 +94,12 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
     // baseline intacto). O rascunho é aplicado AQUI, dentro do mesmo reset que
     // já existia — por isso o efeito do hook não precisa competir de ordem
     // com este.
-    setForm(draft.restoreInto(editing ? expenseToForm(editing) : emptyExpenseForm()));
+    setForm(draft.restoreInto(editing ? expenseToForm(editing) : newForm()));
     setErrors({});
     setFailure('');
     setUploading('');
     pendingId.current = '';
-  }, [open, editing, draft.restoreInto]);
+  }, [open, editing, draft.restoreInto, financialOpeningPending]);
 
   const set = (key, value) => setForm((current) => ({ ...current, [key]: value }));
 
@@ -100,32 +107,38 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
     if (!file) return;
     setUploading(key);
     try {
+      if(files.enabled)return await files.select(file,key,setForm);
       const { file_url } = await base44.integrations.Core.UploadFile({ file });
       set(key, file_url);
-    } catch {
-      setFailure('Não foi possível enviar o arquivo. Tente novamente.');
+    } catch (error) {
+      setFailure(error.message||'Envio não confirmado. Tente novamente.');throw error;
     } finally { setUploading(''); }
   };
 
   const save = async () => {
+    if(historical){onClose();await onSaved();return;}
+    if(financialOpeningPending&&form.status==='pago'&&(!files.enabled||files.needsBusinessSave(form))){setFailure(openingMessage+' Selecione Pendente para registrar um gasto novo.');return;}
     const { valid, errors: found } = validateExpenseForm(form, { employees: data.employees });
     setErrors(found);
     if (!valid) return;
     setSaving(true);
     setFailure('');
     // Na criação, o id nasce aqui e vale para todas as tentativas até dar certo.
-    const attemptForm = editing ? form : { ...form, expense_id: pendingId.current || (pendingId.current = newExpenseId()) };
+    const attemptForm = { ...form,
+      cost_center_id:editing?.cost_center_id||'',cost_center_name:editing?.cost_center_name||'',
+      ...(!editing?{expense_id:pendingId.current||(pendingId.current=newExpenseId())}:{}) };
     try {
-      await saveDailyExpense({
+      const write=target=>saveDailyExpense({
         entities: base44.entities,
         form: attemptForm,
-        editing,
+        editing:target||editing,
         categories: data.categories,
         centers: data.centers,
         employees: data.employees,
         responsibleUser: currentUserName(),
         payments: data.payments,
       });
+      if(files.enabled)await files.persist(form,write);else await write(editing);
       pendingId.current = '';
       // O backend CONFIRMOU. Só agora o rascunho sai — antes disso ele é a
       // única cópia do que a pessoa digitou.
@@ -145,7 +158,7 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   // pessoa: descartar o rascunho ou guardar para continuar depois.
   const requestClose = () => {
     if (saving) return;
-    if (hasDraftChanged(form, editing ? expenseToForm(editing) : emptyExpenseForm())
+    if (hasDraftChanged(form, editing ? expenseToForm(editing) : newForm())
       && window.confirm(DRAFT_CANCEL_CONFIRM)) {
       draft.discard();
     } else {
@@ -160,21 +173,24 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
   // filtro que possa divergir e esconder gente da lista.
   const employeeOptions = employeeSelectOptions(data.employees);
   const canSave = Boolean(form.description?.trim()) && toNumberBR(form.amount) > 0;
+  const saveReason=uploading?'Aguarde a conclusão do envio do arquivo.':!form.description?.trim()?'Preencha a descrição para salvar o gasto.':!(toNumberBR(form.amount)>0)?'Informe um valor maior que zero para salvar o gasto.':'';
   const hasFile = Boolean(form.proof_url || form.invoice_url);
   const hint = hasFile ? DRAFT_LABEL_FILE : undefined;
 
   return <Dialog open={open} onOpenChange={(next) => { if (!next && !saving) requestClose(); }}>
-    <DialogContent className="max-w-2xl max-h-[90vh] overflow-y-auto" aria-describedby={undefined}>
-      <DialogHeader>
-        <DialogTitle>{editing ? 'Editar gasto diário' : 'Novo gasto diário'}</DialogTitle>
-        <p className="text-sm text-slate-500">Preencha os dados e salve. O comprovante é opcional.</p>
+    <DialogContent className="max-w-2xl max-h-[90vh] flex flex-col" aria-describedby={undefined}>
+      <DialogHeader className="shrink-0">
+        <DialogTitle>{historical?'Consultar gasto diário':editing ? 'Editar gasto diário' : 'Novo gasto diário'}</DialogTitle>
+        <p className="text-sm text-slate-500">{historical?'Registro original preservado. Anexos vinculados disponíveis abaixo.':'Preencha os dados e salve. O comprovante é opcional.'}</p>
       </DialogHeader>
-      <div className="grid sm:grid-cols-2 gap-3">
+      <div className="min-h-0 flex-1 overflow-y-auto pr-1">
+      <fieldset disabled={historical} className="grid sm:grid-cols-2 gap-3">
         <Field l="Data do gasto *" error={errors.date}>
           <Input type="date" value={form.date} onChange={(e) => set('date', e.target.value)} />
         </Field>
         <Field l="Situação">
-          <Select v={form.status} on={(v) => set('status', v)} opts={Object.entries(EXPENSE_STATUS_LABELS)} />
+          <Select v={form.status} on={(v) => setForm(f=>({...f,status:v,paid_date:v==='pago'?(f.paid_date||f.date):''}))} opts={Object.entries(EXPENSE_STATUS_LABELS)} disabledOptions={financialOpeningPending?['pago']:[]} />
+          {!historical&&<p className="text-xs text-slate-500">{form.status==='pendente'?'Salvar registra uma obrigação; nenhum pagamento ou saída será realizado.':openingMessage}</p>}
         </Field>
         <div className="sm:col-span-2">
           <Field l="Descrição *" error={errors.description}>
@@ -194,9 +210,6 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
         <Field l="Classificação">
           <Select v={form.classification} on={(v) => set('classification', v)} opts={Object.entries(EXPENSE_CLASS_LABELS)} />
         </Field>
-        <Field l="Centro de custo">
-          <Select v={form.cost_center_id} on={(v) => set('cost_center_id', v)} opts={(data.centers || []).filter((c) => c.status === 'ativo').map((c) => [c.id, c.name])} />
-        </Field>
         <Field l="Favorecido">
           <Select v={form.beneficiary_type}
             on={(v) => { set('beneficiary_type', v); set('employee_id', ''); set('beneficiary_name', ''); }}
@@ -214,13 +227,16 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
           <Input type="date" value={form.paid_date || ''} onChange={(e) => set('paid_date', e.target.value)} />
         </Field>}
         <Field l="Conta">
-          <Select v={form.account} on={(v) => set('account', v)} opts={(data.accounts || []).map((a) => [a.name, a.name])} />
+          <Select v={form.financial_account_id} on={(v) => {const a=(data.accounts||[]).find(a=>a.id===v);setForm(f=>({...f,financial_account_id:v,financial_account_name:a?.name||'',account:a?.name||''}));}} opts={(data.accounts || []).map((a) => [a.id, a.name])} />
         </Field>
+        <Field l="Nº documento/NF"><Input aria-label="Documento do gasto" value={form.document_number} onChange={e=>set('document_number',e.target.value)}/></Field>
+        <Field l="Vencimento (opcional)"><Input aria-label="Vencimento do gasto" type="date" value={form.due_date} onChange={e=>set('due_date',e.target.value)}/></Field>
         <div className="sm:col-span-2">
           <Field l="Observação">
             <Textarea rows={2} value={form.observation} onChange={(e) => set('observation', e.target.value)} />
           </Field>
         </div>
+      </fieldset><div className="grid sm:grid-cols-2 gap-3 mt-3">
         <div className="sm:col-span-2">
           <ExpenseAttachmentUpload label="Comprovante" record={form} field="proof_url" busy={uploading === 'proof_url'} refEl={proofRef} onFile={(file) => upload(file, 'proof_url')} />
         </div>
@@ -235,9 +251,11 @@ export default function DailyExpenseForm({ open, onClose, onSaved, data, editing
         hint={hint}
         onDiscard={draft.discard}
         onDismiss={draft.dismissNotice} />
-      <DialogFooter>
+      </div>
+      <DialogFooter className="shrink-0 items-center border-t pt-3">
+        {!historical&&saveReason&&<p id="expense-save-reason" role="status" className="mr-auto text-xs text-slate-600">{saveReason}</p>}
         <Button variant="outline" onClick={requestClose} disabled={saving}>Cancelar</Button>
-        <Button onClick={save} disabled={saving || !canSave}>{saving ? 'Salvando...' : editing ? 'Salvar alterações' : 'Registrar gasto'}</Button>
+        <Button onClick={save} title={saveReason||undefined} aria-describedby={!historical&&saveReason?'expense-save-reason':undefined} disabled={saving || !!uploading || (!historical&&!canSave)}>{saving ? 'Salvando...' : historical?'Concluir consulta':editing ? 'Salvar alterações' : 'Registrar gasto'}</Button>
       </DialogFooter>
     </DialogContent>
   </Dialog>;

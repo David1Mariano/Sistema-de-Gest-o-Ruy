@@ -38,13 +38,13 @@ export async function prepareAttendance({c,actor,body,old,data,save}){
   const expectedStart=minute(data.expected_start),expectedEnd=minute(data.expected_end),plannedBreak=schedule?.break_start&&schedule?.break_end?minute(schedule.break_end)-minute(schedule.break_start):0;
   data.break_minutes=b1!==null&&b2!==null?b2-b1:0;data.worked_minutes=entry!==null&&exit!==null?exit-entry-data.break_minutes:0;data.expected_minutes=expectedStart!==null&&expectedEnd!==null?expectedEnd-expectedStart-plannedBreak:0;
   data.late_minutes=entry!==null&&expectedStart!==null?Math.max(0,entry-expectedStart-tolerance):0;data.early_exit_minutes=exit!==null&&expectedEnd!==null?Math.max(0,expectedEnd-exit-tolerance):0;
-  data.status=exit!==null?'finalizado':b1!==null&&b2===null?'intervalo':entry!==null?(data.late_minutes?'atrasado':'presente'):'incompleto';data.responsible_user=actor.id;
+  data.status=exit!==null?'finalizado':b1!==null&&b2===null?'intervalo':entry!==null?(data.late_minutes?'atrasado':'presente'):'incompleto';data.responsible_user=actor.auditId||actor.id;
  }
  if(body.entity==='Absence'){
   if(!['falta','atraso','saida_antecipada','ausencia_parcial','justificada','nao_justificada','folga'].includes(data.type)||!['ativo','cancelado'].includes(data.status))throw fail(400,'Ocorrência inválida.');
   if(data.schedule_id){const row=(await c.query("SELECT * FROM d2_catalog WHERE id=$1 AND owner_id=$2 AND entity='Schedule' FOR UPDATE",[data.schedule_id,actor.id])).rows[0];const schedule=row&&JSON.parse(row.data.payload_json);if(!schedule||schedule.employee_id!==data.employee_id||schedule.date!==data.date)throw fail(409,'Ocorrência não corresponde à escala.');await save('Schedule',row.id,{...schedule,absence_marked:data.status==='ativo'},row);}
-  data.responsible_user=actor.id;
+  data.responsible_user=actor.auditId||actor.id;
  }
- if(body.entity==='Warning'){if(!data.description?.trim()||!['pendente','tratada','cancelada'].includes(data.status))throw fail(400,'Advertência inválida.');data.responsible_user=actor.id;}
+ if(body.entity==='Warning'){if(!data.description?.trim()||!['pendente','tratada','cancelada'].includes(data.status))throw fail(400,'Advertência inválida.');data.responsible_user=actor.auditId||actor.id;}
  return data;
 }

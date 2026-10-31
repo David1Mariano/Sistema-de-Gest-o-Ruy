@@ -1,0 +1,14 @@
+import fs from 'node:fs/promises';import path from 'node:path';import {createHash} from 'node:crypto';import pg from 'pg';
+import {json,openDpapi,project} from '../homologacao/common.mjs';import {backupCentral,resolveCentralBackup,pgPipe} from '../../server/central/backup.mjs';import {historyManifest} from '../../server/central/history.mjs';
+const loc=await json('artifacts/consulta-ativacao-20261029/location.json'),root=loc.profile,p=await json(path.join(root,'operational.json')),secret=await openDpapi(path.join(root,'operational.dpapi'));
+if(p.database.host!=='127.0.0.1'||p.database.port!==55483||p.database.database!=='ruy_central_prod_72248907ff87c478')throw Error('EXACT_CENTRAL_REQUIRED');
+const pool=new pg.Pool({...p.database,password:secret.databasePassword,max:1,options:'-c default_transaction_read_only=on'}),history=new pg.Pool({...p.history.database,password:secret.historyPassword,max:1,options:'-c default_transaction_read_only=on'}),sha=b=>createHash('sha256').update(b).digest('hex');
+try{
+ const manifest=await historyManifest(history);if(manifest.records!==1186||manifest.attachments!==59||manifest.datasetSha256!==p.history.datasetSha256)throw Error('HISTORICAL_INTEGRITY_FAILED');
+ const prior=await json('artifacts/consulta-ativacao-20261029/operational-electron.json');if(!prior.passed||!prior.incrementalBackup.restored||!prior.historyRestore.passed)throw Error('RESTORE_EVIDENCE_REQUIRED');
+ const reference=await json(path.join(root,'history-backup-anchor-'+p.database.database+'.json'));
+ const backup=await backupCentral(root,{pool,historical:history,loaded:{root,profile:{mode:'controlled',database:p.database,history:p.history,pgBin:p.pgBin},secrets:secret},includeHistory:false,historyReference:reference});
+ const image=await resolveCentralBackup(backup.file,Buffer.from(secret.backupKey,'hex'));if(!image.historyReferenceResolved||sha(Buffer.from(image.dump,'base64'))!==image.dumpHash||sha(Buffer.from(image.historyDump,'base64'))!==image.historyDumpHash)throw Error('BACKUP_HASH_FAILED');
+ for(const field of ['dump','historyDump']){const toc=(await pgPipe(p.pgBin,'pg_restore',['--list'],{...p.database,password:secret.databasePassword},Buffer.from(image[field],'base64'))).toString();if(!toc.includes(field==='dump'?'d1_central_records':'history records'))throw Error('DUMP_CATALOG_INCOMPLETE');}
+ const result={at:new Date().toISOString(),passed:true,backup,manifest,dumpsAuthenticated:true,dumpCatalogsReadable:true,restorationPreviouslyTested:true,restorationEvidence:'artifacts/consulta-ativacao-20261029/operational-electron.json',schemaChanges:false,productionWrites:false,servicesRestarted:false};await fs.writeFile(path.join(project,'artifacts/multicomputador-0.10.0-rc.11-20261030/predeploy-backup.json'),JSON.stringify(result,null,2));console.log(JSON.stringify(result));
+}finally{await Promise.all([pool.end(),history.end()]);}
