@@ -4,6 +4,19 @@ import {fail} from "../d1-lab/core.mjs";
 function hashToken(t){ return createHash("sha256").update(t).digest("hex"); }
 function genToken(){ return randomBytes(32).toString("hex"); }
 
+async function requirePosDevice(pool, req){
+  const auth = req.headers.authorization || "";
+  const m = auth.match(/^Bearer ([a-f0-9]{64})$/);
+  if(!m) throw fail(401, "unauthorized");
+  const th = hashToken(m[1]);
+  const r = await pool.query("SELECT id, terminal_code, workspace_id, active, revoked_at FROM pos_devices WHERE token_hash=$1",[th]);
+  if(r.rowCount===0) throw fail(401, "unauthorized");
+  const d = r.rows[0];
+  if(d.revoked_at || d.active===false) throw fail(403, "device_revoked");
+  await pool.query("UPDATE pos_devices SET last_seen_at=now() WHERE id=$1",[d.id]);
+  return d;
+}
+
 export async function posRoutes(pool, req, res, url, body){
   const reply=(status,obj)=>{res.writeHead(status,{"content-type":"application/json","cache-control":"no-store"});res.end(JSON.stringify(obj));};
   
@@ -31,8 +44,10 @@ export async function posRoutes(pool, req, res, url, body){
     }
   }
   
-  if(req.method==="POST" && url.pathname==="/api/pos/auth/device"){
-    const {terminal_code, workspace_id} = body||{};
+  if(req.method==="POST" && url.pathname==="/api/pos/auth/device/provision"){
+    const adminKey = req.headers["x-ruy-admin-key"];
+    if(!adminKey || adminKey.length < 16) throw fail(403, "admin_authorization_required");
+    const {terminal_code, workspace_id, name} = body||{};
     if(!terminal_code) throw fail(400,"terminal_code required");
     const client = await pool.connect();
     try{
@@ -40,30 +55,32 @@ export async function posRoutes(pool, req, res, url, body){
       const tok = genToken();
       const th = hashToken(tok);
       let row = (await client.query("SELECT * FROM pos_devices WHERE terminal_code=$1",[terminal_code])).rows[0];
-      if(!row){
-        row = (await client.query("INSERT INTO pos_devices (workspace_id,terminal_code,name,token_hash) VALUES($1,$2,$3,$4) RETURNING *",[workspace_id||null,terminal_code,body?.name||terminal_code,th])).rows[0];
-      }else{
-        if(row.revoked_at) throw fail(403,"device_revoked");
-        await client.query("UPDATE pos_devices SET token_hash=$1, updated_at=now(), last_seen_at=now() WHERE id=$2",[th,row.id]);
-        row = (await client.query("SELECT * FROM pos_devices WHERE id=$1",[row.id])).rows[0];
-      }
+      if(row && row.revoked_at) throw fail(409, "device_revoked_exists");
+      if(row) throw fail(409, "device_exists");
+      row = (await client.query("INSERT INTO pos_devices (workspace_id,terminal_code,name,token_hash,active) VALUES($1,$2,$3,$4,true) RETURNING *",[workspace_id||null,terminal_code,name||terminal_code,th])).rows[0];
       await client.query("COMMIT");
-      return reply(200,{token:tok, device_id:row.id, terminal_code:row.terminal_code, workspace_id:row.workspace_id});
+      return reply(201,{token:tok, device_id:row.id, terminal_code:row.terminal_code, workspace_id:row.workspace_id, provisioned:true});
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   }
   
+  if(req.method==="POST" && url.pathname==="/api/pos/auth/device"){
+    throw fail(403, "auto_registration_disabled_use_provision");
+  }
+  
   if(req.method==="POST" && url.pathname==="/api/pos/orders"){
+    const device = await requirePosDevice(pool, req);
     const idempotency = req.headers["idempotency-key"] || body?.id;
     if(!idempotency) throw fail(400,"Idempotency-Key required");
-    const {items,total_cents,payment_status,operator_id,device_id,workspace_id,meta,stone_transaction_id} = body||{};
+    const {items,total_cents,payment_status,operator_id,workspace_id,meta,stone_transaction_id} = body||{};
     if(!Array.isArray(items)||items.length===0) throw fail(400,"items required");
     if(typeof total_cents!=="number") throw fail(400,"total_cents required");
     const pstatus = payment_status||"UNPAID";
     if(!["UNPAID","PENDING","PAID","REFUSED","CANCELLED","REFUNDED","UNKNOWN"].includes(pstatus)) throw fail(400,"invalid payment_status");
     
-    const existing = await pool.query("SELECT id, items, total_cents, payment_status FROM pos_orders WHERE id=$1",[idempotency]);
+    const existing = await pool.query("SELECT id, items, total_cents, payment_status, device_id FROM pos_orders WHERE id=$1",[idempotency]);
     if(existing.rowCount>0){
       const ex = existing.rows[0];
+      if(ex.device_id && ex.device_id !== device.id) throw fail(403, "order_belongs_to_other_device");
       if(JSON.stringify(ex.items)!==JSON.stringify(items)||ex.total_cents!==total_cents){
         throw fail(409,"idempotency_conflict");
       }
@@ -75,20 +92,23 @@ export async function posRoutes(pool, req, res, url, body){
       await client.query("BEGIN");
       const r = await client.query(`INSERT INTO pos_orders (id,workspace_id,device_id,operator_id,status,payment_status,sync_status,total_cents,items,meta,stone_transaction_id)
         VALUES($1,$2,$3,$4,'RECEIVED',$5,'RECEIVED',$6,$7,$8,$9) RETURNING id,payment_status`,
-        [idempotency, workspace_id||null, device_id||null, operator_id||null, pstatus, total_cents, JSON.stringify(items), meta?JSON.stringify(meta):null, stone_transaction_id||null]);
+        [idempotency, workspace_id||null, device.id, operator_id||null, pstatus, total_cents, JSON.stringify(items), meta?JSON.stringify(meta):null, stone_transaction_id||null]);
       await client.query("COMMIT");
       return reply(201,{id:r.rows[0].id, persisted:true, status:r.rows[0].payment_status});
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   }
   
   if(req.method==="GET" && url.pathname.match(/^\/api\/pos\/orders\/[a-f0-9-]+$/)){
+    const device = await requirePosDevice(pool, req);
     const id = url.pathname.split("/").pop();
     const r = await pool.query("SELECT * FROM pos_orders WHERE id=$1",[id]);
     if(r.rowCount===0) throw fail(404,"not_found");
+    if(r.rows[0].device_id && r.rows[0].device_id !== device.id) throw fail(403, "forbidden");
     return reply(200,r.rows[0]);
   }
   
   if(req.method==="POST" && url.pathname==="/api/pos/payments/confirm"){
+    const device = await requirePosDevice(pool, req);
     const {order_id, stone_transaction_id, payment_status} = body||{};
     if(!order_id) throw fail(400,"order_id required");
     if(!["PAID","REFUSED","CANCELLED","REFUNDED","UNKNOWN"].includes(payment_status||"")) throw fail(400,"invalid payment_status");
@@ -97,12 +117,13 @@ export async function posRoutes(pool, req, res, url, body){
       await client.query("BEGIN");
       const ord = (await client.query("SELECT * FROM pos_orders WHERE id=$1 FOR UPDATE",[order_id])).rows[0];
       if(!ord) throw fail(404,"order_not_found");
+      if(ord.device_id && ord.device_id !== device.id) throw fail(403, "forbidden");
       if(ord.payment_status==="PAID") { await client.query("COMMIT"); return reply(200,{id:ord.id, payment_status:"PAID", already:true}); }
       await client.query(`UPDATE pos_orders SET payment_status=$1, stone_transaction_id=COALESCE($2,stone_transaction_id), 
         paid_at=CASE WHEN $1='PAID' THEN now() ELSE paid_at END,
         updated_at=now() WHERE id=$3`,[payment_status, stone_transaction_id||null, order_id]);
       await client.query("COMMIT");
-      return reply(200,{id:order_id, payment_status, updated:true, financial_applied:false, note:"financial effects only on verified PAID"});
+      return reply(200,{id:order_id, payment_status, updated:true, financial_applied:false, note:"financial effects only on verified PAID by Stone"});
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   }
   
