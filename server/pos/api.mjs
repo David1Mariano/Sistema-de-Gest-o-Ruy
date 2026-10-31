@@ -8,10 +8,27 @@ export async function posRoutes(pool, req, res, url, body){
   const reply=(status,obj)=>{res.writeHead(status,{"content-type":"application/json","cache-control":"no-store"});res.end(JSON.stringify(obj));};
   
   if(req.method==="GET" && url.pathname==="/api/pos/catalog"){
-    const ws = url.searchParams.get("workspace_id");
-    const q = ws ? "SELECT id, sku, name, category, price_cents, active, image_url, version, updated_at FROM pos_catalog WHERE workspace_id=$1 AND active=true ORDER BY category,name" : "SELECT id, sku, name, category, price_cents, active, image_url, version, updated_at FROM pos_catalog WHERE active=true ORDER BY category,name";
-    const r = ws ? await pool.query(q,[ws]) : await pool.query(q);
-    return reply(200,{items:r.rows});
+    try {
+      const r = await pool.query("SELECT id, data, version, updated_at FROM d2_catalog WHERE entity='InventoryItem' ORDER BY id");
+      const items = r.rows.map(row => {
+        const d = row.data?.payload_json ? JSON.parse(row.data.payload_json) : (row.data || {});
+        return {
+          id: row.id,
+          sku: d.sku || d.code || null,
+          name: d.name || "",
+          category: d.category || d.category_name || null,
+          price_cents: Math.round(Number(d.sale_price || d.price || d.unit_price || 0) * 100),
+          active: (d.status || "ativo") === "ativo",
+          image_url: d.image_url || null,
+          version: Number(row.version || 1),
+          updated_at: row.updated_at,
+          unit: d.unit || "un"
+        };
+      }).filter(i => i.active);
+      return reply(200,{items, source:"d2_catalog", count: items.length});
+    } catch(e) {
+      throw fail(500, "catalog_unavailable");
+    }
   }
   
   if(req.method==="POST" && url.pathname==="/api/pos/auth/device"){
@@ -85,7 +102,7 @@ export async function posRoutes(pool, req, res, url, body){
         paid_at=CASE WHEN $1='PAID' THEN now() ELSE paid_at END,
         updated_at=now() WHERE id=$3`,[payment_status, stone_transaction_id||null, order_id]);
       await client.query("COMMIT");
-      return reply(200,{id:order_id, payment_status, updated:true});
+      return reply(200,{id:order_id, payment_status, updated:true, financial_applied:false, note:"financial effects only on verified PAID"});
     }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
   }
   
