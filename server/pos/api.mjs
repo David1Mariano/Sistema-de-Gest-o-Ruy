@@ -1,4 +1,4 @@
-﻿import {randomBytes, createHash} from "node:crypto";
+import {randomBytes, createHash} from "node:crypto";
 import {fail} from "../d1-lab/core.mjs";
 
 function hashToken(t){ return createHash("sha256").update(t).digest("hex"); }
@@ -15,6 +15,18 @@ async function requirePosDevice(pool, req){
   if(d.revoked_at || d.active===false) throw fail(403, "device_revoked");
   await pool.query("UPDATE pos_devices SET last_seen_at=now() WHERE id=$1",[d.id]);
   return d;
+}
+
+function checkAdminKey(req){
+  const adminKey = req.headers["x-ruy-admin-key"];
+  const configured = process.env.ADMIN_ADMIN_KEY || process.env.POS_ADMIN_KEY || "";
+  if(!configured || configured.length < 32) throw fail(500, "admin_key_not_configured");
+  if(!adminKey || typeof adminKey !== "string") throw fail(403, "admin_authorization_required");
+  if(adminKey.length !== configured.length) throw fail(403, "admin_authorization_required");
+  let diff = 0;
+  for(let i=0;i<adminKey.length;i++){ diff |= adminKey.charCodeAt(i) ^ configured.charCodeAt(i); }
+  if(diff !== 0) throw fail(403, "admin_authorization_required");
+  return true;
 }
 
 export async function posRoutes(pool, req, res, url, body){
@@ -45,8 +57,7 @@ export async function posRoutes(pool, req, res, url, body){
   }
   
   if(req.method==="POST" && url.pathname==="/api/pos/auth/device/provision"){
-    const adminKey = req.headers["x-ruy-admin-key"];
-    if(!adminKey || adminKey.length < 16) throw fail(403, "admin_authorization_required");
+    checkAdminKey(req);
     const {terminal_code, workspace_id, name} = body||{};
     if(!terminal_code) throw fail(400,"terminal_code required");
     const client = await pool.connect();
@@ -55,8 +66,8 @@ export async function posRoutes(pool, req, res, url, body){
       const tok = genToken();
       const th = hashToken(tok);
       let row = (await client.query("SELECT * FROM pos_devices WHERE terminal_code=$1",[terminal_code])).rows[0];
-      if(row && row.revoked_at) throw fail(409, "device_revoked_exists");
-      if(row) throw fail(409, "device_exists");
+      if(row && row.revoked_at){ await client.query("ROLLBACK"); throw fail(409, "device_revoked_exists"); }
+      if(row){ await client.query("ROLLBACK"); throw fail(409, "device_exists"); }
       row = (await client.query("INSERT INTO pos_devices (workspace_id,terminal_code,name,token_hash,active) VALUES($1,$2,$3,$4,true) RETURNING *",[workspace_id||null,terminal_code,name||terminal_code,th])).rows[0];
       await client.query("COMMIT");
       return reply(201,{token:tok, device_id:row.id, terminal_code:row.terminal_code, workspace_id:row.workspace_id, provisioned:true});
@@ -108,23 +119,7 @@ export async function posRoutes(pool, req, res, url, body){
   }
   
   if(req.method==="POST" && url.pathname==="/api/pos/payments/confirm"){
-    const device = await requirePosDevice(pool, req);
-    const {order_id, stone_transaction_id, payment_status} = body||{};
-    if(!order_id) throw fail(400,"order_id required");
-    if(!["PAID","REFUSED","CANCELLED","REFUNDED","UNKNOWN"].includes(payment_status||"")) throw fail(400,"invalid payment_status");
-    const client = await pool.connect();
-    try{
-      await client.query("BEGIN");
-      const ord = (await client.query("SELECT * FROM pos_orders WHERE id=$1 FOR UPDATE",[order_id])).rows[0];
-      if(!ord) throw fail(404,"order_not_found");
-      if(ord.device_id && ord.device_id !== device.id) throw fail(403, "forbidden");
-      if(ord.payment_status==="PAID") { await client.query("COMMIT"); return reply(200,{id:ord.id, payment_status:"PAID", already:true}); }
-      await client.query(`UPDATE pos_orders SET payment_status=$1, stone_transaction_id=COALESCE($2,stone_transaction_id), 
-        paid_at=CASE WHEN $1='PAID' THEN now() ELSE paid_at END,
-        updated_at=now() WHERE id=$3`,[payment_status, stone_transaction_id||null, order_id]);
-      await client.query("COMMIT");
-      return reply(200,{id:order_id, payment_status, updated:true, financial_applied:false, note:"financial effects only on verified PAID by Stone"});
-    }catch(e){await client.query("ROLLBACK").catch(()=>{});throw e;}finally{client.release();}
+    throw fail(403, "disabled_in_homolog");
   }
   
   throw fail(404,"Unknown POS route");
