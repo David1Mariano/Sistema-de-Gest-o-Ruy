@@ -19,7 +19,7 @@ async function requirePosDevice(pool, req){
 
 function checkAdminKey(req){
   const adminKey = req.headers["x-ruy-admin-key"];
-  const configured = process.env.ADMIN_ADMIN_KEY || process.env.POS_ADMIN_KEY || "";
+  const configured = process.env.POS_ADMIN_KEY || "";
   if(!configured || configured.length < 32) throw fail(500, "admin_key_not_configured");
   if(!adminKey || typeof adminKey !== "string") throw fail(403, "admin_authorization_required");
   if(adminKey.length !== configured.length) throw fail(403, "admin_authorization_required");
